@@ -34,7 +34,7 @@ namespace Vidyano.ViewModel
 
         public Query Details { get; private set; }
 
-        public PersistentObject[] Objects { get; private set; }
+        public PersistentObject[] Objects { get; internal set; }
 
         internal override JObject ToServiceObject()
         {
