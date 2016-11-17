@@ -350,6 +350,11 @@ namespace Vidyano.ViewModel
                         if (attrWithRef != null && serviceAttrWithRef != null)
                             attrWithRef.ObjectId = serviceAttrWithRef.ObjectId;
 
+                        var attrAsDetail = attr as PersistentObjectAttributeAsDetail;
+                        var serviceAttrAsDetail = serviceAttribute as PersistentObjectAttributeAsDetail;
+                        if (attrAsDetail != null && serviceAttrAsDetail != null)
+                            attrAsDetail.Objects = serviceAttrAsDetail.Objects;
+
                         attr.TriggersRefresh = serviceAttribute.TriggersRefresh;
                         attr.IsValueChanged = serviceAttribute.IsValueChanged;
                         attr.ValidationError = serviceAttribute.ValidationError;
