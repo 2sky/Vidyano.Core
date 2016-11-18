@@ -352,9 +352,15 @@ namespace Vidyano.ViewModel
 
                         var attrAsDetail = attr as PersistentObjectAttributeAsDetail;
                         var serviceAttrAsDetail = serviceAttribute as PersistentObjectAttributeAsDetail;
-                        if (attrAsDetail != null && serviceAttrAsDetail != null)
-                            attrAsDetail.Objects = serviceAttrAsDetail.Objects;
-
+                        if (attrAsDetail != null && serviceAttrAsDetail != null && attrAsDetail.Objects != null && serviceAttrAsDetail.Objects != null)
+                            attrAsDetail.Objects = serviceAttrAsDetail.Objects.Select(obj =>
+                            {
+                                obj.Parent = Parent;
+                                obj.OwnerDetailAttribute = OwnerDetailAttribute;
+                                obj.IsInEdit = IsInEdit;
+                                return obj;
+                            }).ToArray();
+                        
                         attr.TriggersRefresh = serviceAttribute.TriggersRefresh;
                         attr.IsValueChanged = serviceAttribute.IsValueChanged;
                         attr.ValidationError = serviceAttribute.ValidationError;
