@@ -36,6 +36,12 @@ namespace Vidyano.ViewModel
 
         public PersistentObject[] Objects { get; internal set; }
 
+        public bool CanNew { get; set; }
+
+        public bool CanDelete { get; set; }
+
+        public bool CanEdit { get; set; }
+
         internal override JObject ToServiceObject()
         {
             var serviceObject = base.ToServiceObject();
