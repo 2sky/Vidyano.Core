@@ -173,7 +173,7 @@ namespace Vidyano.ViewModel
 
         public IReadOnlyDictionary<string, Query> Queries { get; private set; }
 
-        public PersistentObject Parent { get; private set; }
+        public PersistentObject Parent { get; internal set; }
 
         public Query OwnerQuery { get; internal set; }
 
@@ -353,16 +353,18 @@ namespace Vidyano.ViewModel
                         var attrAsDetail = attr as PersistentObjectAttributeAsDetail;
                         var serviceAttrAsDetail = serviceAttribute as PersistentObjectAttributeAsDetail;
                         if (attrAsDetail != null && serviceAttrAsDetail != null)
+                        {
                             attrAsDetail.Objects = serviceAttrAsDetail.Objects != null
                                 ? serviceAttrAsDetail.Objects.Select(obj =>
                                 {
-                                    obj.Parent = Parent;
-                                    obj.OwnerDetailAttribute = OwnerDetailAttribute;
+                                    obj.Parent = this;
+                                    obj.OwnerDetailAttribute = attrAsDetail;
                                     obj.IsInEdit = IsInEdit;
                                     return obj;
                                 }).ToArray()
-                                : new PersistentObject[] { };
-                        
+                                : new PersistentObject[0];
+                        }
+
                         attr.TriggersRefresh = serviceAttribute.TriggersRefresh;
                         attr.IsValueChanged = serviceAttribute.IsValueChanged;
                         attr.ValidationError = serviceAttribute.ValidationError;

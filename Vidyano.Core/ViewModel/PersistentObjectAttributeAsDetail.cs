@@ -24,6 +24,7 @@ namespace Vidyano.ViewModel
                 Objects = objects.Cast<JObject>().Select(jObj =>
                 {
                     var obj = hooks.OnConstruct(client, jObj);
+                    obj.Parent = parent;
                     obj.OwnerDetailAttribute = this;
                     return obj;
                 }).ToArray();
