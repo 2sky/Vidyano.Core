@@ -36,11 +36,11 @@ namespace Vidyano.ViewModel
 
         public PersistentObject[] Objects { get; internal set; }
 
-        public bool CanNew { get; set; }
+        public bool CanNew { get { return Details.Actions.Any(a => a.Name == "New"); } }
 
-        public bool CanDelete { get; set; }
+        public bool CanDelete { get { return Details.Actions.Any(a => a.Name == "Delete"); } }
 
-        public bool CanEdit { get; set; }
+        public bool CanEdit { get { return Details.Actions.Any(a => a.Name == "BulkEdit"); } }
 
         internal override JObject ToServiceObject()
         {
