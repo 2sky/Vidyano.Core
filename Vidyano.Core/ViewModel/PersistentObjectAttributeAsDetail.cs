@@ -46,7 +46,18 @@ namespace Vidyano.ViewModel
         internal override JObject ToServiceObject()
         {
             var serviceObject = base.ToServiceObject();
-            serviceObject["objects"] = new JArray(Objects.Select(obj => obj.ToServiceObject()));
+            serviceObject["objects"] = new JArray(Objects.Select(obj =>
+            {
+                try
+                {
+                    obj.Parent = null;
+                    return obj.ToServiceObject();
+                }
+                finally
+                {
+                    obj.Parent = Parent;
+                }
+            }));
             return serviceObject;
         }
     }
