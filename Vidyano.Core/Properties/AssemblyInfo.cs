@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 
 [assembly: AssemblyTitle("Vidyano.Core")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyDescription("Portable library to connect to a Vidyano application.")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyProduct("Vidyano.Core")]
 [assembly: AssemblyCulture("")]
@@ -11,10 +11,10 @@ using System.Runtime.InteropServices;
 
 
 [assembly: AssemblyCompany("2sky NV")]
-[assembly: AssemblyCopyright("Copyright © 2sky NV 2010-2016")]
+[assembly: AssemblyCopyright("Copyright © 2sky NV 2010-2017")]
 [assembly: AssemblyTrademark("")]
 
-[assembly: AssemblyVersion("5.2.3.0")]
-[assembly: AssemblyFileVersion("5.2.3.0")]
+[assembly: AssemblyVersion("5.20.0.0")]
+[assembly: AssemblyFileVersion("5.20.0.0")]
 
 [assembly: ComVisible(false)]
