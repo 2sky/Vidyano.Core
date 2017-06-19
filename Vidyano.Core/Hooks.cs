@@ -96,6 +96,11 @@ namespace Vidyano
         {
         }
 
+        protected internal virtual async Task<int> OnRetryAction(string title, string message, string[] options, PersistentObject persistentObject)
+        {
+            return -1;
+        }
+
 #pragma warning restore 1998
     }
 }

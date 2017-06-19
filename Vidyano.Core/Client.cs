@@ -488,9 +488,32 @@ namespace Vidyano
                 data["query"] = query != null ? query.ToServiceObject() : null;
                 data["parent"] = parent != null ? parent.ToServiceObject() : null;
                 data["selectedItems"] = selectedItems != null ? JArray.FromObject(selectedItems.Select(i => i != null ? i.ToServiceObject() : null)) : null;
-                data["parameters"] = parameters != null ? JToken.FromObject(parameters) : null;
+                var jParameters = parameters != null ? JObject.FromObject(parameters) : null;
+                data["parameters"] = jParameters;
 
-                var response = await PostAsync("ExecuteAction", data);
+                JObject response;
+                while (true)
+                {
+                    response = await PostAsync("ExecuteAction", data).ConfigureAwait(false);
+
+                    // TODO: response["operations"]
+
+                    var retry = (JObject)response["retry"];
+                    if (retry == null)
+                        break;
+
+                    // Retry action, use hooks to repost
+                    var jRetryPo = (JObject)retry["persistentObject"];
+                    var retryPo = jRetryPo != null ? Hooks.OnConstruct(this, jRetryPo) : null;
+
+                    var option = await Hooks.OnRetryAction((string)retry["title"], (string)retry["message"], ((JArray)retry["options"]).ToObject<string[]>(), retryPo).ConfigureAwait(false);
+                    if (jParameters == null)
+                        data["parameters"] = jParameters = new JObject();
+                    jParameters["RetryActionOption"] = option;
+
+                    if (retryPo != null)
+                        data["retryPersistentObject"] = retryPo.ToServiceObject();
+                }
 
                 var ex = (string)response["exception"] ?? (string)response["ExceptionMessage"];
                 if (!string.IsNullOrEmpty(ex))
