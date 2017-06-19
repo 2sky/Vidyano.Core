@@ -273,7 +273,7 @@ namespace Vidyano.ViewModel
                     CollectionChanged(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
                 }
 
-                var result = await Client.ExecuteQueryAsync(this, Parent, null, AsLookup);
+                var result = await Client.ExecuteQueryAsync(this, Parent, null, AsLookup).ConfigureAwait(false);
                 if (!token.IsCancellationRequested)
                 {
                     SetResult(result);
@@ -360,7 +360,7 @@ namespace Vidyano.ViewModel
                 string err = null;
                 try
                 {
-                    await new Navigate().Execute(item.Load());
+                    await new Navigate().Execute(item.Load()).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -368,7 +368,7 @@ namespace Vidyano.ViewModel
                 }
 
                 if (!string.IsNullOrEmpty(err))
-                    await Client.Hooks.ShowNotification(err, NotificationType.Error);
+                    await Client.Hooks.ShowNotification(err, NotificationType.Error).ConfigureAwait(false);
             }
         }
 
@@ -384,7 +384,7 @@ namespace Vidyano.ViewModel
         public async Task<QueryResultItem[]> GetItemsAsync(int skip, int top)
         {
             if (searchingTask != null)
-                await searchingTask;
+                await searchingTask.ConfigureAwait(false);
 
             var gotItems = false;
 
@@ -408,7 +408,7 @@ namespace Vidyano.ViewModel
                         Top = (endPage - startPage + 1) * pageSize;
 
                         var st = searchingTask = SearchAsync();
-                        gotItems = await st;
+                        gotItems = await st.ConfigureAwait(false);
                         searchingTask = null;
                     }
                     else
@@ -416,20 +416,20 @@ namespace Vidyano.ViewModel
                 }
             }
             else
-                gotItems = await SearchAsync();
+                gotItems = await SearchAsync().ConfigureAwait(false);
 
             return gotItems ? this.Skip(skip).Take(top == 0 ? TotalItems - skip : top).ToArray() : new QueryResultItem[0];
         }
 
         public virtual async Task RefreshQueryAsync()
         {
-            await SearchAsync(true);
+            await SearchAsync(true).ConfigureAwait(false);
         }
 
         public virtual async Task SearchTextAsync(string text)
         {
             TextSearch = !String.IsNullOrEmpty(text) ? text : null;
-            await SearchAsync(true);
+            await SearchAsync(true).ConfigureAwait(false);
         }
 
         public void SetNotification(string notification, NotificationType notificationType = NotificationType.Error)
@@ -448,7 +448,7 @@ namespace Vidyano.ViewModel
         {
             if (semanticZoomTabs == null || PendingSemanicZoomTabsRefresh)
             {
-                var po = await Client.ExecuteActionAsync("QueryFilter.SemanticZoom", Parent, this);
+                var po = await Client.ExecuteActionAsync("QueryFilter.SemanticZoom", Parent, this).ConfigureAwait(false);
                 if (po != null)
                 {
                     po.Queries.Run(q =>

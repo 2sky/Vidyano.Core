@@ -71,14 +71,14 @@ namespace Vidyano.ViewModel
             if (!Query.CanRead)
                 return null;
 
-            var po = await Client.GetPersistentObjectAsync(Query.PersistentObject.Id, Id, Query.Parent);
+            var po = await Client.GetPersistentObjectAsync(Query.PersistentObject.Id, Id, Query.Parent).ConfigureAwait(false);
             po.OwnerQuery = Query;
             return po;
         }
 
         public async Task Open()
         {
-            await Query.InvokeOpenItem(this);
+            await Query.InvokeOpenItem(this).ConfigureAwait(false);
         }
 
         #endregion

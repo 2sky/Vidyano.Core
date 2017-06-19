@@ -17,7 +17,7 @@ namespace Vidyano.Commands
         {
             var query = parameter as Query;
             if (query != null)
-                await query.SearchTextAsync(null);
+                await query.SearchTextAsync(null).ConfigureAwait(false);
         }
     }
 }

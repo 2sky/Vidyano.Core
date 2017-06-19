@@ -104,10 +104,10 @@ namespace Vidyano.ViewModel
             var parameters = new Dictionary<string, string> { { "PersistentObjectAttributeId", Id } };
             try
             {
-                var po = await Client.ExecuteActionAsync("PersistentObject.SelectReference", Parent, Lookup, new[] { queryResultItem }, parameters);
+                var po = await Client.ExecuteActionAsync("PersistentObject.SelectReference", Parent, Lookup, new[] { queryResultItem }, parameters).ConfigureAwait(false);
 
                 if (po != null && Parent != null)
-                    await Parent.RefreshFromResult(po);
+                    await Parent.RefreshFromResult(po).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

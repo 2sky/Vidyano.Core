@@ -11,7 +11,7 @@ namespace Vidyano.ViewModel.Actions
 
         public override async Task Execute(object option)
         {
-            await Query.RefreshQueryAsync();
+            await Query.RefreshQueryAsync().ConfigureAwait(false);
         }
     }
 }

@@ -17,7 +17,7 @@ namespace Vidyano.ViewModel.Actions
 
         public override async Task Execute(object option)
         {
-            await base.Execute(option);
+            await base.Execute(option).ConfigureAwait(false);
             Query.PendingSemanicZoomTabsRefresh = true;
 
             if (Query.SemanticZoomOwner != null)

@@ -79,7 +79,7 @@ namespace Vidyano
 
         internal virtual async Task OnActionCommand(ActionBase action, object obj)
         {
-            await action.Execute(null);
+            await action.Execute(null).ConfigureAwait(false);
         }
 
         internal string UniqueId { get; set; }

@@ -35,7 +35,7 @@ namespace Vidyano.Commands
         public async Task Execute<T>(Task<T> task)
         {
             using (localContext = NavigationContext.Create())
-                ((ICommand)this).Execute(await task);
+                ((ICommand)this).Execute(await task.ConfigureAwait(false));
         }
 
         private static class NavigationContext

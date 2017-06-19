@@ -35,9 +35,9 @@ namespace Vidyano.ViewModel.Actions
             var idx = Array.IndexOf(Options, (string)option);
 
             if (idx == Options.Length - 1)
-                await addAction.Execute(-1);
+                await addAction.Execute(-1).ConfigureAwait(false);
             else
-                await newAction.Execute(idx);
+                await newAction.Execute(idx).ConfigureAwait(false);
         }
     }
 }

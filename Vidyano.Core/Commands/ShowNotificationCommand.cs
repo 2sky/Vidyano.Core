@@ -29,7 +29,7 @@ namespace Vidyano.Commands
         {
             var str = parameter as string;
             if (!string.IsNullOrEmpty(str))
-                await client.Hooks.ShowNotification(str, NotificationType.Error);
+                await client.Hooks.ShowNotification(str, NotificationType.Error).ConfigureAwait(false);
         }
     }
 }

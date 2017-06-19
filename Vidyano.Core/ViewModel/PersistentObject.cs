@@ -290,11 +290,11 @@ namespace Vidyano.ViewModel
         {
             try
             {
-                var result = await Client.ExecuteActionAsync("PersistentObject.Save", this);
+                var result = await Client.ExecuteActionAsync("PersistentObject.Save", this).ConfigureAwait(false);
                 if (result == null)
                     return;
 
-                await RefreshFromResult(result);
+                await RefreshFromResult(result).ConfigureAwait(false);
 
                 if (string.IsNullOrWhiteSpace(Notification) || NotificationType != NotificationType.Error)
                 {
@@ -308,15 +308,15 @@ namespace Vidyano.ViewModel
                             OwnerAttributeWithReference.Parent.Edit();
 
                             var fakeSelectedItem = new JObject(new JProperty("id", ObjectId), new JProperty("values", new JArray()));
-                            await OwnerAttributeWithReference.ChangeReference(new QueryResultItem(fakeSelectedItem, OwnerAttributeWithReference.Lookup));
+                            await OwnerAttributeWithReference.ChangeReference(new QueryResultItem(fakeSelectedItem, OwnerAttributeWithReference.Lookup)).ConfigureAwait(false);
                         }
                     }
                     else if (OwnerQuery != null)
                     {
-                        await OwnerQuery.RefreshQueryAsync();
+                        await OwnerQuery.RefreshQueryAsync().ConfigureAwait(false);
 
                         if (OwnerQuery.SemanticZoomOwner != null)
-                            await OwnerQuery.SemanticZoomOwner.RefreshQueryAsync();
+                            await OwnerQuery.SemanticZoomOwner.RefreshQueryAsync().ConfigureAwait(false);
                     }
                 }
             }
@@ -397,7 +397,7 @@ namespace Vidyano.ViewModel
                             query = Queries[id];
 
                         if (query != null && query.HasSearched)
-                            await query.RefreshQueryAsync();
+                            await query.RefreshQueryAsync().ConfigureAwait(false);
                     }
                 }
             }
@@ -408,12 +408,12 @@ namespace Vidyano.ViewModel
             var parameters = attribute != null ? new Dictionary<string, string> { { "RefreshedPersistentObjectAttributeId", Client.ToServiceString(attribute.Id) } } : null;
             try
             {
-                var result = await Client.ExecuteActionAsync("PersistentObject.Refresh", this, null, null, parameters);
+                var result = await Client.ExecuteActionAsync("PersistentObject.Refresh", this, null, null, parameters).ConfigureAwait(false);
 
                 SetNotification(result.Notification, result.NotificationType);
 
                 if (!HasNotification || NotificationType != NotificationType.Error)
-                    await RefreshFromResult(result);
+                    await RefreshFromResult(result).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

@@ -103,7 +103,7 @@ namespace Vidyano.ViewModel
 
             try
             {
-                await new Navigate().Execute(Client.GetQueryAsync(Query));
+                await new Navigate().Execute(Client.GetQueryAsync(Query)).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -111,7 +111,7 @@ namespace Vidyano.ViewModel
             }
 
             if (!string.IsNullOrEmpty(err))
-                await Client.Hooks.ShowNotification(err, NotificationType.Error);
+                await Client.Hooks.ShowNotification(err, NotificationType.Error).ConfigureAwait(false);
         }
     }
 
@@ -147,7 +147,7 @@ namespace Vidyano.ViewModel
 
             try
             {
-                await new Navigate().Execute(Client.GetPersistentObjectAsync(PersistentObject, ObjectId));
+                await new Navigate().Execute(Client.GetPersistentObjectAsync(PersistentObject, ObjectId)).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -155,7 +155,7 @@ namespace Vidyano.ViewModel
             }
 
             if (!string.IsNullOrEmpty(err))
-                await Client.Hooks.ShowNotification(err, NotificationType.Error);
+                await Client.Hooks.ShowNotification(err, NotificationType.Error).ConfigureAwait(false);
         }
     }
 }

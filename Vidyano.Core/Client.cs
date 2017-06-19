@@ -159,7 +159,7 @@ namespace Vidyano
             {
                 IsBusy = true;
 
-                return new ClientData(JObject.Parse(await httpClient.GetStringAsync(new Uri(Uri) + "GetClientData?environment=" + environment)));
+                return new ClientData(JObject.Parse(await httpClient.GetStringAsync(new Uri(Uri) + "GetClientData?environment=" + environment).ConfigureAwait(false)));
             }
             catch
             {
@@ -202,7 +202,7 @@ namespace Vidyano
             HttpResponseMessage responseMsg;
             try
             {
-                responseMsg = await httpClient.PostAsync(new Uri(Uri) + method, new StringContent(data.ToString(Formatting.None)));
+                responseMsg = await httpClient.PostAsync(new Uri(Uri) + method, new StringContent(data.ToString(Formatting.None))).ConfigureAwait(false);
             }
             catch (TaskCanceledException)
             {
@@ -216,7 +216,7 @@ namespace Vidyano
             if (!responseMsg.IsSuccessStatusCode)
                 return new JObject(new JProperty("exception", "error, status: " + responseMsg.StatusCode));
 
-            var content = await responseMsg.Content.ReadAsStringAsync();
+            var content = await responseMsg.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (string.IsNullOrEmpty(content))
                 return new JObject(new JProperty("exception", GetNoInternetMessage().Title));
 
@@ -230,8 +230,8 @@ namespace Vidyano
                     data.Remove("password");
                     data.Remove("authToken");
 
-                    responseMsg = await httpClient.PostAsync(new Uri(Uri) + method, new StringContent(data.ToString(Formatting.None)));
-                    response = JObject.Parse(await responseMsg.Content.ReadAsStringAsync());
+                    responseMsg = await httpClient.PostAsync(new Uri(Uri) + method, new StringContent(data.ToString(Formatting.None))).ConfigureAwait(false);
+                    response = JObject.Parse(await responseMsg.Content.ReadAsStringAsync().ConfigureAwait(false));
                 }
                 else
                 {
@@ -284,7 +284,7 @@ namespace Vidyano
                     data["serviceProvider"] = serviceProvider;
                 }
 
-                var response = await PostAsync("GetApplication", data);
+                var response = await PostAsync("GetApplication", data).ConfigureAwait(false);
 
                 var ex = (string)response["exception"] ?? (string)response["ExceptionMessage"];
                 if (!string.IsNullOrEmpty(ex))
@@ -295,7 +295,7 @@ namespace Vidyano
                     throw new Exception(po.Notification);
 
                 User = (string)response["userName"] ?? user;
-                UserPicture = await Hooks.UserPictureFromUrl((string)response["userPicture"]);
+                UserPicture = await Hooks.UserPictureFromUrl((string)response["userPicture"]).ConfigureAwait(false);
 
                 AuthToken = (string)response["authToken"];
 
@@ -317,7 +317,7 @@ namespace Vidyano
                     SelectionRule = ExpressionParser.Get((string)item["SelectionRule"])
                 });
 
-                await UpdateSession(response);
+                await UpdateSession(response).ConfigureAwait(false);
 
                 var bulkEdit = Actions["BulkEdit"];
                 bulkEdit.SelectionRule = ExpressionParser.Get("=1");
@@ -329,7 +329,7 @@ namespace Vidyano
 
             IsConnected = true;
 
-            await Hooks.OnInitialized();
+            await Hooks.OnInitialized().ConfigureAwait(false);
 
             return Application;
         }
@@ -346,14 +346,14 @@ namespace Vidyano
                 if (parent != null)
                     data["parent"] = parent.ToServiceObject();
 
-                var response = await PostAsync("GetPersistentObject", data);
+                var response = await PostAsync("GetPersistentObject", data).ConfigureAwait(false);
 
                 var ex = (string)response["exception"] ?? (string)response["ExceptionMessage"];
                 if (!string.IsNullOrEmpty(ex))
                     throw new Exception(ex);
 
                 AuthToken = (string)response["authToken"];
-                await UpdateSession(response);
+                await UpdateSession(response).ConfigureAwait(false);
 
                 var result = (JObject)response["result"];
                 var po = result != null ? Hooks.OnConstruct(this, result) : null;
@@ -379,14 +379,14 @@ namespace Vidyano
                 data["id"] = id;
                 data["filterName"] = filterName;
 
-                var response = await PostAsync("GetQuery", data);
+                var response = await PostAsync("GetQuery", data).ConfigureAwait(false);
 
                 var ex = (string)response["exception"] ?? (string)response["ExceptionMessage"];
                 if (!string.IsNullOrEmpty(ex))
                     throw new Exception(ex);
 
                 AuthToken = (string)response["authToken"];
-                await UpdateSession(response);
+                await UpdateSession(response).ConfigureAwait(false);
 
                 var result = (JObject)response["query"];
                 return result != null ? Hooks.OnConstruct(this, result, null, false) : null;
@@ -409,14 +409,14 @@ namespace Vidyano
                 data["filterName"] = filterName;
                 data["asLookup"] = asLookup;
 
-                var response = await PostAsync("ExecuteQuery", data);
+                var response = await PostAsync("ExecuteQuery", data).ConfigureAwait(false);
 
                 var ex = (string)response["exception"] ?? (string)response["ExceptionMessage"];
                 if (!string.IsNullOrEmpty(ex))
                     throw new Exception(ex);
 
                 AuthToken = (string)response["authToken"];
-                await UpdateSession(response);
+                await UpdateSession(response).ConfigureAwait(false);
 
                 return (JObject)response["result"];
             }
@@ -439,9 +439,9 @@ namespace Vidyano
                 var req = new MultipartFormDataContent("VidyanoBoundary");
                 req.Add(new StringContent(data.ToString(Formatting.None)), "data");
 
-                var responseMsg = await httpClient.PostAsync(new Uri(Uri) + "GetStream", req);
+                var responseMsg = await httpClient.PostAsync(new Uri(Uri) + "GetStream", req).ConfigureAwait(false);
 
-                var stream = await responseMsg.Content.ReadAsStreamAsync();
+                var stream = await responseMsg.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 return Tuple.Create(stream, responseMsg.Content.Headers.ContentDisposition.FileName ?? responseMsg.Content.Headers.ContentDisposition.FileNameStar);
             }
             finally
@@ -473,7 +473,7 @@ namespace Vidyano
                     }
 
                     var args = new ExecuteActionArgs(this, action) { Parameters = parameters, PersistentObject = parent, Query = query, SelectedItems = selectedItems };
-                    await Hooks.OnAction(args);
+                    await Hooks.OnAction(args).ConfigureAwait(false);
 
                     if (args.IsHandled)
                         return args.Result;
@@ -504,7 +504,7 @@ namespace Vidyano
                 }
 
                 AuthToken = (string)response["authToken"];
-                await UpdateSession(response);
+                await UpdateSession(response).ConfigureAwait(false);
 
                 var jPo = (JObject)response["result"];
                 return jPo != null ? Hooks.OnConstruct(this, jPo) : null;
@@ -537,7 +537,7 @@ namespace Vidyano
                     throw new Exception(sessionPo.Notification);
 
                 if (Session != null)
-                    await Session.RefreshFromResult(sessionPo);
+                    await Session.RefreshFromResult(sessionPo).ConfigureAwait(false);
                 else
                     Session = sessionPo;
 
@@ -558,7 +558,7 @@ namespace Vidyano
             AuthToken = null;
             IsConnected = false;
 
-            await Hooks.SignOut();
+            await Hooks.SignOut().ConfigureAwait(false);
         }
 
         public static NoInternetMessage GetNoInternetMessage(string language = null)

@@ -13,7 +13,7 @@ namespace Vidyano.ViewModel.Actions
 
         public override async Task Execute(object parameter)
         {
-            await Parent.Save();
+            await Parent.Save().ConfigureAwait(false);
 
             if ((string.IsNullOrWhiteSpace(Parent.Notification) || Parent.NotificationType != NotificationType.Error) && Parent.StateBehavior.HasFlag(StateBehavior.StayInEdit))
                 Parent.Edit();

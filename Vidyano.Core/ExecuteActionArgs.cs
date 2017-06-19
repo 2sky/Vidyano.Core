@@ -46,7 +46,7 @@ namespace Vidyano
 
         public async Task<PersistentObject> ExecuteServiceRequest()
         {
-            return Result = await client.ExecuteActionAsync(action, PersistentObject, Query, SelectedItems, Parameters, true);
+            return Result = await client.ExecuteActionAsync(action, PersistentObject, Query, SelectedItems, Parameters, true).ConfigureAwait(false);
         }
 
         #endregion

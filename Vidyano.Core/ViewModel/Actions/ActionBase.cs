@@ -27,7 +27,7 @@ namespace Vidyano.ViewModel.Actions
             Options = definition.Options;
 
             client = ((ViewModelBase)query ?? parent).Client;
-            Command = new ActionCommand(async obj => await client.Hooks.OnActionCommand(this, obj), _ => CanExecute, this, "CanExecute");
+            Command = new ActionCommand(async obj => await client.Hooks.OnActionCommand(this, obj).ConfigureAwait(false), _ => CanExecute, this, "CanExecute");
 
             CanExecute = query == null;
         }
@@ -94,7 +94,7 @@ namespace Vidyano.ViewModel.Actions
             parameters["MenuLabel"] = Client.ToServiceString(option);
 
             var selectedItems = Query != null && Query.Count > 0 ? Query.SelectedItems.ToArray() : new QueryResultItem[0];
-            var po = await client.ExecuteActionAsync((this is QueryAction ? "Query" : "PersistentObject") + "." + definition.Name, Parent, Query, selectedItems, parameters);
+            var po = await client.ExecuteActionAsync((this is QueryAction ? "Query" : "PersistentObject") + "." + definition.Name, Parent, Query, selectedItems, parameters).ConfigureAwait(false);
 
             if (po != null)
             {
@@ -114,14 +114,14 @@ namespace Vidyano.ViewModel.Actions
                         Parent.SetNotification(po.Notification, po.NotificationType);
 
                         if ((po.FullTypeName == Parent.FullTypeName || po.IsNew == Parent.IsNew) && po.Id == Parent.Id && po.ObjectId == Parent.ObjectId)
-                            await Parent.RefreshFromResult(po);
+                            await Parent.RefreshFromResult(po).ConfigureAwait(false);
                     }
                 }
                 else if (po.FullTypeName == "Vidyano.RegisteredStream")
                 {
                     try
                     {
-                        var stream = await client.GetStreamAsync(po);
+                        var stream = await client.GetStreamAsync(po).ConfigureAwait(false);
                         if (stream != null && stream.Item1 != null)
                         {
                             try
@@ -151,16 +151,16 @@ namespace Vidyano.ViewModel.Actions
                 else
                 {
                     Parent.SetNotification(po.Notification, po.NotificationType);
-                    await Parent.RefreshFromResult(po);
+                    await Parent.RefreshFromResult(po).ConfigureAwait(false);
                 }
             }
 
             if (definition.RefreshQueryOnCompleted && Query != null && !Query.HasNotification)
             {
-                await Query.RefreshQueryAsync();
+                await Query.RefreshQueryAsync().ConfigureAwait(false);
 
                 if (Query.SemanticZoomOwner != null)
-                    await Query.SemanticZoomOwner.RefreshQueryAsync();
+                    await Query.SemanticZoomOwner.RefreshQueryAsync().ConfigureAwait(false);
             }
         }
 
