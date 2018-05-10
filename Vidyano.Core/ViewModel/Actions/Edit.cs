@@ -9,10 +9,7 @@ namespace Vidyano.ViewModel.Actions
         {
         }
 
-        internal override Definition[] DependentActions
-        {
-            get { return new[] { client.Actions["EndEdit"], client.Actions["CancelEdit"] }; }
-        }
+        internal override Definition[] DependentActions => new[] { client.Actions["EndEdit"], client.Actions["CancelEdit"] };
 
 #pragma warning disable 1998
         public override async Task Execute(object parameter)

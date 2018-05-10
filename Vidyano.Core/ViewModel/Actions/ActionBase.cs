@@ -32,15 +32,9 @@ namespace Vidyano.ViewModel.Actions
             CanExecute = query == null;
         }
 
-        public string DisplayName
-        {
-            get { return definition.DisplayName; }
-        }
+        public string DisplayName => definition.DisplayName;
 
-        public bool IsPinned
-        {
-            get { return definition.IsPinned; }
-        }
+        public bool IsPinned => definition.IsPinned;
 
         public string[] Options { get; protected set; }
 
@@ -48,15 +42,9 @@ namespace Vidyano.ViewModel.Actions
 
         internal bool IsDependent { get; private set; }
 
-        public string Icon
-        {
-            get { return "ActionIcon." + definition.Name; }
-        }
+        public string Icon => "ActionIcon." + definition.Name;
 
-        public string Name
-        {
-            get { return definition.Name; }
-        }
+        public string Name => definition.Name;
 
         public PersistentObject Parent { get; private set; }
 
@@ -64,25 +52,19 @@ namespace Vidyano.ViewModel.Actions
 
         public bool IsVisible
         {
-            get { return _IsVisible; }
-            set { SetProperty(ref _IsVisible, value); }
+            get => _IsVisible;
+            set => SetProperty(ref _IsVisible, value);
         }
 
         public bool CanExecute
         {
-            get { return _CanExecute; }
-            set { SetProperty(ref _CanExecute, value); }
+            get => _CanExecute;
+            set => SetProperty(ref _CanExecute, value);
         }
 
-        public bool HasSelectionRule
-        {
-            get { return definition.SelectionRule != ExpressionParser.AlwaysTrue; }
-        }
+        public bool HasSelectionRule => definition.SelectionRule != ExpressionParser.AlwaysTrue;
 
-        internal virtual Definition[] DependentActions
-        {
-            get { return new Definition[0]; }
-        }
+        internal virtual Definition[] DependentActions => new Definition[0];
 
         public ICommand Command { get; private set; }
         internal virtual void Initialize() {}
@@ -173,8 +155,7 @@ namespace Vidyano.ViewModel.Actions
                 if (actionName == "Edit" && parent != null && parent.IsNew)
                     actionName = "Save";
 
-                Definition definition;
-                client.Actions.TryGetValue(actionName, out definition);
+                client.Actions.TryGetValue(actionName, out var definition);
                 return definition;
             }).Where(a => a != null).OrderBy(a => a.Offset).ToArray();
 

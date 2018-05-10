@@ -32,8 +32,8 @@ namespace Vidyano.Commands
 
         event EventHandler ICommand.CanExecuteChanged
         {
-            add { _CanExecuteChanged += value; }
-            remove { _CanExecuteChanged -= value; }
+            add => _CanExecuteChanged += value;
+            remove => _CanExecuteChanged -= value;
         }
 
         void ICommand.Execute(object parameter)

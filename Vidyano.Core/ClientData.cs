@@ -33,19 +33,10 @@ namespace Vidyano
 
         public string DefaultUserName { get; private set; }
 
-        public bool HasMixedServiceProviders
-        {
-            get { return HasOAuthProviders && HasVidyanoProvider; }
-        }
+        public bool HasMixedServiceProviders => HasOAuthProviders && HasVidyanoProvider;
 
-        public bool HasVidyanoProvider
-        {
-            get { return VidyanoServiceProvider != null; }
-        }
+        public bool HasVidyanoProvider => VidyanoServiceProvider != null;
 
-        public bool HasOAuthProviders
-        {
-            get { return OAuthServiceProviders.Length > 0; }
-        }
+        public bool HasOAuthProviders => OAuthServiceProviders.Length > 0;
     }
 }

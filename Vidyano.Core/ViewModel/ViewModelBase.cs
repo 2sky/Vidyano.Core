@@ -15,8 +15,8 @@ namespace Vidyano.ViewModel
 
         internal string PreviousState
         {
-            get { return GetProperty<string>("__CurrentState"); }
-            set { SetProperty(value, "__CurrentState"); }
+            get => GetProperty<string>("__CurrentState");
+            set => SetProperty(value, "__CurrentState");
         }
 
         internal string PagePath { get; set; }
@@ -53,8 +53,7 @@ namespace Vidyano.ViewModel
 
         protected T GetProperty<T>([CallerMemberName] String propertyName = null)
         {
-            JToken token;
-            if (Model.TryGetValue(GetCamelCasePropertyName(propertyName), out token) && token != null && token.Type != JTokenType.Null)
+            if (Model.TryGetValue(GetCamelCasePropertyName(propertyName), out var token) && token != null && token.Type != JTokenType.Null)
                 return token.ToObject<T>();
 
             return default(T);
@@ -76,8 +75,7 @@ namespace Vidyano.ViewModel
 
             foreach (var p in GetServiceProperties())
             {
-                JToken token;
-                if (Model.TryGetValue(p, out token) && token != null)
+                if (Model.TryGetValue(p, out var token) && token != null)
                     obj[p] = token;
             }
 

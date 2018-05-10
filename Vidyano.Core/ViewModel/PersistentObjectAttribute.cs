@@ -39,44 +39,23 @@ namespace Vidyano.ViewModel
             HasValue = ValueDirect != null;
         }
 
-        internal string Id
-        {
-            get { return GetProperty<string>(); }
-        }
+        internal string Id => GetProperty<string>();
 
-        public string Name
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Name => GetProperty<string>();
 
-        public string Type
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Type => GetProperty<string>();
 
-        public Type ClrType
-        {
-            get { return clrType.Value; }
-        }
+        public Type ClrType => clrType.Value;
 
-        public string Label
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Label => GetProperty<string>();
 
-        public int Offset
-        {
-            get { return GetProperty<int>(); }
-        }
+        public int Offset => GetProperty<int>();
 
-        public string Rules
-        {
-            get { return GetProperty<string>() ?? string.Empty; }
-        }
+        public string Rules => GetProperty<string>() ?? string.Empty;
 
         internal string[] OptionsDirect
         {
-            get { return GetProperty<string[]>("Options"); }
+            get => GetProperty<string[]>("Options");
             set
             {
                 if (OptionsDirect != null && value != null && OptionsDirect.SequenceEqual(value))
@@ -89,49 +68,40 @@ namespace Vidyano.ViewModel
 
         public Option[] Options
         {
-            get { return _Options; }
-            protected set { SetProperty(ref _Options, value); }
+            get => _Options;
+            protected set => SetProperty(ref _Options, value);
         }
 
         public Option SelectedOption
         {
             get { return Options.FirstOrDefault(o => o.Key == ValueDirect); }
-            set { Value = value != null ? value.Key : null; }
+            set => Value = value?.Key;
         }
 
-        public string GroupName
-        {
-            get { return GetProperty<string>("Group"); }
-        }
+        public string GroupName => GetProperty<string>("Group");
 
         public PersistentObjectAttributeGroup Group { get; internal set; }
 
-        public string Tab
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Tab => GetProperty<string>();
 
-        public string ToolTip
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string ToolTip => GetProperty<string>();
 
         public bool IsReadOnly
         {
-            get { return GetProperty<bool>(); }
-            internal set { SetProperty(value); }
+            get => GetProperty<bool>();
+            internal set => SetProperty(value);
         }
 
         public bool TriggersRefresh
         {
-            get { return GetProperty<bool>(); }
-            internal set { SetProperty(value); }
+            get => GetProperty<bool>();
+            internal set => SetProperty(value);
         }
 
         public bool IsValueChanged
         {
-            get { return GetProperty<bool>(); }
-            internal set { SetProperty(value); }
+            get => GetProperty<bool>();
+            internal set => SetProperty(value);
         }
 
         public KeyValueList<string, string> TypeHints
@@ -160,14 +130,14 @@ namespace Vidyano.ViewModel
 
         public bool IsRequired
         {
-            get { return GetProperty<bool>(); }
-            internal set { SetProperty(value); }
+            get => GetProperty<bool>();
+            internal set => SetProperty(value);
         }
 
         [EditorBrowsable(EditorBrowsableState.Never)]
         public string ValueDirect
         {
-            get { return GetProperty<string>("Value"); }
+            get => GetProperty<string>("Value");
             internal set
             {
                 SetProperty(value, "Value");
@@ -199,14 +169,11 @@ namespace Vidyano.ViewModel
             return getFalse;
         }
 
-        public string DisplayValue
-        {
-            get { return GetDisplayValue(Client, Value, Type, TypeHints, Options); }
-        }
+        public string DisplayValue => GetDisplayValue(Client, Value, Type, TypeHints, Options);
 
         public string ValidationError
         {
-            get { return GetProperty<string>(); }
+            get => GetProperty<string>();
             internal set
             {
                 SetProperty(value);
@@ -216,23 +183,17 @@ namespace Vidyano.ViewModel
 
         public bool HasValue
         {
-            get { return GetProperty<bool>(); }
-            private set { SetProperty(value); }
+            get => GetProperty<bool>();
+            private set => SetProperty(value);
         }
 
-        public bool HasValidationError
-        {
-            get { return !string.IsNullOrEmpty(ValidationError); }
-        }
+        public bool HasValidationError => !string.IsNullOrEmpty(ValidationError);
 
-        public bool IsVisible
-        {
-            get { return Parent.IsNew ? Visibility.HasFlag(AttributeVisibility.New) : Visibility.HasFlag(AttributeVisibility.Read); }
-        }
+        public bool IsVisible => Parent.IsNew ? Visibility.HasFlag(AttributeVisibility.New) : Visibility.HasFlag(AttributeVisibility.Read);
 
         internal AttributeVisibility Visibility
         {
-            get { return (AttributeVisibility)Enum.Parse(typeof(AttributeVisibility), GetProperty<string>()); }
+            get => (AttributeVisibility)Enum.Parse(typeof(AttributeVisibility), GetProperty<string>());
             set
             {
                 if (SetProperty(value.ToString()))

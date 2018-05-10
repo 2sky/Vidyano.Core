@@ -14,42 +14,27 @@ namespace Vidyano.ViewModel
 
         public Query Query { get; private set; }
 
-        internal bool DisableSort
-        {
-            get { return GetProperty<bool>(); }
-        }
+        internal bool DisableSort => GetProperty<bool>();
 
         internal string[] Includes
         {
-            get { return GetProperty<string[]>(); }
-            set { SetProperty(value); }
+            get => GetProperty<string[]>();
+            set => SetProperty(value);
         }
 
         internal string[] Excludes
         {
-            get { return GetProperty<string[]>(); }
-            set { SetProperty(value); }
+            get => GetProperty<string[]>();
+            set => SetProperty(value);
         }
 
-        public string Label
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Label => GetProperty<string>();
 
-        public string Name
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Name => GetProperty<string>();
 
-        public int Offset
-        {
-            get { return GetProperty<int>(); }
-        }
+        public int Offset => GetProperty<int>();
 
-        public string Type
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Type => GetProperty<string>();
 
         #region Service Serialization
 

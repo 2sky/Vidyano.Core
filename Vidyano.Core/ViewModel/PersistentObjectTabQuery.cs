@@ -14,7 +14,7 @@
 
         public string TextSearch
         {
-            get { return _TextSearch; }
+            get => _TextSearch;
             set
             {
                 if (SetProperty(ref _TextSearch, value))
@@ -24,8 +24,8 @@
 
         public bool IsEmpty
         {
-            get { return _IsEmpty; }
-            set { SetProperty(ref _IsEmpty, value); }
+            get => _IsEmpty;
+            set => SetProperty(ref _IsEmpty, value);
         }
 
         public Query Query { get; private set; }

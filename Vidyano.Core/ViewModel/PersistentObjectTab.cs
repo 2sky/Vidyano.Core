@@ -13,13 +13,7 @@ namespace Vidyano.ViewModel
 
         public string Title { get; set; }
 
-        public bool HasTitle
-        {
-            get
-            {
-                return !string.IsNullOrEmpty(Title);
-            }
-        }
+        public bool HasTitle => !string.IsNullOrEmpty(Title);
 
         public bool IsActionBarVisible { get; set; }
 

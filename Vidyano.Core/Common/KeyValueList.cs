@@ -19,10 +19,7 @@ namespace Vidyano.Common
             return dictionary.ContainsKey(key);
         }
 
-        public IEnumerable<TKey> Keys
-        {
-            get { return dictionary.Keys; }
-        }
+        public IEnumerable<TKey> Keys => dictionary.Keys;
 
         public bool TryGetValue(TKey key, out TValue value)
         {
@@ -33,27 +30,20 @@ namespace Vidyano.Common
             return retVal || returnKeyAsDefault;
         }
 
-        public IEnumerable<TValue> Values
-        {
-            get { return dictionary.Values; }
-        }
+        public IEnumerable<TValue> Values => dictionary.Values;
 
         public TValue this[TKey key]
         {
             get
             {
-                TValue retVal;
-                if (!dictionary.TryGetValue(key, out retVal) && returnKeyAsDefault)
+                if (!dictionary.TryGetValue(key, out var retVal) && returnKeyAsDefault)
                     retVal = (TValue)(object)key;
 
                 return retVal;
             }
         }
 
-        public int Count
-        {
-            get { return dictionary.Count; }
-        }
+        public int Count => dictionary.Count;
 
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
         {

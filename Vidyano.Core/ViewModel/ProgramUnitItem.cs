@@ -22,39 +22,21 @@ namespace Vidyano.ViewModel
         {
         }
 
-        public string Title
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Title => GetProperty<string>();
 
-        internal string Name
-        {
-            get { return GetProperty<string>(); }
-        }
+        internal string Name => GetProperty<string>();
 
         public string GroupId { get; private set; }
 
         public string GroupTitle { get; private set; }
 
-        public virtual int RowSpan
-        {
-            get { return 1; }
-        }
+        public virtual int RowSpan => 1;
 
-        public virtual int ColumnSpan
-        {
-            get { return 1; }
-        }
+        public virtual int ColumnSpan => 1;
 
-        protected internal virtual bool IncludeInZoomedOutItemCount
-        {
-            get { return true; }
-        }
+        protected internal virtual bool IncludeInZoomedOutItemCount => true;
 
-        public int ColumnOffset
-        {
-            get { return 1; }
-        }
+        public int ColumnOffset => 1;
 
         protected internal abstract string Template { get; }
 
@@ -77,25 +59,13 @@ namespace Vidyano.ViewModel
             : base(client, model)
         { }
 
-        public string QueryName
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string QueryName => GetProperty<string>();
 
-        public string Query
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Query => GetProperty<string>();
 
-        public string Count
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Count => GetProperty<string>();
 
-        protected internal override string Template
-        {
-            get { return "ProgramUnitItemTemplate.Query"; }
-        }
+        protected internal override string Template => "ProgramUnitItemTemplate.Query";
 
         protected internal override async void Open()
         {
@@ -121,25 +91,13 @@ namespace Vidyano.ViewModel
             : base(client, model)
         { }
 
-        public string PersistentObject
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string PersistentObject => GetProperty<string>();
 
-        public string PersistentObjectType
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string PersistentObjectType => GetProperty<string>();
 
-        public string ObjectId
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string ObjectId => GetProperty<string>();
 
-        protected internal override string Template
-        {
-            get { return "ProgramUnitItemTemplate.PersistentObject"; }
-        }
+        protected internal override string Template => "ProgramUnitItemTemplate.PersistentObject";
 
         protected internal override async void Open()
         {

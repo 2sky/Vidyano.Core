@@ -9,7 +9,7 @@ namespace Vidyano.ViewModel
             : base(items)
         {
             var firstItem = this.FirstOrDefault();
-            Title = firstItem != null ? firstItem.GroupTitle : null;
+            Title = firstItem?.GroupTitle;
         }
 
         public string Title { get; internal set; }

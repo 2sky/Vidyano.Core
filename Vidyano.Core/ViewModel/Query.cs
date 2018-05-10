@@ -39,8 +39,7 @@ namespace Vidyano.ViewModel
             if (po != null)
                 PersistentObject = client.Hooks.OnConstruct(client, po);
 
-            JToken columnsToken;
-            if (model.TryGetValue("columns", out columnsToken))
+            if (model.TryGetValue("columns", out var columnsToken))
             {
                 var columns = (JArray)columnsToken;
                 Columns = columns.Select(jCol => new QueryColumn((JObject)jCol, this)).ToArray();
@@ -48,8 +47,7 @@ namespace Vidyano.ViewModel
             else
                 Columns = new QueryColumn[0];
 
-            JToken actionsToken;
-            if (model.TryGetValue("actions", out actionsToken))
+            if (model.TryGetValue("actions", out var actionsToken))
             {
                 var actions = ActionBase.GetActions(client, actionsToken, parent, this);
                 CanFilter = actions.Any(a => a.Name == "Filter");
@@ -82,42 +80,27 @@ namespace Vidyano.ViewModel
             client.Hooks.OnConstruct(this);
         }
 
-        public string Id
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Id => GetProperty<string>();
 
-        public string Name
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Name => GetProperty<string>();
 
-        public bool AutoQuery
-        {
-            get { return GetProperty<bool>(); }
-        }
+        public bool AutoQuery => GetProperty<bool>();
 
-        public bool CanRead
-        {
-            get { return GetProperty<bool>(); }
-        }
+        public bool CanRead => GetProperty<bool>();
 
-        public bool IsHidden
-        {
-            get { return GetProperty<bool>(); }
-        }
+        public bool IsHidden => GetProperty<bool>();
 
         public string Label
         {
-            get { return GetProperty<string>(); }
-            set { SetProperty(value); }
+            get => GetProperty<string>();
+            set => SetProperty(value);
         }
 
         public bool AsLookup { get; private set; }
 
         public string Notification
         {
-            get { return GetProperty<string>(); }
+            get => GetProperty<string>();
             private set
             {
                 if (SetProperty(value))
@@ -127,30 +110,27 @@ namespace Vidyano.ViewModel
 
         public NotificationType NotificationType
         {
-            get { return (NotificationType)Enum.Parse(typeof(NotificationType), GetProperty<string>()); }
-            private set { SetProperty(value.ToString()); }
+            get => (NotificationType)Enum.Parse(typeof(NotificationType), GetProperty<string>());
+            private set => SetProperty(value.ToString());
         }
 
         public bool HasNotification
         {
-            get { return GetProperty<bool>(); }
-            private set { SetProperty(value); }
+            get => GetProperty<bool>();
+            private set => SetProperty(value);
         }
 
-        public int Offset
-        {
-            get { return GetProperty<int>(); }
-        }
+        public int Offset => GetProperty<int>();
 
         public string SortOptions
         {
-            get { return GetProperty<string>(); }
-            internal set { SetProperty(value); }
+            get => GetProperty<string>();
+            internal set => SetProperty(value);
         }
 
         public string TextSearch
         {
-            get { return GetProperty<string>(); }
+            get => GetProperty<string>();
             private set
             {
                 if (SetProperty(value))
@@ -169,57 +149,54 @@ namespace Vidyano.ViewModel
 
         internal Query SemanticZoomOwner { get; private set; }
 
-        public bool IsSemanticZoomQuery
-        {
-            get { return SemanticZoomOwner != null; }
-        }
+        public bool IsSemanticZoomQuery => SemanticZoomOwner != null;
 
         internal int? PageSize
         {
-            get { return GetProperty<int?>(); }
-            private set { SetProperty(value); }
+            get => GetProperty<int?>();
+            private set => SetProperty(value);
         }
 
         private int Skip
         {
-            get { return GetProperty<int>(); }
-            set { SetProperty(value); }
+            get => GetProperty<int>();
+            set => SetProperty(value);
         }
 
         private int? Top
         {
-            get { return GetProperty<int>(); }
-            set { SetProperty(value); }
+            get => GetProperty<int>();
+            set => SetProperty(value);
         }
 
         public int TotalItems
         {
-            get { return _TotalItems; }
-            private set { SetProperty(ref _TotalItems, value); }
+            get => _TotalItems;
+            private set => SetProperty(ref _TotalItems, value);
         }
 
         public bool HasSearched
         {
-            get { return _HasSearched; }
-            private set { SetProperty(ref _HasSearched, value); }
+            get => _HasSearched;
+            private set => SetProperty(ref _HasSearched, value);
         }
 
         public bool HasTextSearch
         {
-            get { return _HasTextSearch; }
-            private set { SetProperty(ref _HasTextSearch, value); }
+            get => _HasTextSearch;
+            private set => SetProperty(ref _HasTextSearch, value);
         }
 
         public bool HasSelectedItems
         {
-            get { return _HasSelectedItems; }
-            private set { SetProperty(ref _HasSelectedItems, value); }
+            get => _HasSelectedItems;
+            private set => SetProperty(ref _HasSelectedItems, value);
         }
 
         public QueryColumn[] Columns
         {
-            get { return _Columns; }
-            private set { SetProperty(ref _Columns, value); }
+            get => _Columns;
+            private set => SetProperty(ref _Columns, value);
         }
 
         public QueryAction[] Actions { get; private set; }
@@ -231,15 +208,12 @@ namespace Vidyano.ViewModel
             get { return Actions != null && Actions.Length > 0 && Actions.Any(a => a.IsVisible) || PinnedActions != null && PinnedActions.Length > 0 && PinnedActions.Any(a => a.IsVisible); }
         }
 
-        public ObservableCollection<QueryResultItem> SelectedItems
-        {
-            get { return _SelectedItems; }
-        }
+        public ObservableCollection<QueryResultItem> SelectedItems => _SelectedItems;
 
         public bool IsZoomedIn
         {
-            get { return GetProperty<bool>(); }
-            set { SetProperty(value); }
+            get => GetProperty<bool>();
+            set => SetProperty(value);
         }
 
         internal bool PendingSemanicZoomTabsRefresh { get; set; }
@@ -298,8 +272,7 @@ namespace Vidyano.ViewModel
 
         internal virtual void SetResult(JObject result)
         {
-            JToken columnsToken;
-            if (result.TryGetValue("columns", out columnsToken))
+            if (result.TryGetValue("columns", out var columnsToken))
             {
                 var columns = (JArray)columnsToken;
                 Columns = columns.Select(jCol =>
@@ -325,8 +298,7 @@ namespace Vidyano.ViewModel
             HasSearched = true;
 
             var items = new QueryResultItem[0];
-            JToken itemsToken;
-            if (result.TryGetValue("items", out itemsToken))
+            if (result.TryGetValue("items", out var itemsToken))
                 items = itemsToken.Select(jItem => new QueryResultItem((JObject)jItem, this)).ToArray();
 
             if (items.Length > 0)
@@ -476,8 +448,7 @@ namespace Vidyano.ViewModel
             var count = Count;
             for (var i = 0; i < count; i++)
             {
-                QueryResultItem item;
-                yield return items.TryGetValue(i, out item) ? item : null;
+                yield return items.TryGetValue(i, out var item) ? item : null;
             }
         }
 
@@ -516,17 +487,13 @@ namespace Vidyano.ViewModel
         {
             get
             {
-                QueryResultItem result;
-                items.TryGetValue(index, out result);
+                items.TryGetValue(index, out var result);
 
                 return result;
             }
         }
 
-        public int Count
-        {
-            get { return items.Count > 0 ? items.Keys.Max() + 1 : 0; }
-        }
+        public int Count => items.Count > 0 ? items.Keys.Max() + 1 : 0;
 
         public event EventHandler<OpenQueryItemEventArgs> OpenItem = delegate { };
         public event EventHandler<NotificationChangedEventArgs> NotificationChanged = delegate { };

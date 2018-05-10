@@ -15,8 +15,7 @@ namespace Vidyano.ViewModel
         internal PersistentObject(Client client, JObject model)
             : base(client, model)
         {
-            JToken attributesToken;
-            if (model.TryGetValue("attributes", out attributesToken))
+            if (model.TryGetValue("attributes", out var attributesToken))
             {
                 var attributes = (JArray)attributesToken;
                 Attributes = attributes.Select(jAttr =>
@@ -33,8 +32,7 @@ namespace Vidyano.ViewModel
             else
                 Attributes = new PersistentObjectAttribute[0];
 
-            JToken queriesToken;
-            if (model.TryGetValue("queries", out queriesToken))
+            if (model.TryGetValue("queries", out var queriesToken))
             {
                 var queries = (JArray)queriesToken;
                 Queries = new KeyValueList<string, Query>(queries.Select(jQuery /* :-) */ => client.Hooks.OnConstruct(client, (JObject)jQuery, this, false)).ToDictionary(q => q.Name, q => q));
@@ -64,8 +62,7 @@ namespace Vidyano.ViewModel
             if (!IsHidden)
             {
                 // Initialize Action
-                JToken actionsToken;
-                if (model.TryGetValue("actions", out actionsToken))
+                if (model.TryGetValue("actions", out var actionsToken))
                 {
                     var actions = ActionBase.GetActions(client, actionsToken, this);
 
@@ -389,8 +386,7 @@ namespace Vidyano.ViewModel
                     {
                         Query query = null;
 
-                        Guid guid;
-                        if (Guid.TryParse(id, out guid))
+                        if (Guid.TryParse(id, out var guid))
                             query = Queries.FirstOrDefault(q => q.Value.Id == id).Value;
 
                         if (query == null)
@@ -442,7 +438,7 @@ namespace Vidyano.ViewModel
         public object GetAttributeValue(string attributeName)
         {
             var attr = GetAttribute(attributeName);
-            return attr != null ? attr.Value : null;
+            return attr?.Value;
         }
 
         public Query GetQuery(string queryName)

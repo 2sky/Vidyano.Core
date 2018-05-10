@@ -92,40 +92,40 @@ namespace Vidyano
 
         public PersistentObject Application
         {
-            get { return _Application; }
-            set { SetProperty(ref _Application, value); }
+            get => _Application;
+            set => SetProperty(ref _Application, value);
         }
 
         public PersistentObject Session
         {
-            get { return _Session; }
-            set { SetProperty(ref _Session, value); }
+            get => _Session;
+            set => SetProperty(ref _Session, value);
         }
 
         public string Uri { get; set; }
 
         public bool IsBusy
         {
-            get { return _IsBusy; }
-            set { SetProperty(ref _IsBusy, value); }
+            get => _IsBusy;
+            set => SetProperty(ref _IsBusy, value);
         }
 
         public bool IsConnected
         {
-            get { return _IsConnected; }
-            private set { SetProperty(ref _IsConnected, value); }
+            get => _IsConnected;
+            private set => SetProperty(ref _IsConnected, value);
         }
 
         public bool IsUsingDefaultCredentials
         {
-            get { return _IsUsingDefaultCredentials; }
-            internal set { SetProperty(ref _IsUsingDefaultCredentials, value); }
+            get => _IsUsingDefaultCredentials;
+            internal set => SetProperty(ref _IsUsingDefaultCredentials, value);
         }
 
         public KeyValueList<string, string> Messages
         {
-            get { return _Messages ?? new KeyValueList<string, string>(new ReadOnlyDictionary<string, string>(new Dictionary<string, string>())); }
-            private set { _Messages = value; }
+            get => _Messages ?? new KeyValueList<string, string>(new ReadOnlyDictionary<string, string>(new Dictionary<string, string>()));
+            private set => _Messages = value;
         }
 
         public Hooks Hooks { get; set; }
@@ -414,7 +414,7 @@ namespace Vidyano
 
                 var data = CreateData();
                 data["query"] = query.ToServiceObject();
-                data["parent"] = parent != null ? parent.ToServiceObject() : null;
+                data["parent"] = parent?.ToServiceObject();
                 data["filterName"] = filterName;
                 data["asLookup"] = asLookup;
 
@@ -462,6 +462,8 @@ namespace Vidyano
         public async Task<PersistentObject> ExecuteActionAsync(string action, PersistentObject parent = null, Query query = null, QueryResultItem[] selectedItems = null, Dictionary<string, string> parameters = null, bool skipHooks = false)
         {
             var isObjectAction = action.StartsWith("PersistentObject.") || query == null;
+            if (isObjectAction && parent == null)
+                throw new ArgumentNullException(nameof(parent));
 
             try
             {
@@ -494,9 +496,9 @@ namespace Vidyano
 
                 var data = CreateData();
                 data["action"] = action;
-                data["query"] = query != null ? query.ToServiceObject() : null;
-                data["parent"] = parent != null ? parent.ToServiceObject() : null;
-                data["selectedItems"] = selectedItems != null ? JArray.FromObject(selectedItems.Select(i => i != null ? i.ToServiceObject() : null)) : null;
+                data["query"] = query?.ToServiceObject();
+                data["parent"] = parent?.ToServiceObject();
+                data["selectedItems"] = selectedItems != null ? JArray.FromObject(selectedItems.Select(i => i?.ToServiceObject())) : null;
                 var jParameters = parameters != null ? JObject.FromObject(parameters) : null;
                 data["parameters"] = jParameters;
 
@@ -595,8 +597,7 @@ namespace Vidyano
 
         public static NoInternetMessage GetNoInternetMessage(string language = null)
         {
-            NoInternetMessage result;
-            return noInternetMessages.TryGetValue(language ?? CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, out result) ? result : noInternetMessages["en"];
+            return noInternetMessages.TryGetValue(language ?? CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, out var result) ? result : noInternetMessages["en"];
         }
 
         #endregion

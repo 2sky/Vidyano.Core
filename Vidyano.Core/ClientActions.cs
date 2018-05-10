@@ -59,8 +59,7 @@ namespace Vidyano
                 if (ftn != null && !ftn.StartsWith("Vidyano."))
                 {
                     var type = ftn.Substring(ftn.IndexOf('.') + 1);
-                    Func<PersistentObjectClientActions> existingActions;
-                    if (cache.TryGetValue(type, out existingActions))
+                    if (cache.TryGetValue(type, out var existingActions))
                         return existingActions;
                 }
 

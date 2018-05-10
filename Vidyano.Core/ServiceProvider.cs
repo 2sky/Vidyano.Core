@@ -19,8 +19,7 @@ namespace Vidyano
         {
             get
             {
-                string label;
-                return Parameters.TryGetValue("label", out label) ? label : Name;
+                return Parameters.TryGetValue("label", out var label) ? label : Name;
             }
         }
 

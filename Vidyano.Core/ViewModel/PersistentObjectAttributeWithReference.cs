@@ -22,7 +22,7 @@ namespace Vidyano.ViewModel
 
         public string ObjectId
         {
-            get { return GetProperty<string>(); }
+            get => GetProperty<string>();
             internal set
             {
                 if (SetProperty(value) && SelectInPlace)
@@ -34,25 +34,13 @@ namespace Vidyano.ViewModel
             }
         }
 
-        public string DisplayAttribute
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string DisplayAttribute => GetProperty<string>();
 
-        public bool SelectInPlace
-        {
-            get { return GetProperty<bool>(); }
-        }
+        public bool SelectInPlace => GetProperty<bool>();
 
-        public bool CanRemoveReference
-        {
-            get { return !IsRequired && ObjectId != null; }
-        }
+        public bool CanRemoveReference => !IsRequired && ObjectId != null;
 
-        public bool CanOpen
-        {
-            get { return ObjectId != null && Lookup.CanRead; }
-        }
+        public bool CanOpen => ObjectId != null && Lookup.CanRead;
 
         public string SelectedReferenceValue
         {
@@ -74,10 +62,7 @@ namespace Vidyano.ViewModel
             }
         }
 
-        public bool CanAddNewReference
-        {
-            get { return GetProperty<bool>(); }
-        }
+        public bool CanAddNewReference => GetProperty<bool>();
 
         public Query Lookup { get; private set; }
 

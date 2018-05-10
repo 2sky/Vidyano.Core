@@ -22,22 +22,13 @@ namespace Vidyano.ViewModel
 
         #region Properties
 
-        public string Id
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Id => GetProperty<string>();
 
-        public string Breadcrumb
-        {
-            get { return GetProperty<string>(); }
-        }
+        public string Breadcrumb => GetProperty<string>();
 
         public Query Query { get; private set; }
 
-        public bool HasValues
-        {
-            get { return values.HasValues; }
-        }
+        public bool HasValues => values.HasValues;
 
         public object this[string key]
         {

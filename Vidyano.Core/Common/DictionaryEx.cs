@@ -9,8 +9,7 @@ namespace Vidyano.Common
         {
             lock (source)
             {
-                TValue value;
-                if (!source.TryGetValue(key, out value))
+                if (!source.TryGetValue(key, out var value))
                     source.Add(key, value = valueSelector(key));
 
                 return value;
