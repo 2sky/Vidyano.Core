@@ -130,6 +130,8 @@ namespace Vidyano
 
         public Hooks Hooks { get; set; }
 
+        public Action<string, JObject> LogPosts { get; set; }
+
         #endregion
 
         #region Internal Properties
@@ -199,6 +201,13 @@ namespace Vidyano
 
         private async Task<JObject> PostAsync(string method, JObject data)
         {
+            JObject Log(JObject result)
+            {
+                LogPosts?.Invoke(method, result);
+
+                return result;
+            }
+
             HttpResponseMessage responseMsg;
             try
             {
@@ -206,19 +215,19 @@ namespace Vidyano
             }
             catch (TaskCanceledException)
             {
-                return new JObject(new JProperty("exception", "Timeout: request took longer than " + httpClient.Timeout));
+                return Log(new JObject(new JProperty("exception", "Timeout: request took longer than " + httpClient.Timeout)));
             }
             catch (Exception responseEx)
             {
-                return new JObject(new JProperty("exception", GetNoInternetMessage().Message + "\n\nException: " + responseEx));
+                return Log(new JObject(new JProperty("exception", GetNoInternetMessage().Message + "\n\nException: " + responseEx)));
             }
 
             if (!responseMsg.IsSuccessStatusCode)
-                return new JObject(new JProperty("exception", "error, status: " + responseMsg.StatusCode));
+                return Log(new JObject(new JProperty("exception", "error, status: " + responseMsg.StatusCode)));
 
             var content = await responseMsg.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (string.IsNullOrEmpty(content))
-                return new JObject(new JProperty("exception", GetNoInternetMessage().Title));
+                return Log(new JObject(new JProperty("exception", GetNoInternetMessage().Title)));
 
             var response = JObject.Parse(content);
 
@@ -240,7 +249,7 @@ namespace Vidyano
                 }
             }
 
-            return response;
+            return Log(response);
         }
 
         public Task<PersistentObject> SignInUsingAccessTokenAsync(string accessToken, string serviceProvider = "Microsoft")

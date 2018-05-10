@@ -20,7 +20,14 @@
     <RepositoryUrl>https://github.com/2sky/Vidyano.Core</RepositoryUrl>
     <Authors>2sky</Authors>
     <PackageTags>vidyano portable client pcl</PackageTags>
+    <RootNamespace>Vidyano</RootNamespace>
+    <LangVersion>7</LangVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Vidyano.Core.5.2.2.0.nupkg" />
+    <None Remove="Vidyano.Core.5.2.3.0.nupkg" />
+  </ItemGroup>
 
   <ItemGroup>
     <None Include="App.config" />
