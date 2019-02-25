@@ -10,11 +10,11 @@ namespace Vidyano.ViewModel.Actions
             CanExecute = parent.IsInEdit;
         }
 
-#pragma warning disable 1998
-        public override async Task Execute(object parameter)
-#pragma warning restore 1998
+        public override Task<PersistentObject> Execute(object parameter)
         {
             Parent.CancelEdit();
+
+            return Task.FromResult(Parent);
         }
     }
 }

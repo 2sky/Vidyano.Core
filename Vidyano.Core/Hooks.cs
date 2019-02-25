@@ -7,27 +7,33 @@ using Vidyano.ViewModel.Actions;
 
 namespace Vidyano
 {
-    public abstract class Hooks
+    public class Hooks
     {
-        protected Hooks()
+        public Hooks()
+            : this("Windows")
         {
-            Environment = "Windows";
+        }
+
+        public Hooks(string environment)
+        {
+            Environment = environment;
         }
 
         protected internal string Environment { get; set; }
 
-#pragma warning disable 1998
-        internal virtual async Task<object> UserPictureFromUrl(string url)
+        internal virtual Task<object> UserPictureFromUrl(string url)
         {
-            return null;
+            return Task.FromResult(default(object));
         }
 
-        public virtual async Task ShowNotification(string notification, NotificationType notificationType)
+        public virtual Task ShowNotification(string notification, NotificationType notificationType)
         {
+            return Task.CompletedTask;
         }
 
-        protected internal virtual async Task OnAction(ExecuteActionArgs e)
+        protected internal virtual Task OnAction(ExecuteActionArgs e)
         {
+            return Task.CompletedTask;
         }
 
         protected internal virtual void OnSessionUpdated(PersistentObject session)
@@ -64,8 +70,10 @@ namespace Vidyano
         {
         }
 
-        protected internal virtual async Task OnLoadProgramUnitItems(IList<ProgramUnitItem> items)
+        protected internal virtual Task OnLoadProgramUnitItems(IList<ProgramUnitItem> items)
         {
+            return Task.CompletedTask;
+
         }
 
         internal virtual object ByteArrayToImageSource(MemoryStream memoryStream)
@@ -73,8 +81,10 @@ namespace Vidyano
             return null;
         }
 
-        internal virtual async Task SignOut()
+        internal virtual Task SignOut()
         {
+            return Task.CompletedTask;
+
         }
 
         internal virtual async Task OnActionCommand(ActionBase action, object obj)
@@ -88,19 +98,19 @@ namespace Vidyano
             return null;
         }
 
-        protected internal virtual async Task OnInitialized()
+        protected internal virtual Task OnInitialized()
         {
+            return Task.CompletedTask;
+
         }
 
         protected internal virtual void OnCreateData(JObject data)
         {
         }
 
-        protected internal virtual async Task<int> OnRetryAction(string title, string message, string[] options, PersistentObject persistentObject)
+        protected internal virtual Task<int> OnRetryAction(string title, string message, string[] options, PersistentObject persistentObject)
         {
-            return -1;
+            return Task.FromResult(-1);
         }
-
-#pragma warning restore 1998
     }
 }

@@ -15,13 +15,15 @@ namespace Vidyano.ViewModel.Actions
             CanExecute = definition.SelectionRule(selectedItemsCount);
         }
 
-        public override async Task Execute(object option)
+        public override async Task<PersistentObject> Execute(object option)
         {
-            await base.Execute(option).ConfigureAwait(false);
-            Query.PendingSemanicZoomTabsRefresh = true;
+            var result = await base.Execute(option).ConfigureAwait(false);
+            Query.PendingSemanticZoomTabsRefresh = true;
 
             if (Query.SemanticZoomOwner != null)
-                Query.SemanticZoomOwner.PendingSemanicZoomTabsRefresh = true;
+                Query.SemanticZoomOwner.PendingSemanticZoomTabsRefresh = true;
+
+            return result;
         }
     }
 }

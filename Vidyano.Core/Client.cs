@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -15,6 +16,9 @@ using Vidyano.ViewModel.Actions;
 
 namespace Vidyano
 {
+    /// <summary>
+    /// Connects to a Vidyano backend.
+    /// </summary>
     public sealed class Client : NotifyableBase
     {
         #region Fields
@@ -128,7 +132,7 @@ namespace Vidyano
             private set => _Messages = value;
         }
 
-        public Hooks Hooks { get; set; }
+        public Hooks Hooks { get; set; } = new Hooks();
 
         public Action<string, JObject> LogPosts { get; set; }
 
@@ -141,6 +145,11 @@ namespace Vidyano
         internal IReadOnlyDictionary<string, ActionBase.Definition> Actions { get; private set; }
 
         internal string AuthToken { get; set; }
+
+        /// <summary>
+        /// Is used on the Authorization header
+        /// </summary>
+        internal AuthenticationHeaderValue AuthorizationHeader { get; set; }
 
         public string User { get; private set; }
 
@@ -155,13 +164,13 @@ namespace Vidyano
             httpClient.CancelPendingRequests();
         }
 
-        public async Task<ClientData> GetClientData(string environment = "Windows")
+        public async Task<ClientData> GetClientData(string environment = null)
         {
             try
             {
                 IsBusy = true;
 
-                return new ClientData(JObject.Parse(await httpClient.GetStringAsync(new Uri(Uri) + "GetClientData?environment=" + environment).ConfigureAwait(false)));
+                return new ClientData(JObject.Parse(await httpClient.GetStringAsync(new Uri(Uri) + "GetClientData?environment=" + (environment ?? Hooks.Environment)).ConfigureAwait(false)));
             }
             catch
             {
@@ -178,8 +187,11 @@ namespace Vidyano
         {
             var data = new JObject();
 
-            data["userName"] = user ?? User;
-            data["authToken"] = authToken ?? AuthToken;
+            if (AuthorizationHeader == null)
+            {
+                data["userName"] = user ?? User;
+                data["authToken"] = authToken ?? AuthToken;
+            }
 
             data["environment"] = Hooks.Environment;
             data["isMobile"] = IsMobile;
@@ -211,7 +223,10 @@ namespace Vidyano
             HttpResponseMessage responseMsg;
             try
             {
-                responseMsg = await httpClient.PostAsync(new Uri(Uri) + method, new StringContent(data.ToString(Formatting.None))).ConfigureAwait(false);
+                var requestMessage = new HttpRequestMessage(HttpMethod.Post, new Uri(Uri) + method) { Content = new StringContent(data.ToString(Formatting.None)) };
+                if (AuthorizationHeader != null)
+                    requestMessage.Headers.Authorization = AuthorizationHeader;
+                responseMsg = await httpClient.SendAsync(requestMessage).ConfigureAwait(false);
             }
             catch (TaskCanceledException)
             {
@@ -254,17 +269,30 @@ namespace Vidyano
 
         public Task<PersistentObject> SignInUsingAccessTokenAsync(string accessToken, string serviceProvider = "Microsoft")
         {
+            AuthorizationHeader = null;
+
             return SignInAsync(null, null, accessToken: accessToken, serviceProvider: serviceProvider);
         }
 
         public Task<PersistentObject> SignInUsingCredentialsAsync(string user, string password)
         {
+            AuthorizationHeader = null;
+
             return SignInAsync(user, password);
         }
 
         public Task<PersistentObject> SignInUsingAuthTokenAsync(string user, string token)
         {
+            AuthorizationHeader = null;
+
             return SignInAsync(user, null, token);
+        }
+
+        public Task<PersistentObject> SignInUsingAuthorizationHeaderAsync(AuthenticationHeaderValue authorizationHeader)
+        {
+            AuthorizationHeader = authorizationHeader ?? throw new ArgumentNullException(nameof(authorizationHeader));
+
+            return SignInAsync(null, null);
         }
 
         private async Task<PersistentObject> SignInAsync(string user, string password, string token = null, string accessToken = null, string serviceProvider = null)
@@ -343,7 +371,7 @@ namespace Vidyano
             return Application;
         }
 
-        public async Task<PersistentObject> GetPersistentObjectAsync(string id, string objectId = null, PersistentObject parent = null)
+        public async Task<PersistentObject> GetPersistentObjectAsync(string id, string objectId = null, PersistentObject parent = null, bool isNew = false)
         {
             try
             {
@@ -354,6 +382,8 @@ namespace Vidyano
                 data["objectId"] = objectId;
                 if (parent != null)
                     data["parent"] = parent.ToServiceObject();
+                if (isNew)
+                    data["isNew"] = true;
 
                 var response = await PostAsync("GetPersistentObject", data).ConfigureAwait(false);
 
@@ -461,6 +491,9 @@ namespace Vidyano
 
         public async Task<PersistentObject> ExecuteActionAsync(string action, PersistentObject parent = null, Query query = null, QueryResultItem[] selectedItems = null, Dictionary<string, string> parameters = null, bool skipHooks = false)
         {
+            if (string.IsNullOrEmpty(action))
+                throw new ArgumentException("message", nameof(action));
+
             var isObjectAction = action.StartsWith("PersistentObject.") || query == null;
             if (isObjectAction && parent == null)
                 throw new ArgumentNullException(nameof(parent));
@@ -590,6 +623,7 @@ namespace Vidyano
             Application = null;
             User = string.Empty;
             AuthToken = null;
+            AuthorizationHeader = null;
             IsConnected = false;
 
             await Hooks.SignOut().ConfigureAwait(false);

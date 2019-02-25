@@ -11,11 +11,11 @@ namespace Vidyano.ViewModel.Actions
 
         internal override Definition[] DependentActions => new[] { client.Actions["EndEdit"], client.Actions["CancelEdit"] };
 
-#pragma warning disable 1998
-        public override async Task Execute(object parameter)
-#pragma warning restore 1998
+        public override Task<PersistentObject> Execute(object parameter)
         {
             Parent.Edit();
+
+            return Task.FromResult(Parent);
         }
     }
 }

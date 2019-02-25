@@ -30,14 +30,14 @@ namespace Vidyano.ViewModel.Actions
             Options = options.ToArray();
         }
 
-        public override async Task Execute(object option)
+        public override async Task<PersistentObject> Execute(object option)
         {
             var idx = Array.IndexOf(Options, (string)option);
 
             if (idx == Options.Length - 1)
-                await addAction.Execute(-1).ConfigureAwait(false);
-            else
-                await newAction.Execute(idx).ConfigureAwait(false);
+                return await addAction.Execute(-1).ConfigureAwait(false);
+            
+            return await newAction.Execute(idx).ConfigureAwait(false);
         }
     }
 }

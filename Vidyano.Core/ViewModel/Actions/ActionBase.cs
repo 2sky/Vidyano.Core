@@ -66,10 +66,10 @@ namespace Vidyano.ViewModel.Actions
 
         internal virtual Definition[] DependentActions => new Definition[0];
 
-        public ICommand Command { get; private set; }
+        public ICommand Command { get; }
         internal virtual void Initialize() {}
 
-        public virtual async Task Execute(object option)
+        public virtual async Task<PersistentObject> Execute(object option)
         {
             var index = Array.IndexOf(Options, Convert.ToString(option));
             var parameters = new Dictionary<string, string> { { "MenuOption", Client.ToServiceString(index) } };
@@ -118,8 +118,7 @@ namespace Vidyano.ViewModel.Actions
                     }
                     catch (Exception e)
                     {
-                        var qAction = this as QueryAction;
-                        if (qAction != null)
+                        if (this is QueryAction qAction)
                             qAction.Query.SetNotification(e.Message);
                         else if (Parent != null)
                             Parent.SetNotification(e.Message);
@@ -144,6 +143,8 @@ namespace Vidyano.ViewModel.Actions
                 if (Query.SemanticZoomOwner != null)
                     await Query.SemanticZoomOwner.RefreshQueryAsync().ConfigureAwait(false);
             }
+
+            return po;
         }
 
         internal static ActionBase[] GetActions(Client client, JToken actionsToken, PersistentObject parent, Query query = null)

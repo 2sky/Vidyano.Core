@@ -9,9 +9,11 @@ namespace Vidyano.ViewModel.Actions
         {
         }
 
-        public override async Task Execute(object option)
+        public override async Task<PersistentObject> Execute(object option)
         {
             await Query.RefreshQueryAsync().ConfigureAwait(false);
+
+            return null;
         }
     }
 }

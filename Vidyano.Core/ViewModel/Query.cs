@@ -135,8 +135,8 @@ namespace Vidyano.ViewModel
             {
                 if (SetProperty(value))
                 {
-                    HasTextSearch = !String.IsNullOrEmpty(value);
-                    PendingSemanicZoomTabsRefresh = true;
+                    HasTextSearch = !string.IsNullOrEmpty(value);
+                    PendingSemanticZoomTabsRefresh = true;
                 }
             }
         }
@@ -216,7 +216,7 @@ namespace Vidyano.ViewModel
             set => SetProperty(value);
         }
 
-        internal bool PendingSemanicZoomTabsRefresh { get; set; }
+        internal bool PendingSemanticZoomTabsRefresh { get; set; }
 
         #region Private Methods
 
@@ -358,7 +358,7 @@ namespace Vidyano.ViewModel
             if (searchingTask != null)
                 await searchingTask.ConfigureAwait(false);
 
-            var gotItems = false;
+            bool gotItems;
 
             if (PageSize.HasValue)
             {
@@ -386,6 +386,8 @@ namespace Vidyano.ViewModel
                     else
                         gotItems = true;
                 }
+                else
+                    gotItems = true; // NOTE: PageSize 0 will always have all items
             }
             else
                 gotItems = await SearchAsync().ConfigureAwait(false);
@@ -400,7 +402,7 @@ namespace Vidyano.ViewModel
 
         public virtual async Task SearchTextAsync(string text)
         {
-            TextSearch = !String.IsNullOrEmpty(text) ? text : null;
+            TextSearch = !string.IsNullOrEmpty(text) ? text : null;
             await SearchAsync(true).ConfigureAwait(false);
         }
 
@@ -418,7 +420,7 @@ namespace Vidyano.ViewModel
 
         internal async Task<PersistentObjectTabQuery[]> GetSemanticZoomTabs()
         {
-            if (semanticZoomTabs == null || PendingSemanicZoomTabsRefresh)
+            if (semanticZoomTabs == null || PendingSemanticZoomTabsRefresh)
             {
                 var po = await Client.ExecuteActionAsync("QueryFilter.SemanticZoom", Parent, this).ConfigureAwait(false);
                 if (po != null)
@@ -428,7 +430,7 @@ namespace Vidyano.ViewModel
                         q.Value.Parent = Parent;
                         q.Value.SemanticZoomOwner = this;
                     });
-                    PendingSemanicZoomTabsRefresh = false;
+                    PendingSemanticZoomTabsRefresh = false;
                     semanticZoomTabs = po.Tabs.OfType<PersistentObjectTabQuery>().ToArray();
                 }
             }

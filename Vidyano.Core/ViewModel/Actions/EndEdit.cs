@@ -11,12 +11,14 @@ namespace Vidyano.ViewModel.Actions
             IsVisible = false;
         }
 
-        public override async Task Execute(object parameter)
+        public override async Task<PersistentObject> Execute(object parameter)
         {
             await Parent.Save().ConfigureAwait(false);
 
             if ((string.IsNullOrWhiteSpace(Parent.Notification) || Parent.NotificationType != NotificationType.Error) && Parent.StateBehavior.HasFlag(StateBehavior.StayInEdit))
                 Parent.Edit();
+
+            return Parent;
         }
     }
 }
