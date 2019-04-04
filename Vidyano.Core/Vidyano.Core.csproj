@@ -1,10 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard1.3</TargetFramework>
+    <TargetFrameworks>netstandard1.3;netstandard2.0</TargetFrameworks>
     <AssemblyName>Vidyano.Core</AssemblyName>
     <PackageId>Vidyano.Core</PackageId>
-    <NetStandardImplicitPackageVersion>1.6.1</NetStandardImplicitPackageVersion>
     <GenerateAssemblyTitleAttribute>false</GenerateAssemblyTitleAttribute>
     <GenerateAssemblyDescriptionAttribute>false</GenerateAssemblyDescriptionAttribute>
     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
@@ -15,26 +14,43 @@
     <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
     <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-    <Version>5.20.0</Version>
+    <Version>5.42.1</Version>
     <PackageProjectUrl>http://www.vidyano.com/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/2sky/Vidyano.Core</RepositoryUrl>
     <Authors>2sky</Authors>
-    <PackageTags>vidyano portable client pcl</PackageTags>
+    <PackageTags>vidyano portable client pcl netcore netstandard</PackageTags>
     <RootNamespace>Vidyano</RootNamespace>
     <LangVersion>7</LangVersion>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Vidyano.Core.5.2.2.0.nupkg" />
-    <None Remove="Vidyano.Core.5.2.3.0.nupkg" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0-beta-63127-02" PrivateAssets="All"/>
+  </ItemGroup>
+
+  <PropertyGroup Condition=" '$(TargetFramework)' == 'netstandard2.0'">
+    <DefineConstants>NETCORE;NETSTANDARD;NETSTANDARD2_0</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(TargetFramework)' == 'netstandard1.3'">
+    <NetStandardImplicitPackageVersion>1.6.1</NetStandardImplicitPackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="*.nupkg" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard1.3'">
     <PackageReference Include="Microsoft.NETCore.Portable.Compatibility" Version="1.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="9.0.1" />
     <PackageReference Include="System.ComponentModel" Version="4.3.0" />
     <PackageReference Include="System.Net.Http" Version="4.3.2" />
