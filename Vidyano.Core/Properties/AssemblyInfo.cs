@@ -11,10 +11,10 @@ using System.Runtime.InteropServices;
 
 
 [assembly: AssemblyCompany("2sky NV")]
-[assembly: AssemblyCopyright("Copyright © 2sky NV 2010-2019")]
+[assembly: AssemblyCopyright("Copyright © 2sky NV 2010-2022")]
 [assembly: AssemblyTrademark("")]
 
-[assembly: AssemblyVersion("5.42.0.0")]
-[assembly: AssemblyFileVersion("5.42.0.0")]
+[assembly: AssemblyVersion("5.48.0.0")]
+[assembly: AssemblyFileVersion("5.48.0.0")]
 
 [assembly: ComVisible(false)]
