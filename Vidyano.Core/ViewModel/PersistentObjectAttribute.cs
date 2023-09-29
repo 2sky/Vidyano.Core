@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -267,7 +267,7 @@ namespace Vidyano.ViewModel
                 optionsDirect.Run(o => options.Add(new Option(o, o)));
             }
             else if (Type == DataTypes.KeyValueList && OptionsDirect != null)
-                options.AddRange(OptionsDirect.Select(o => o.Split(new[] { '=' }, 2)).Select(p => new Option(p[0], p[1])));
+                options.AddRange(OptionsDirect.Select(o => o.Split(new[] { '=' }, 2)).Select(p => new Option(p[0], p.Length > 1 ? p[1] : null)));
 
             Options = options.ToArray();
         }
