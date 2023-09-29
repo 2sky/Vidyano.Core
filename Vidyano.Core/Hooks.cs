@@ -9,6 +9,8 @@ namespace Vidyano
 {
     public class Hooks
     {
+        // TODO: ClientOperations
+
         public Hooks()
             : this("Windows")
         {
