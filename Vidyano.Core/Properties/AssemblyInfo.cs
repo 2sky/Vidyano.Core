@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 
 
 [assembly: AssemblyCompany("2sky NV")]
-[assembly: AssemblyCopyright("Copyright © 2sky NV 2010-2022")]
+[assembly: AssemblyCopyright("Copyright © 2sky NV 2010-2023")]
 [assembly: AssemblyTrademark("")]
 
 [assembly: AssemblyVersion("5.48.0.0")]
