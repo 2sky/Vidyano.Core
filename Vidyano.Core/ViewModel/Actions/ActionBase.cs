@@ -46,9 +46,9 @@ namespace Vidyano.ViewModel.Actions
 
         public string Name => definition.Name;
 
-        public PersistentObject Parent { get; private set; }
+        public PersistentObject Parent { get; }
 
-        public Query Query { get; private set; }
+        public Query Query { get; }
 
         public bool IsVisible
         {

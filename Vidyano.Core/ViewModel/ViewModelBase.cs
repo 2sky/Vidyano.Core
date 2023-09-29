@@ -21,7 +21,7 @@ namespace Vidyano.ViewModel
 
         internal string PagePath { get; set; }
 
-        internal JObject Model { get; private set; }
+        internal JObject Model { get; }
 
         public Client Client { get; private set; }
 

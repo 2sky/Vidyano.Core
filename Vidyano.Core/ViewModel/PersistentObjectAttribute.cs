@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -201,7 +201,7 @@ namespace Vidyano.ViewModel
             }
         }
 
-        public PersistentObject Parent { get; private set; }
+        public PersistentObject Parent { get; }
 
         internal bool UpdateValue(object value)
         {
@@ -263,7 +263,7 @@ namespace Vidyano.ViewModel
             }
             else if (Type == DataTypes.DropDown || Type == DataTypes.Enum || Type == DataTypes.ComboBox)
             {
-                var optionsDirect = OptionsDirect ?? new string[0];
+                var optionsDirect = OptionsDirect ?? Array.Empty<string>();
                 optionsDirect.Run(o => options.Add(new Option(o, o)));
             }
             else if (Type == DataTypes.KeyValueList && OptionsDirect != null)
@@ -364,9 +364,9 @@ namespace Vidyano.ViewModel
                 DisplayValue = displayValue;
             }
 
-            public string Key { get; private set; }
+            public string Key { get; }
 
-            public string DisplayValue { get; private set; }
+            public string DisplayValue { get; }
         }
 
         #endregion

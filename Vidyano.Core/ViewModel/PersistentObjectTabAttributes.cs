@@ -11,7 +11,7 @@ namespace Vidyano.ViewModel
             Groups = Attributes.Where(a => a.IsVisible).GroupBy(a => a.Group).Select(g => g.Key).ToArray();
         }
 
-        public PersistentObjectAttribute[] Attributes { get; private set; }
+        public PersistentObjectAttribute[] Attributes { get; }
 
         public PersistentObjectAttributeGroup[] Groups { get; private set; }
 

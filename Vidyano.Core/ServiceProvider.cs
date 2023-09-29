@@ -13,7 +13,7 @@ namespace Vidyano
             Parameters = new ReadOnlyDictionary<string, string>(parameters);
         }
 
-        public string Name { get; private set; }
+        public string Name { get; }
 
         public string Label
         {
@@ -23,7 +23,7 @@ namespace Vidyano
             }
         }
 
-        public IReadOnlyDictionary<string, string> Parameters { get; private set; }
+        public IReadOnlyDictionary<string, string> Parameters { get; }
 
         public ICommand Select { get; internal set; }
     }

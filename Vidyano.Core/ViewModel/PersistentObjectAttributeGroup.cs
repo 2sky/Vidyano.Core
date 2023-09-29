@@ -29,6 +29,6 @@ namespace Vidyano.ViewModel
 
         public bool IsNameVisible { get; internal set; }
 
-        public PersistentObjectAttribute[] Attributes { get; private set; }
+        public PersistentObjectAttribute[] Attributes { get; }
     }
 }

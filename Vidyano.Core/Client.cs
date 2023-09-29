@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -26,7 +26,7 @@ namespace Vidyano
         private static readonly HashSet<Type> defaultConverterTypes = new HashSet<Type>(new[]
             {
                 typeof(byte), typeof(sbyte), typeof(char), typeof(short), typeof(ushort), typeof(int), typeof(uint), typeof(long), typeof(ulong), typeof(float), typeof(double), typeof(decimal), typeof(bool), typeof(Guid), typeof(string),
-                typeof(byte?), typeof(sbyte?), typeof(char?), typeof(short?), typeof(ushort?), typeof(int?), typeof(uint?), typeof(long?), typeof(ulong?), typeof(float?), typeof(double?), typeof(decimal?), typeof(bool?), typeof(Guid?), typeof(byte[])
+                typeof(byte?), typeof(sbyte?), typeof(char?), typeof(short?), typeof(ushort?), typeof(int?), typeof(uint?), typeof(long?), typeof(ulong?), typeof(float?), typeof(double?), typeof(decimal?), typeof(bool?), typeof(Guid?), typeof(byte[]),
             });
 
         private static readonly Dictionary<Type, object> defaultValues = new Dictionary<Type, object>();
@@ -353,7 +353,7 @@ namespace Vidyano
                     RefreshQueryOnCompleted = (bool)item["RefreshQueryOnCompleted"],
                     Offset = (int)item["Offset"],
                     Options = ((string)item["Options"] ?? string.Empty).Trim().Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(str => str.Trim()).ToArray(),
-                    SelectionRule = ExpressionParser.Get((string)item["SelectionRule"])
+                    SelectionRule = ExpressionParser.Get((string)item["SelectionRule"]),
                 });
 
                 await UpdateSession(response).ConfigureAwait(false);
@@ -501,8 +501,10 @@ namespace Vidyano
                 if (registeredStream != null)
                     data["id"] = registeredStream.ObjectId;
 
-                var req = new MultipartFormDataContent("VidyanoBoundary");
-                req.Add(new StringContent(data.ToString(Formatting.None)), "data");
+                var req = new MultipartFormDataContent("VidyanoBoundary")
+                {
+                    { new StringContent(data.ToString(Formatting.None)), "data" },
+                };
 
                 var responseMsg = await httpClient.PostAsync(new Uri(Uri) + "GetStream", req).ConfigureAwait(false);
 
@@ -899,8 +901,8 @@ namespace Vidyano
                 TryAgain = tryAgain;
             }
 
-            public string Title { get; private set; }
-            public string Message { get; private set; }
+            public string Title { get; }
+            public string Message { get; }
             public string TryAgain { get; private set; }
         }
 

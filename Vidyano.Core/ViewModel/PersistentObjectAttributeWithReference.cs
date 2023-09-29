@@ -64,7 +64,7 @@ namespace Vidyano.ViewModel
 
         public bool CanAddNewReference => GetProperty<bool>();
 
-        public Query Lookup { get; private set; }
+        public Query Lookup { get; }
 
         protected override void UpdateOptions()
         {

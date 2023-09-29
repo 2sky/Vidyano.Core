@@ -28,6 +28,6 @@
             set => SetProperty(ref _IsEmpty, value);
         }
 
-        public Query Query { get; private set; }
+        public Query Query { get; }
     }
 }

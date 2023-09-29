@@ -166,9 +166,9 @@ namespace Vidyano.ViewModel
             get { return GetProperty<string>(); }
         }
 
-        public PersistentObjectAttribute[] Attributes { get; private set; }
+        public PersistentObjectAttribute[] Attributes { get; }
 
-        public IReadOnlyDictionary<string, Query> Queries { get; private set; }
+        public IReadOnlyDictionary<string, Query> Queries { get; }
 
         public PersistentObject Parent { get; internal set; }
 
@@ -183,11 +183,11 @@ namespace Vidyano.ViewModel
             get { return GetAttribute(name); }
         }
 
-        public List<PersistentObjectTab> Tabs { get; private set; }
+        public List<PersistentObjectTab> Tabs { get; }
 
-        public ActionBase[] Actions { get; private set; }
+        public ActionBase[] Actions { get; }
 
-        public ActionBase[] PinnedActions { get; private set; }
+        public ActionBase[] PinnedActions { get; }
 
         public bool HasActions
         {

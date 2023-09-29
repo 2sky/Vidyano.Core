@@ -26,7 +26,7 @@ namespace Vidyano.ViewModel
 
         public string Breadcrumb => GetProperty<string>();
 
-        public Query Query { get; private set; }
+        public Query Query { get; }
 
         public bool HasValues => values.HasValues;
 

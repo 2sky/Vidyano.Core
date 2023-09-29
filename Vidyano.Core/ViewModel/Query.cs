@@ -96,7 +96,7 @@ namespace Vidyano.ViewModel
             set => SetProperty(value);
         }
 
-        public bool AsLookup { get; private set; }
+        public bool AsLookup { get; }
 
         public string Notification
         {
@@ -145,7 +145,7 @@ namespace Vidyano.ViewModel
 
         public PersistentObject Parent { get; internal set; }
 
-        public PersistentObject PersistentObject { get; private set; }
+        public PersistentObject PersistentObject { get; }
 
         internal Query SemanticZoomOwner { get; private set; }
 
@@ -199,9 +199,9 @@ namespace Vidyano.ViewModel
             private set => SetProperty(ref _Columns, value);
         }
 
-        public QueryAction[] Actions { get; private set; }
+        public QueryAction[] Actions { get; }
 
-        public QueryAction[] PinnedActions { get; private set; }
+        public QueryAction[] PinnedActions { get; }
 
         public bool HasActions
         {

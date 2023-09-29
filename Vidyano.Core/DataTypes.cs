@@ -24,12 +24,12 @@ namespace Vidyano
                       Boolean, NullableBoolean, YesNo,
                       Reference, KeyValueList,
                       Guid, NullableGuid,
-                      Image, BinaryFile
+                      Image, BinaryFile,
                   };
 
             Text = new HashSet<string>
                    {
-                       String, ComboBox, MultiLineString, DropDown, Enum, Guid, NullableGuid
+                       String, ComboBox, MultiLineString, DropDown, Enum, Guid, NullableGuid,
                    };
 
             Numeric = new HashSet<string>
@@ -40,14 +40,14 @@ namespace Vidyano
                           Int64, NullableInt64, UInt64, NullableUInt64,
                           Decimal, NullableDecimal,
                           Double, NullableDouble,
-                          Single, NullableSingle
+                          Single, NullableSingle,
                       };
 
             Dates = new HashSet<string>
                     {
                         Date, NullableDate,
                         DateTime, NullableDateTime,
-                        DateTimeOffset, NullableDateTimeOffset
+                        DateTimeOffset, NullableDateTimeOffset,
                     };
         }
 

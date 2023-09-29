@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 
@@ -30,18 +31,18 @@ namespace Vidyano.ViewModel
                 }).ToArray();
             }
             else
-                Objects = new PersistentObject[0];
+                Objects = Array.Empty<PersistentObject>();
         }
 
-        public Query Details { get; private set; }
+        public Query Details { get; }
 
-        public PersistentObject[] Objects { get; internal set; }
+        public PersistentObject[] Objects { get; set; }
 
-        public bool CanNew { get { return Details.Actions.Any(a => a.Name == "New"); } }
+        public bool CanNew => Details.Actions.Any(a => a.Name == "New");
 
-        public bool CanDelete { get { return Details.Actions.Any(a => a.Name == "Delete"); } }
+        public bool CanDelete => Details.Actions.Any(a => a.Name == "Delete");
 
-        public bool CanEdit { get { return Details.Actions.Any(a => a.Name == "BulkEdit"); } }
+        public bool CanEdit => Details.Actions.Any(a => a.Name == "BulkEdit");
 
         internal override JObject ToServiceObject()
         {

@@ -27,9 +27,9 @@ namespace Vidyano
 
         public ServiceLanguage[] Languages { get; private set; }
 
-        public ServiceProvider VidyanoServiceProvider { get; private set; }
+        public ServiceProvider VidyanoServiceProvider { get; }
 
-        public ServiceProvider[] OAuthServiceProviders { get; private set; }
+        public ServiceProvider[] OAuthServiceProviders { get; }
 
         public string DefaultUserName { get; private set; }
 
