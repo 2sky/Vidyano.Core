@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -91,6 +91,8 @@ namespace Vidyano
         #endregion
 
         #region Properties
+
+        public event Action<Exception> OnException;
 
         public static Client Current { get; private set; }
 
@@ -359,6 +361,12 @@ namespace Vidyano
                 var bulkEdit = Actions["BulkEdit"];
                 bulkEdit.SelectionRule = ExpressionParser.Get("=1");
             }
+            catch (Exception e)
+            {
+                OnException?.Invoke(e);
+
+                throw;
+            }
             finally
             {
                 IsBusy = false;
@@ -402,6 +410,12 @@ namespace Vidyano
 
                 return po;
             }
+            catch (Exception e)
+            {
+                OnException?.Invoke(e);
+
+                throw;
+            }
             finally
             {
                 IsBusy = false;
@@ -429,6 +443,12 @@ namespace Vidyano
 
                 var result = (JObject)response["query"];
                 return result != null ? Hooks.OnConstruct(this, result, null, false) : null;
+            }
+            catch (Exception e)
+            {
+                OnException?.Invoke(e);
+
+                throw;
             }
             finally
             {
@@ -459,6 +479,12 @@ namespace Vidyano
 
                 return (JObject)response["result"];
             }
+            catch (Exception e)
+            {
+                OnException?.Invoke(e);
+
+                throw;
+            }
             finally
             {
                 IsBusy = false;
@@ -482,6 +508,12 @@ namespace Vidyano
 
                 var stream = await responseMsg.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 return Tuple.Create(stream, responseMsg.Content.Headers.ContentDisposition.FileName ?? responseMsg.Content.Headers.ContentDisposition.FileNameStar);
+            }
+            catch (Exception e)
+            {
+                OnException?.Invoke(e);
+
+                throw;
             }
             finally
             {
@@ -578,6 +610,8 @@ namespace Vidyano
             }
             catch (Exception e)
             {
+                OnException?.Invoke(e);
+
                 if (isObjectAction)
                     parent.SetNotification(e.Message);
                 else
