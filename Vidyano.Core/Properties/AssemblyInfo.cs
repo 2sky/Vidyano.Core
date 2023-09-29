@@ -14,7 +14,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCopyright("Copyright © 2sky NV 2010-2023")]
 [assembly: AssemblyTrademark("")]
 
-[assembly: AssemblyVersion("5.48.0.0")]
-[assembly: AssemblyFileVersion("5.48.0.0")]
+[assembly: AssemblyVersion("5.49.0.0")]
+[assembly: AssemblyFileVersion("5.49.0")]
 
 [assembly: ComVisible(false)]
