@@ -636,7 +636,7 @@ namespace Vidyano
             if (response["session"] != null)
             {
                 var sessionPo = Hooks.OnConstruct(this, (JObject)response["session"]);
-                if (sessionPo.FullTypeName == "Vidyano.Error" || !string.IsNullOrEmpty(sessionPo.Notification))
+                if (sessionPo.FullTypeName == "Vidyano.Error" || (sessionPo.NotificationType == NotificationType.Error && !string.IsNullOrEmpty(sessionPo.Notification)))
                     throw new Exception(sessionPo.Notification);
 
                 if (Session != null)
