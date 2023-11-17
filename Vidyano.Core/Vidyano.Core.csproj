@@ -15,7 +15,7 @@
     <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
     <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-    <Version>5.49.0</Version>
+    <Version>5.50.0</Version>
     <PackageProjectUrl>http://www.vidyano.com/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/2sky/Vidyano.Core</RepositoryUrl>
     <Authors>2sky</Authors>
