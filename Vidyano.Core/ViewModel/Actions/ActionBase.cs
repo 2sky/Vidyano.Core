@@ -64,7 +64,7 @@ namespace Vidyano.ViewModel.Actions
 
         public bool HasSelectionRule => definition.SelectionRule != ExpressionParser.AlwaysTrue;
 
-        internal virtual Definition[] DependentActions => new Definition[0];
+        internal virtual Definition[] DependentActions => Array.Empty<Definition>();
 
         public ICommand Command { get; }
         internal virtual void Initialize() {}
@@ -75,7 +75,7 @@ namespace Vidyano.ViewModel.Actions
             var parameters = new Dictionary<string, string> { { "MenuOption", Client.ToServiceString(index) } };
             parameters["MenuLabel"] = Client.ToServiceString(option);
 
-            var selectedItems = Query != null && Query.Count > 0 ? Query.SelectedItems.ToArray() : new QueryResultItem[0];
+            var selectedItems = Query != null && Query.Count > 0 ? Query.SelectedItems.ToArray() : Array.Empty<QueryResultItem>();
             var po = await client.ExecuteActionAsync((this is QueryAction ? "Query" : "PersistentObject") + "." + definition.Name, Parent, Query, selectedItems, parameters).ConfigureAwait(false);
 
             if (po != null)

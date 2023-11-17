@@ -30,7 +30,7 @@ namespace Vidyano.ViewModel
                 }).ToArray();
             }
             else
-                Attributes = new PersistentObjectAttribute[0];
+                Attributes = Array.Empty<PersistentObjectAttribute>();
 
             if (model.TryGetValue("queries", out var queriesToken))
             {
@@ -55,7 +55,7 @@ namespace Vidyano.ViewModel
                 var t = (PersistentObjectTab)CreateAttributesTab(groups.SelectMany(g => g.Attributes).ToArray(), string.IsNullOrEmpty(tab.Key) ? Label : tab.Key, this);
                 t.Index = tabIndex++;
                 return t;
-            }) : new PersistentObjectTabAttributes[0];
+            }) : Array.Empty<PersistentObjectTabAttributes>();
 
             Tabs = attributeTabs.Concat(Queries.OrderBy(q => q.Value.Offset).Select(q => CreateQueryTab(q.Value))).ToList();
 
@@ -73,10 +73,10 @@ namespace Vidyano.ViewModel
                     PinnedActions.Run(a => a.Initialize());
                 }
                 else
-                    Actions = PinnedActions = new ActionBase[0];
+                    Actions = PinnedActions = Array.Empty<ActionBase>();
             }
             else
-                Actions = PinnedActions = new ActionBase[0];
+                Actions = PinnedActions = Array.Empty<ActionBase>();
 
             // Also check IsInEdit (Object could have been reconstructed after suspend/resume)
             IsInEdit = IsInEdit || IsNew || StateBehavior.HasFlag(StateBehavior.OpenInEdit) || StateBehavior.HasFlag(StateBehavior.StayInEdit);
@@ -359,7 +359,7 @@ namespace Vidyano.ViewModel
                                     obj.IsInEdit = IsInEdit;
                                     return obj;
                                 }).ToArray()
-                                : new PersistentObject[0];
+                                : Array.Empty<PersistentObject>();
                         }
 
                         attr.TriggersRefresh = serviceAttribute.TriggersRefresh;

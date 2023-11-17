@@ -73,7 +73,7 @@ namespace Vidyano.ViewModel
             if (!IsRequired && Type != DataTypes.Enum)
                 options.Add(new Option(null, string.Empty));
 
-            var optionsDirect = OptionsDirect ?? new string[0];
+            var optionsDirect = OptionsDirect ?? Array.Empty<string>();
             optionsDirect.Run(o =>
             {
                 var parts = o.Split(new[] { '=' }, 2);

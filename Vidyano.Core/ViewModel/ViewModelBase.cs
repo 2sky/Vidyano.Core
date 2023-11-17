@@ -66,7 +66,7 @@ namespace Vidyano.ViewModel
 
         protected virtual string[] GetServiceProperties()
         {
-            return new string[0];
+            return Array.Empty<string>();
         }
 
         internal virtual JObject ToServiceObject()

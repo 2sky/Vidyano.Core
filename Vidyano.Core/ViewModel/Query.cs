@@ -45,7 +45,7 @@ namespace Vidyano.ViewModel
                 Columns = columns.Select(jCol => new QueryColumn((JObject)jCol, this)).ToArray();
             }
             else
-                Columns = new QueryColumn[0];
+                Columns = Array.Empty<QueryColumn>();
 
             if (model.TryGetValue("actions", out var actionsToken))
             {
@@ -56,7 +56,7 @@ namespace Vidyano.ViewModel
                 PinnedActions = actions.Where(a => a.IsPinned).OfType<QueryAction>().ToArray();
             }
             else
-                PinnedActions = Actions = new QueryAction[0];
+                PinnedActions = Actions = Array.Empty<QueryAction>();
 
             var newAction = Actions.OfType<New>().FirstOrDefault();
             var addAction = Actions.FirstOrDefault(a => a.Name == "AddReference");
@@ -291,13 +291,13 @@ namespace Vidyano.ViewModel
                 }).ToArray();
             }
             else
-                Columns = new QueryColumn[0];
+                Columns = Array.Empty<QueryColumn>();
 
             TotalItems = (int?)result["totalItems"] ?? 0;
             PageSize = (int?)result["pageSize"] ?? 0;
             HasSearched = true;
 
-            var items = new QueryResultItem[0];
+            var items = Array.Empty<QueryResultItem>();
             if (result.TryGetValue("items", out var itemsToken))
                 items = itemsToken.Select(jItem => new QueryResultItem((JObject)jItem, this)).ToArray();
 
@@ -392,7 +392,7 @@ namespace Vidyano.ViewModel
             else
                 gotItems = await SearchAsync().ConfigureAwait(false);
 
-            return gotItems ? this.Skip(skip).Take(top == 0 ? TotalItems - skip : top).ToArray() : new QueryResultItem[0];
+            return gotItems ? this.Skip(skip).Take(top == 0 ? TotalItems - skip : top).ToArray() : Array.Empty<QueryResultItem>();
         }
 
         public virtual async Task RefreshQueryAsync()
