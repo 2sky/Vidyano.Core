@@ -44,7 +44,13 @@ namespace Vidyano.ViewModel
         {
             var camelCasePropertyName = GetCamelCasePropertyName(propertyName);
             var token = value != null ? JToken.FromObject(value) : null;
-            if (Equals(Model[camelCasePropertyName], token)) return false;
+            if (Equals(Model[camelCasePropertyName], token))
+            {
+                if (Client.StrictMode)
+                    throw new InvalidOperationException("The value specified and the current value of the property are the same.");
+
+                return false;
+            }
 
             Model[camelCasePropertyName] = token;
             OnPropertyChanged(propertyName);

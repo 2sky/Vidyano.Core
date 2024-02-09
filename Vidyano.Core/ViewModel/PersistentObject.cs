@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -266,7 +266,12 @@ namespace Vidyano.ViewModel
         public void CancelEdit()
         {
             if (!IsInEdit)
+            {
+                if (Client.StrictMode)
+                    throw new InvalidOperationException("Persistent Object needs to be in Edit mode to be able to be cancel");
+
                 return;
+            }
 
             SecurityToken = BackupSecurityToken;
             Attributes.Run(a => a.RestoreEditBackup());
