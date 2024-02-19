@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -95,6 +95,8 @@ namespace Vidyano
         public event Action<Exception> OnException;
 
         public static Client Current { get; private set; }
+
+        public static bool StrictMode { get; set; }
 
         public PersistentObject Application
         {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -246,6 +246,11 @@ namespace Vidyano.ViewModel
                 HasValue = Value != null;
                 OnPropertyChanged("DisplayValue");
                 OnPropertyChanged("SelectedOption");
+            }
+            else
+            {
+                if (Client.StrictMode)
+                    throw new InvalidOperationException("There's no backup to restore/edit. Please create a backup before restoring/editing it.");
             }
         }
 

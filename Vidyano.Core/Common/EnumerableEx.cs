@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
@@ -38,7 +38,12 @@ namespace Vidyano.Common
         public static void Run<T>(this IEnumerable<T> source)
         {
             if (source == null)
+            {
+                if (Client.StrictMode)
+                    throw new InvalidOperationException("Can't run through an empty enumerable.");
+
                 return;
+            }
 
 #pragma warning disable 168
             foreach (var item in source) {}
@@ -55,7 +60,12 @@ namespace Vidyano.Common
         public static void Run<T>(this IEnumerable<T> source, Action<T> action)
         {
             if (source == null || action == null)
+            {
+                if (Client.StrictMode)
+                    throw new InvalidOperationException(source == null ? "Can't run through an empty enumerable." : "Specify an action to execute for each item.");
+
                 return;
+            }
 
             foreach (var item in source)
                 action(item);
