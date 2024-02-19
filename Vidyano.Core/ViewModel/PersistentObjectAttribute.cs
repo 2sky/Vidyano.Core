@@ -59,12 +59,7 @@ namespace Vidyano.ViewModel
             set
             {
                 if (OptionsDirect != null && value != null && OptionsDirect.SequenceEqual(value))
-                {
-                    if (Client.StrictMode)
-                        throw new InvalidOperationException("The current value is the same as the specified value.");
-
                     return;
-                }
 
                 SetProperty(value, "Options");
                 UpdateOptions();
@@ -211,12 +206,7 @@ namespace Vidyano.ViewModel
         internal bool UpdateValue(object value)
         {
             if (IsReadOnly)
-            {
-                if (Client.StrictMode)
-                    throw new InvalidOperationException($"Attribute '{Name}' is read-only, can't update value to '{value}'.");
-
                 return false;
-            }
 
             if (SetProperty(Client.ToServiceString(value), "Value"))
             {
