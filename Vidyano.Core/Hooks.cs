@@ -110,9 +110,9 @@ namespace Vidyano
         {
         }
 
-        protected internal virtual Task<int> OnRetryAction(string title, string message, string[] options, PersistentObject persistentObject)
+        protected internal virtual Task<string> OnRetryAction(string title, string message, string[] options, PersistentObject persistentObject)
         {
-            return Task.FromResult(-1);
+            return Task.FromResult("-1");
         }
     }
 }
