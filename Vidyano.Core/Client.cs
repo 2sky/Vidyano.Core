@@ -85,7 +85,22 @@ namespace Vidyano
         {
             Current = this;
 
-            httpClient = client ?? new HttpClient { Timeout = TimeSpan.FromSeconds(90) };
+            if (client is null)
+            {
+                // Create HttpClient with cookie support
+                var handler = new HttpClientHandler
+                {
+                    CookieContainer = new(),
+                    UseCookies = true,
+                };
+
+                httpClient = new HttpClient(handler)
+                {
+                    Timeout = TimeSpan.FromSeconds(90),
+                };
+            }
+            else
+                httpClient = client;
         }
 
         #endregion
@@ -658,12 +673,28 @@ namespace Vidyano
 
         public async Task SignOut()
         {
+            // Try to call viSignOut action on the Application before clearing auth tokens
+            if (Application != null)
+            {
+                try
+                {
+                    await ExecuteActionAsync("PersistentObject.viSignOut", Application, skipHooks: true).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Ignore any errors during sign out action execution
+                    // Server might be unreachable or action might not exist
+                }
+            }
+
+            // Clear local state
             Application = null;
             User = string.Empty;
             AuthToken = null;
             AuthorizationHeader = null;
             IsConnected = false;
 
+            // Call hooks for additional cleanup
             await Hooks.SignOut().ConfigureAwait(false);
         }
 
