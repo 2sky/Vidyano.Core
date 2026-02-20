@@ -439,7 +439,7 @@ namespace Vidyano
             }
         }
 
-        public async Task<Query> GetQueryAsync(string id, string filterName = null)
+        public async Task<Query> GetQueryAsync(string id, string filterName = null, ColumnOverride[] columnOverrides = null)
         {
             try
             {
@@ -448,6 +448,8 @@ namespace Vidyano
                 var data = CreateData();
                 data["id"] = id;
                 data["filterName"] = filterName;
+                if (columnOverrides != null && columnOverrides.Length > 0)
+                    data["columnOverrides"] = JArray.FromObject(columnOverrides);
 
                 var response = await PostAsync("GetQuery", data).ConfigureAwait(false);
 
@@ -459,7 +461,11 @@ namespace Vidyano
                 await UpdateSession(response).ConfigureAwait(false);
 
                 var result = (JObject)response["query"];
-                return result != null ? Hooks.OnConstruct(this, result, null, false) : null;
+                var query = result != null ? Hooks.OnConstruct(this, result, null, false) : null;
+                if (query != null && columnOverrides != null && columnOverrides.Length > 0)
+                    query.ColumnOverrides = columnOverrides;
+
+                return query;
             }
             catch (Exception e)
             {
@@ -473,7 +479,7 @@ namespace Vidyano
             }
         }
 
-        public async Task<JObject> ExecuteQueryAsync(Query query, PersistentObject parent = null, string filterName = null, bool asLookup = false)
+        public async Task<JObject> ExecuteQueryAsync(Query query, PersistentObject parent = null, string filterName = null, bool asLookup = false, ColumnOverride[] columnOverrides = null)
         {
             try
             {
@@ -484,6 +490,8 @@ namespace Vidyano
                 data["parent"] = parent?.ToServiceObject();
                 data["filterName"] = filterName;
                 data["asLookup"] = asLookup;
+                if (columnOverrides != null && columnOverrides.Length > 0)
+                    data["columnOverrides"] = JArray.FromObject(columnOverrides);
 
                 var response = await PostAsync("ExecuteQuery", data).ConfigureAwait(false);
 

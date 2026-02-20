@@ -216,6 +216,11 @@ namespace Vidyano.ViewModel
             set => SetProperty(value);
         }
 
+        /// <summary>
+        /// Gets or sets the column overrides to apply when executing the query.
+        /// </summary>
+        public ColumnOverride[] ColumnOverrides { get; set; }
+
         internal bool PendingSemanticZoomTabsRefresh { get; set; }
 
         #region Private Methods
@@ -247,7 +252,7 @@ namespace Vidyano.ViewModel
                     CollectionChanged(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
                 }
 
-                var result = await Client.ExecuteQueryAsync(this, Parent, null, AsLookup).ConfigureAwait(false);
+                var result = await Client.ExecuteQueryAsync(this, Parent, null, AsLookup, ColumnOverrides).ConfigureAwait(false);
                 if (!token.IsCancellationRequested)
                 {
                     SetResult(result);
