@@ -26,5 +26,7 @@ namespace Vidyano.ViewModel
         StayInEdit = 4,
 
         OpenAsDialog = 8,
+
+        AsWizard = OpenAsDialog | 16,
     }
 }
