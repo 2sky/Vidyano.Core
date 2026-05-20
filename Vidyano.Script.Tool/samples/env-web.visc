@@ -1,0 +1,15 @@
+### Environment=Web regression. The script host pins environment="Web" + environmentVersion="3"
+### in ScriptHooks.OnCreateData so the server treats us like a v4 browser client:
+###   - default filters apply during GetQuery (rows arrive pre-filtered)
+###   - column.includes/excludes are populated on the result for any default filter
+###   - Web-only hook paths (ObjectEx.UpdateSelectInPlaceAsync, …) run
+### A drift back to the Native default ("Windows") would change Orders' row count, so we lock it.
+
+@app = "https://localhost:44353/"
+
+SIGN-IN admin / anything
+
+### Orders is the canonical Web-vs-Native fixture — count differed before because some server
+### logic gated on Web (or Web2) was being skipped. With Web mode enabled, Orders returns 6.
+OPEN MenuItem Home/Orders
+EXPECT TotalItems = 6

@@ -470,7 +470,7 @@ namespace Vidyano.ViewModel
 
         protected override string[] GetServiceProperties()
         {
-            return new[] { "id", "name", "label", "pageSize", "skip", "top", "sortOptions", "textSearch" };
+            return new[] { "id", "name", "label", "pageSize", "skip", "top", "sortOptions", "textSearch", "metadata", "tag", "navigationHints" };
         }
 
         internal override JObject ToServiceObject()

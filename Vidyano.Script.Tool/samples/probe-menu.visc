@@ -1,0 +1,9 @@
+# Probe: open ProgramUnits and dump rows. Run with --verbose to see the snapshot.
+@app = "https://localhost:44353/"
+
+SIGN-IN admin / anything
+
+### Open ProgramUnits and search to populate rows
+OPEN Query ProgramUnits
+SEARCH ""
+EXPECT TotalItems >= 0

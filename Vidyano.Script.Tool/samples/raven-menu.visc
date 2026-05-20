@@ -1,0 +1,19 @@
+@app = "https://localhost:44353/"
+
+### Sign in
+SIGN-IN admin / anything
+
+### No-arg OPEN MenuItem: auto-open the first ProgramUnit's first item (Home → Orders).
+OPEN MenuItem
+SEARCH ""
+EXPECT TotalItems >= 0
+
+### Explicit single-segment item name (unique across PUs).
+OPEN MenuItem Companies
+SEARCH ""
+EXPECT TotalItems >= 0
+
+### Fully qualified path.
+OPEN MenuItem Home/Employees
+SEARCH ""
+EXPECT TotalItems >= 0

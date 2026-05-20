@@ -1,0 +1,46 @@
+using System.Collections.Generic;
+using System.Net.Http;
+using Vidyano.Script.Runtime;
+
+namespace Vidyano.Script;
+
+/// <summary>
+/// Inputs for <see cref="VidyanoScript.RunAsync(string, VidyanoScriptOptions)"/>. None of these are
+/// required to have non-default values — the script itself can set <c>@app</c>, <c>@mode</c>, and
+/// credentials inline. The options object exists so library callers (LINQPad, xUnit fixtures, the CLI)
+/// can override or pre-seed any of those without rewriting the script.
+/// </summary>
+public sealed class VidyanoScriptOptions
+{
+    /// <summary>
+    /// Base URI of the remote Vidyano service. When set, takes precedence over the <c>@app</c> variable
+    /// declared in the script. When unset, the script must declare <c>@app</c>.
+    /// </summary>
+    public string? RemoteUri { get; set; }
+
+    /// <summary>
+    /// Reused HttpClient. Pass <c>TestServer.CreateClient()</c> for in-process execution.
+    /// </summary>
+    public HttpClient? HttpClient { get; set; }
+
+    /// <summary>Initial guard mode. May be overridden by a <c>@mode = ...</c> directive in the script.</summary>
+    public GuardMode Mode { get; set; } = GuardMode.Navigation;
+
+    /// <summary>
+    /// Pre-seeded variable bindings injected into the script's variable table. CLI <c>--var key=value</c>
+    /// flags land here; xUnit fixtures supply credentials.
+    /// </summary>
+    public Dictionary<string, object?> Variables { get; } = new(System.StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Display path used in <see cref="Diagnostics.SourceLocation"/> when the script body is supplied
+    /// inline rather than read from disk. Default <c>&lt;inline&gt;</c>.
+    /// </summary>
+    public string SourcePath { get; set; } = "<inline>";
+
+    /// <summary>
+    /// Bypass TLS certificate validation. Use only for local development against self-signed dev certs.
+    /// Ignored when <see cref="HttpClient"/> is supplied.
+    /// </summary>
+    public bool AcceptAnyServerCertificate { get; set; }
+}

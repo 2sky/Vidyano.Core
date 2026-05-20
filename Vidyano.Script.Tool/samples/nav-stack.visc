@@ -1,0 +1,68 @@
+### Navigation stack semantics — OPEN pushes, SAVE/CANCEL pops, and SAVE auto-refreshes
+### the underlying Query so subsequent verbs see the updated row state.
+###
+### The refresh after SAVE is driven by Vidyano.Core itself: PersistentObject.Save honours
+### OwnerQuery (re-search) and OwnerAttributeWithReference (parent.Edit + ChangeReference),
+### so the script host only pops the nav frame and lets the owner-side side-effects flow
+### through. A pop-revealed Query that isn't this PO's OwnerQuery falls back to a host-side
+### refresh — covered by "Successive OPENs" below where the second Query is unrelated.
+
+@app = "https://localhost:44353/"
+SIGN-IN admin / anything
+
+### Empty stack before any OPEN.
+EXPECT NavStack.Depth = 0
+EXPECT NavStack.Top.Kind IS NULL
+EXPECT NavStack.Top.Name IS NULL
+
+### Push a Query frame.
+OPEN MenuItem Home/Orders
+EXPECT NavStack.Depth = 1
+EXPECT NavStack.Top.Kind = "Query"
+EXPECT NavStack.Top.Name = "Orders"
+
+### SEARCH doesn't change the stack — it filters the current Query in place.
+SEARCH ""
+EXPECT NavStack.Depth = 1
+EXPECT NavStack.Top.Kind = "Query"
+
+### OPEN-ROW pushes a PO frame on top of the Query.
+OPEN-ROW 0
+EXPECT NavStack.Depth = 2
+EXPECT NavStack.Top.Kind = "PersistentObject"
+EXPECT NavStack.Top.Name = "Order"
+### An Order row opens as a page (the underlying Orders query stays "current" in the breadcrumb),
+### not as a modal — Orders doesn't carry StateBehavior.OpenAsDialog.
+EXPECT NavStack.Top.IsDialog = false
+
+### EDIT doesn't change the stack.
+EDIT
+EXPECT NavStack.Depth = 2
+EXPECT IsInEdit = true
+
+### SAVE pops the PO and auto-refreshes the underlying Orders Query.
+SAVE
+EXPECT NavStack.Depth = 1
+EXPECT NavStack.Top.Kind = "Query"
+EXPECT NavStack.Top.Name = "Orders"
+
+### After Save's OwnerQuery-driven refresh, the Query is fully functional again — we can
+### SEARCH and the TotalItems re-reads cleanly. A broken refresh (stale columns, lost
+### Includes, etc.) would surface here.
+EXPECT TotalItems >= 1
+SEARCH ""
+EXPECT TotalItems = 6
+
+### Push a second PO frame, then CANCEL — should pop without touching the underlying Query.
+OPEN-ROW 0
+EXPECT NavStack.Depth = 2
+EDIT
+CANCEL
+EXPECT NavStack.Depth = 1
+EXPECT NavStack.Top.Kind = "Query"
+
+### Successive OPENs keep stacking — second Query layered on top of the first.
+OPEN Query Companies
+EXPECT NavStack.Depth = 2
+EXPECT NavStack.Top.Kind = "Query"
+EXPECT NavStack.Top.Name = "Companies"

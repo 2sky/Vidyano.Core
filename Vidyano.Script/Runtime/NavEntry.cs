@@ -1,0 +1,42 @@
+using Vidyano.ViewModel;
+
+namespace Vidyano.Script.Runtime;
+
+/// <summary>
+/// One frame in the session's navigation stack — either a <see cref="PoEntry"/> or a
+/// <see cref="QueryEntry"/>. Browser-style: OPEN pushes a frame, SAVE/CANCEL pops one.
+/// </summary>
+/// <remarks>
+/// Frames carry a <see cref="IsDialog"/> flag to model the web client's modal-dialog stack:
+/// a PO with <see cref="StateBehavior.OpenAsDialog"/> opens on top of the current page rather than
+/// replacing it, and nested dialogs (a New PO opening a reference, then another) keep stacking.
+/// The pop/refresh rules are the same for both — the flag is exposed for assertions.
+/// </remarks>
+public abstract record NavEntry
+{
+    /// <summary>Canonical kind name used in <c>EXPECT NavStack.Top.Kind</c> ("PersistentObject" or "Query").</summary>
+    public abstract string Kind { get; }
+
+    /// <summary>Human-friendly identifier used in <c>EXPECT NavStack.Top.Name</c>
+    /// (the PO's <c>Type</c> or the Query's <c>Name</c>).</summary>
+    public abstract string Name { get; }
+
+    /// <summary>Whether this frame represents a modal dialog overlaying the page below it.</summary>
+    public abstract bool IsDialog { get; }
+}
+
+/// <summary>A persistent-object frame on the navigation stack.</summary>
+public sealed record PoEntry(PersistentObject Po, bool IsDialog = false) : NavEntry
+{
+    public override string Kind => "PersistentObject";
+    public override string Name => Po.Type;
+    public override bool IsDialog { get; } = IsDialog;
+}
+
+/// <summary>A query frame on the navigation stack.</summary>
+public sealed record QueryEntry(Query Query, bool IsDialog = false) : NavEntry
+{
+    public override string Kind => "Query";
+    public override string Name => Query.Name;
+    public override bool IsDialog { get; } = IsDialog;
+}

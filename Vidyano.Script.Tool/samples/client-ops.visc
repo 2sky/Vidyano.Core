@@ -1,0 +1,35 @@
+### EXPECT ClientOperation against the local Raven sample.
+###
+### OrderActions.OnSave queues an ExecuteMethod showMessageBox after a successful save.
+### With the Vidyano.Core metadata round-trip fix in place, the save now persists and the op
+### reaches the client.
+
+@app = "https://localhost:44353/"
+SIGN-IN admin / anything
+
+### Open + search produce no operations.
+OPEN MenuItem Home/Orders
+SEARCH ""
+EXPECT ClientOperation Refresh IS NULL
+EXPECT ClientOperation ShowMessageBox IS NULL
+
+### Open the first row, edit, and save with no field changes.
+### OrderActions.OnSave queues a ShowMessageBox once HasError is false.
+OPEN-ROW 0
+EDIT
+SAVE
+
+### Bare form: assert at least one ShowMessageBox fired.
+EXPECT ClientOperation ShowMessageBox
+### Same meaning, more readable in some scripts.
+EXPECT ClientOperation ShowMessageBox IS NOT NULL
+### Equality: matches the message body (arguments[1] of ExecuteMethod showMessageBox).
+EXPECT ClientOperation ShowMessageBox = "Some message"
+### Partial match — case-insensitive substring on the same canonical field.
+EXPECT ClientOperation ShowMessageBox CONTAINS "message"
+EXPECT ClientOperation ShowMessageBox CONTAINS "MESSAGE"
+### Negative partial — fails fast if the op text drifts unexpectedly.
+EXPECT ClientOperation ShowMessageBox NOT CONTAINS "error"
+### Negative checks: no other op types fired alongside.
+EXPECT ClientOperation Navigate IS NULL
+EXPECT ClientOperation OpenUrl IS NULL
