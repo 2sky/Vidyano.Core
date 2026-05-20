@@ -116,7 +116,44 @@ namespace Vidyano
         public PersistentObject Application
         {
             get => _Application;
-            set => SetProperty(ref _Application, value);
+            set
+            {
+                if (SetProperty(ref _Application, value))
+                    _programUnits = null;
+            }
+        }
+
+        private IReadOnlyList<ProgramUnit> _programUnits;
+
+        /// <summary>
+        /// The typed program-unit tree parsed from
+        /// <c>Application.GetAttribute("ProgramUnits").ValueDirect</c>. Returns an empty list when no
+        /// Application has been loaded or the signed-in user has no program-unit rights. Recomputed
+        /// once when <see cref="Application"/> is assigned, then cached.
+        /// </summary>
+        public IReadOnlyList<ProgramUnit> ProgramUnits
+        {
+            get
+            {
+                if (_programUnits != null)
+                    return _programUnits;
+
+                var raw = Application?.GetAttribute("ProgramUnits")?.ValueDirect;
+                if (string.IsNullOrEmpty(raw))
+                    return _programUnits = Array.Empty<ProgramUnit>();
+
+                try
+                {
+                    var parsed = JObject.Parse(raw);
+                    if (!(parsed["units"] is JArray units))
+                        return _programUnits = Array.Empty<ProgramUnit>();
+                    return _programUnits = units.OfType<JObject>().Select(u => new ProgramUnit(u)).ToArray();
+                }
+                catch
+                {
+                    return _programUnits = Array.Empty<ProgramUnit>();
+                }
+            }
         }
 
         public PersistentObject Session
@@ -283,7 +320,32 @@ namespace Vidyano
                 }
             }
 
+            DispatchClientOperations(response);
+
             return Log(response);
+        }
+
+        private readonly List<ClientOperation> _clientOperations = new List<ClientOperation>();
+
+        /// <summary>
+        /// Client operations observed since this <see cref="Client"/> was created, in arrival order.
+        /// Mirrors the v4 frontend's <c>service.queuedClientOperations</c>: each operation is also
+        /// dispatched to <see cref="Hooks.OnClientOperation"/> so UI hosts can act on it, while
+        /// non-UI hosts can read this list for inspection.
+        /// </summary>
+        public IReadOnlyList<ClientOperation> ClientOperations => _clientOperations;
+
+        private void DispatchClientOperations(JObject response)
+        {
+            if (!(response["operations"] is JArray ops))
+                return;
+
+            foreach (var raw in ops.OfType<JObject>())
+            {
+                var op = ClientOperation.FromJson(raw);
+                _clientOperations.Add(op);
+                Hooks?.OnClientOperation(op);
+            }
         }
 
         public Task<PersistentObject> SignInUsingAccessTokenAsync(string accessToken, string serviceProvider = "Microsoft")

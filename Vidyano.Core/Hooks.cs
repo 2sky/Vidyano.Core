@@ -9,8 +9,6 @@ namespace Vidyano
 {
     public class Hooks
     {
-        // TODO: ClientOperations
-
         public Hooks()
             : this("Windows")
         {
@@ -76,6 +74,17 @@ namespace Vidyano
         {
             return Task.CompletedTask;
 
+        }
+
+        /// <summary>
+        /// Called once per <see cref="ClientOperation"/> dequeued from a server response. Override to
+        /// react to server-driven refresh / navigate / message-box requests, mirroring the v4
+        /// frontend's <c>onClientOperation</c>. The default implementation is a no-op — non-UI hosts
+        /// (scripts, tests, automation) inspect operations through <see cref="Client.ClientOperations"/>
+        /// instead of acting on them.
+        /// </summary>
+        protected internal virtual void OnClientOperation(ClientOperation operation)
+        {
         }
 
         internal virtual object ByteArrayToImageSource(MemoryStream memoryStream)
