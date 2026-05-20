@@ -328,49 +328,13 @@ namespace Vidyano
             return Log(response);
         }
 
-        private readonly object _clientOperationsLock = new object();
-        private readonly List<ClientOperation> _clientOperations = new List<ClientOperation>();
-
-        /// <summary>
-        /// Client operations observed since this <see cref="Client"/> was created (or since the most
-        /// recent <see cref="ClearClientOperations"/>), in arrival order. Mirrors the v4 frontend's
-        /// <c>service.queuedClientOperations</c>: each operation is also dispatched to
-        /// <see cref="Hooks.OnClientOperation"/> so UI hosts can act on it, while non-UI hosts can
-        /// read this list for inspection. Returns a snapshot — safe to enumerate while concurrent
-        /// posts append further operations. Long-running hosts that don't subclass <see cref="Hooks"/>
-        /// should call <see cref="ClearClientOperations"/> periodically to prevent unbounded growth.
-        /// </summary>
-        public IReadOnlyList<ClientOperation> ClientOperations
-        {
-            get
-            {
-                lock (_clientOperationsLock)
-                    return _clientOperations.ToArray();
-            }
-        }
-
-        /// <summary>
-        /// Drop every operation accumulated in <see cref="ClientOperations"/>. <see cref="Hooks.OnClientOperation"/>
-        /// dispatch is unaffected — this only resets the inspection buffer.
-        /// </summary>
-        public void ClearClientOperations()
-        {
-            lock (_clientOperationsLock)
-                _clientOperations.Clear();
-        }
-
         private void DispatchClientOperations(JObject response)
         {
             if (!(response["operations"] is JArray ops))
                 return;
 
             foreach (var raw in ops.OfType<JObject>())
-            {
-                var op = ClientOperation.FromJson(raw);
-                lock (_clientOperationsLock)
-                    _clientOperations.Add(op);
-                Hooks?.OnClientOperation(op);
-            }
+                Hooks?.OnClientOperation(ClientOperation.FromJson(raw));
         }
 
         public Task<PersistentObject> SignInUsingAccessTokenAsync(string accessToken, string serviceProvider = "Microsoft")
