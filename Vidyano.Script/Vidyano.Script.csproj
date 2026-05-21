@@ -15,11 +15,18 @@
     <RepositoryUrl>https://github.com/2sky/Vidyano.Core</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageIcon>Vidyano.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <Description>Engine for the .visc Vidyano scripting format: parser, interpreter, guard layer, and programmatic session API on top of Vidyano.Core.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Vidyano.Core\Vidyano.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Vidyano.png" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>

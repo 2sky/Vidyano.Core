@@ -134,6 +134,31 @@ if (approveAction != null && approveAction.CanExecute)
 }
 ```
 
+## Companion packages
+
+The same repository ships two .NET packages built on top of `Vidyano.Core` for **scripting** Vidyano sessions — useful for regression tests, agent automation, and reproducing customer flows from a small file.
+
+| Package | Use it when… |
+|---|---|
+| [`Vidyano.Script`](https://www.nuget.org/packages/Vidyano.Script/) | You want to **embed** the `.visc` engine in your own .NET process (test fixtures, agents, custom runners). |
+| [`Vidyano.Script.Tool`](https://www.nuget.org/packages/Vidyano.Script.Tool/) | You want a **CLI** — `dotnet tool install -g Vidyano.Script.Tool` gives you `vidyano run script.visc`. |
+
+A `.visc` file is a short declarative script — sign in, open queries, edit rows, run actions — with `EXPECT` assertions on the observable state at each step:
+
+```visc
+@app = "https://demo.vidyano.com/"
+SIGN-IN admin / vidyano
+
+OPEN MenuItem Home/Customers
+SEARCH ""
+EXPECT TotalItems >= 1
+
+OPEN-ROW 0
+EXPECT NavStack.Top.Kind = "PersistentObject"
+```
+
+See each package's README for the full verb reference and examples.
+
 ## TypeScript/JavaScript Client
 
 For TypeScript and JavaScript applications, we also provide an npm package:

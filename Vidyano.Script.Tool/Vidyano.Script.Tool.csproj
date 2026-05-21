@@ -19,6 +19,9 @@
     <PackageProjectUrl>http://www.vidyano.com/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/2sky/Vidyano.Core</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageTags>vidyano script visc cli dotnet-tool testing automation agent</PackageTags>
+    <PackageIcon>Vidyano.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,6 +30,11 @@
 
   <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.49.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Vidyano.png" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>
