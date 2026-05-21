@@ -7,7 +7,6 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -77,10 +76,6 @@ namespace Vidyano
         private PersistentObject _Application, _Session, _Initial;
         private bool _IsBusy, _IsConnected, _IsUsingDefaultCredentials;
         private KeyValueList<string, string> _Messages;
-
-        private event Action<ClientOperation> ClientOperationDispatched;
-
-        private readonly SemaphoreSlim _initialGate = new SemaphoreSlim(1, 1);
 
         #endregion
 
@@ -172,12 +167,13 @@ namespace Vidyano
 
         /// <summary>
         /// The Initial <see cref="PersistentObject"/> returned by <c>GetApplication</c> when the
-        /// server gates the application behind a one-shot PO — for example license-terms acceptance,
-        /// forced two-factor enrolment, or a forced password reset. Unlike <see cref="Session"/> this
-        /// is a one-shot: it is populated during sign-in (and during
-        /// <see cref="ReestablishSessionAsync"/>) and cleared after the gate is satisfied; it is
-        /// never auto-roundtripped on subsequent requests. Callers that ignore this property bypass
-        /// the gate — use <see cref="EnsureInitialSatisfiedAsync"/> to honour it.
+        /// server gates the application behind a one-shot PO — for example license-terms
+        /// acceptance, forced two-factor enrolment, or a forced password reset. Populated during
+        /// sign-in; <c>null</c> when the server emits no gate. Drive the PO to a successful
+        /// <c>Save</c> (or otherwise resolve it) and then call <see cref="ClearInitial"/> to
+        /// signal the rest of the client that the gate is done; the v4 frontend's sign-in
+        /// component follows the same pattern. Never auto-roundtripped on subsequent requests.
+        /// Callers that ignore this property bypass the gate entirely.
         /// </summary>
         public PersistentObject Initial
         {
@@ -354,11 +350,7 @@ namespace Vidyano
                 return;
 
             foreach (var raw in ops.OfType<JObject>())
-            {
-                var op = ClientOperation.FromJson(raw);
-                Hooks?.OnClientOperation(op);
-                ClientOperationDispatched?.Invoke(op);
-            }
+                Hooks?.OnClientOperation(ClientOperation.FromJson(raw));
         }
 
         public Task<PersistentObject> SignInUsingAccessTokenAsync(string accessToken, string serviceProvider = "Microsoft")
@@ -389,36 +381,31 @@ namespace Vidyano
             return SignInAsync(null, null);
         }
 
-        private Task<PersistentObject> SignInAsync(string user, string password, string token = null, string accessToken = null, string serviceProvider = null)
+        private async Task<PersistentObject> SignInAsync(string user, string password, string token = null, string accessToken = null, string serviceProvider = null)
         {
             if (Hooks == null)
                 throw new InvalidOperationException("Need to set Hooks property first.");
 
-            var data = CreateData(user, token);
-            if (string.IsNullOrEmpty(accessToken))
-            {
-                if (password != null)
-                {
-                    data["password"] = password;
-                    data.Remove("authToken");
-                }
-            }
-            else
-            {
-                data.Remove("userName");
-                data.Remove("authToken");
-                data["accessToken"] = accessToken;
-                data["serviceProvider"] = serviceProvider;
-            }
-
-            return LoadApplicationAsync(data, user);
-        }
-
-        private async Task<PersistentObject> LoadApplicationAsync(JObject data, string user = null)
-        {
             try
             {
                 IsBusy = true;
+
+                var data = CreateData(user, token);
+                if (string.IsNullOrEmpty(accessToken))
+                {
+                    if (password != null)
+                    {
+                        data["password"] = password;
+                        data.Remove("authToken");
+                    }
+                }
+                else
+                {
+                    data.Remove("userName");
+                    data.Remove("authToken");
+                    data["accessToken"] = accessToken;
+                    data["serviceProvider"] = serviceProvider;
+                }
 
                 var response = await PostAsync("GetApplication", data).ConfigureAwait(false);
 
@@ -770,109 +757,14 @@ namespace Vidyano
         #region Public Methods
 
         /// <summary>
-        /// Drives the one-shot <see cref="Initial"/> gate to completion: invokes
-        /// <see cref="Hooks.OnInitialRequired"/>, waits for the server's <c>reloadPage</c>
-        /// ClientOperation, then re-establishes the session via <see cref="ReestablishSessionAsync"/>.
-        /// Loops until <see cref="Initial"/> is null on return — so chained gates (e.g. terms then
-        /// forced password reset) are all satisfied in one call. Returns immediately when there is
-        /// no gate to satisfy. <see cref="Hooks.OnInitialRequired"/> is responsible for SAVE-ing the
-        /// PO (directly or by parking it for a user-driven flow); the wait honours the supplied
-        /// <paramref name="ct"/> during both the hook await and the <c>reloadPage</c> wait.
+        /// Sets <see cref="Initial"/> to <c>null</c>. Mirrors the v4 frontend's
+        /// <c>service.clearInitial()</c>: after driving the gate PO to a successful <c>Save</c> (or
+        /// otherwise resolving it), call this so the rest of the client sees a gate-free state.
+        /// No-op when <see cref="Initial"/> is already <c>null</c>.
         /// </summary>
-        /// <remarks>
-        /// Concurrent invocations on the same <see cref="Client"/> are serialised internally so the
-        /// gate handshake runs once at a time. The <c>reloadPage</c> wait matches any ClientOperation
-        /// with that name dispatched after the hook is invoked — in practice only the server-side
-        /// gate-satisfaction handler emits it, but consumers that rely on <c>reloadPage</c> for other
-        /// purposes should not call this concurrently with that traffic.
-        /// </remarks>
-        public async Task EnsureInitialSatisfiedAsync(CancellationToken ct = default)
+        public void ClearInitial()
         {
-            await _initialGate.WaitAsync(ct).ConfigureAwait(false);
-            try
-            {
-                while (Initial != null)
-                {
-                    var pending = Initial;
-                    var reloadTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                    void Listener(ClientOperation op)
-                    {
-                        if (op is ExecuteMethodClientOperation execute && execute.Name == "reloadPage")
-                            reloadTcs.TrySetResult(true);
-                    }
-
-                    // Register the listener BEFORE invoking the hook: if OnInitialRequired SAVEs the PO
-                    // inline, the reloadPage operation arrives during that await.
-                    ClientOperationDispatched += Listener;
-                    try
-                    {
-                        await Hooks.OnInitialRequired(pending).ConfigureAwait(false);
-
-                        ct.ThrowIfCancellationRequested();
-
-                        await WaitWithCancellationAsync(reloadTcs.Task, ct).ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        ClientOperationDispatched -= Listener;
-                    }
-
-                    await ReestablishSessionAsync(ct).ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                _initialGate.Release();
-            }
-        }
-
-        /// <summary>
-        /// Re-runs <c>GetApplication</c> under the current <see cref="AuthToken"/>, refreshing
-        /// <see cref="Application"/>, <see cref="Session"/>, <see cref="Initial"/>, <c>Messages</c>
-        /// and <c>Actions</c>. The escape hatch for advanced callers that drove <see cref="Initial"/>
-        /// to SAVE themselves (multi-step wizards, custom flows) and now need to clear the gate
-        /// without going through <see cref="EnsureInitialSatisfiedAsync"/>. Idempotent for serial use
-        /// — call it repeatedly to refresh, but do not run two refreshes concurrently on the same
-        /// <see cref="Client"/>.
-        /// </summary>
-        /// <remarks>
-        /// <paramref name="ct"/> is honoured only at the call boundary: once the underlying
-        /// <c>GetApplication</c> POST is in flight it cannot be interrupted via this token. Use the
-        /// <see cref="HttpClient"/> handed to the <see cref="Client"/> constructor if you need to
-        /// cancel the network request itself.
-        /// </remarks>
-        public Task ReestablishSessionAsync(CancellationToken ct = default)
-        {
-            ct.ThrowIfCancellationRequested();
-            return LoadApplicationAsync(CreateData());
-        }
-
-        /// <summary>
-        /// Polyfill for <c>Task.WaitAsync(CancellationToken)</c>, which is unavailable on
-        /// netstandard2.0. Awaits <paramref name="task"/> while honouring <paramref name="ct"/>;
-        /// throws <see cref="OperationCanceledException"/> if the token fires before the task
-        /// completes. The token registration is disposed eagerly so it does not leak for the
-        /// remaining lifetime of <paramref name="ct"/> when the task wins the race. Only used
-        /// against TCS-backed tasks that cannot fault, so post-cancellation faults are not observed.
-        /// </summary>
-        private static async Task WaitWithCancellationAsync(Task task, CancellationToken ct)
-        {
-            if (!ct.CanBeCanceled)
-            {
-                await task.ConfigureAwait(false);
-                return;
-            }
-
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using (ct.Register(static state => ((TaskCompletionSource<bool>)state).TrySetResult(true), tcs))
-            {
-                var completed = await Task.WhenAny(task, tcs.Task).ConfigureAwait(false);
-                if (completed != task)
-                    ct.ThrowIfCancellationRequested();
-            }
-
-            await task.ConfigureAwait(false);
+            Initial = null;
         }
 
         public async Task SignOut()
