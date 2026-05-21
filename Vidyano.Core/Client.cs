@@ -73,7 +73,7 @@ namespace Vidyano
 
         private readonly HttpClient httpClient;
 
-        private PersistentObject _Application, _Session;
+        private PersistentObject _Application, _Session, _Initial;
         private bool _IsBusy, _IsConnected, _IsUsingDefaultCredentials;
         private KeyValueList<string, string> _Messages;
 
@@ -163,6 +163,22 @@ namespace Vidyano
         {
             get => _Session;
             set => SetProperty(ref _Session, value);
+        }
+
+        /// <summary>
+        /// The Initial <see cref="PersistentObject"/> returned by <c>GetApplication</c> when the
+        /// server gates the application behind a one-shot PO — for example license-terms
+        /// acceptance, forced two-factor enrolment, or a forced password reset. Populated during
+        /// sign-in; <c>null</c> when the server emits no gate. Drive the PO to a successful
+        /// <c>Save</c> (or otherwise resolve it) and then call <see cref="ClearInitial"/> to
+        /// signal the rest of the client that the gate is done; the v4 frontend's sign-in
+        /// component follows the same pattern. Never auto-roundtripped on subsequent requests.
+        /// Callers that ignore this property bypass the gate entirely.
+        /// </summary>
+        public PersistentObject Initial
+        {
+            get => _Initial;
+            private set => SetProperty(ref _Initial, value);
         }
 
         public string Uri { get; set; }
@@ -407,6 +423,16 @@ namespace Vidyano
                 AuthToken = (string)response["authToken"];
 
                 Application = po;
+
+                if (response["initial"] is JObject initialJson)
+                {
+                    var initialPo = Hooks.OnConstruct(this, initialJson);
+                    if (initialPo.FullTypeName == "Vidyano.Error" || (initialPo.HasNotification && initialPo.NotificationType == NotificationType.Error))
+                        throw new Exception(initialPo.Notification);
+                    Initial = initialPo;
+                }
+                else
+                    Initial = null;
 
                 var cultureInfo = new CultureInfo(Application["Culture"].ValueDirect);
                 CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
@@ -712,7 +738,7 @@ namespace Vidyano
             if (response["session"] != null)
             {
                 var sessionPo = Hooks.OnConstruct(this, (JObject)response["session"]);
-                if (sessionPo.FullTypeName == "Vidyano.Error" || (sessionPo.NotificationType == NotificationType.Error && !string.IsNullOrEmpty(sessionPo.Notification)))
+                if (sessionPo.FullTypeName == "Vidyano.Error" || (sessionPo.HasNotification && sessionPo.NotificationType == NotificationType.Error))
                     throw new Exception(sessionPo.Notification);
 
                 if (Session != null)
@@ -729,6 +755,17 @@ namespace Vidyano
         #endregion
 
         #region Public Methods
+
+        /// <summary>
+        /// Sets <see cref="Initial"/> to <c>null</c>. Mirrors the v4 frontend's
+        /// <c>service.clearInitial()</c>: after driving the gate PO to a successful <c>Save</c> (or
+        /// otherwise resolving it), call this so the rest of the client sees a gate-free state.
+        /// No-op when <see cref="Initial"/> is already <c>null</c>.
+        /// </summary>
+        public void ClearInitial()
+        {
+            Initial = null;
+        }
 
         public async Task SignOut()
         {
@@ -748,6 +785,7 @@ namespace Vidyano
 
             // Clear local state
             Application = null;
+            Initial = null;
             User = string.Empty;
             AuthToken = null;
             AuthorizationHeader = null;
