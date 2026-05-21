@@ -86,6 +86,22 @@ namespace Vidyano
         {
         }
 
+        /// <summary>
+        /// Called by <see cref="Client.EnsureInitialSatisfiedAsync"/> when the server returned an
+        /// Initial <see cref="PersistentObject"/> that gates the application (license terms, forced
+        /// two-factor enrolment, forced password reset, …). Override to render the PO and drive it
+        /// to completion — typically by executing its <c>Save</c> action. Return a <see cref="Task"/>
+        /// that completes once the gate has been resolved; <see cref="Client.EnsureInitialSatisfiedAsync"/>
+        /// then waits for the server's <c>reloadPage</c> ClientOperation and re-establishes the
+        /// session. The default implementation is a no-op, which leaves <see cref="Client.Initial"/>
+        /// untouched and causes <see cref="Client.EnsureInitialSatisfiedAsync"/> to hang on the
+        /// <c>reloadPage</c> wait — override it whenever you opt into the gate flow.
+        /// </summary>
+        protected internal virtual Task OnInitialRequired(PersistentObject initial)
+        {
+            return Task.CompletedTask;
+        }
+
         internal virtual object ByteArrayToImageSource(MemoryStream memoryStream)
         {
             return null;
