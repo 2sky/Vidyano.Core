@@ -116,7 +116,47 @@ namespace Vidyano
         public PersistentObject Application
         {
             get => _Application;
-            set => SetProperty(ref _Application, value);
+            set
+            {
+                if (SetProperty(ref _Application, value))
+                    _programUnits = null;
+            }
+        }
+
+        private IReadOnlyList<ProgramUnit> _programUnits;
+
+        /// <summary>
+        /// The typed program-unit tree parsed from
+        /// <c>Application.GetAttribute("ProgramUnits").ValueDirect</c>. Returns an empty list when no
+        /// Application has been loaded or the signed-in user has no program-unit rights. Recomputed
+        /// once when <see cref="Application"/> is assigned, then cached.
+        /// </summary>
+        public IReadOnlyList<ProgramUnit> ProgramUnits
+        {
+            get
+            {
+                // Capture into a local so a concurrent Application setter (which nulls
+                // _programUnits) can't turn this into a null return between the check and the use.
+                var cached = _programUnits;
+                if (cached != null)
+                    return cached;
+
+                var raw = Application?.GetAttribute("ProgramUnits")?.ValueDirect;
+                if (string.IsNullOrEmpty(raw))
+                    return _programUnits = Array.Empty<ProgramUnit>();
+
+                try
+                {
+                    var parsed = JObject.Parse(raw);
+                    if (!(parsed["units"] is JArray units))
+                        return _programUnits = Array.Empty<ProgramUnit>();
+                    return _programUnits = units.OfType<JObject>().Select(u => new ProgramUnit(u)).ToArray();
+                }
+                catch
+                {
+                    return _programUnits = Array.Empty<ProgramUnit>();
+                }
+            }
         }
 
         public PersistentObject Session
@@ -283,7 +323,18 @@ namespace Vidyano
                 }
             }
 
+            DispatchClientOperations(response);
+
             return Log(response);
+        }
+
+        private void DispatchClientOperations(JObject response)
+        {
+            if (!(response["operations"] is JArray ops))
+                return;
+
+            foreach (var raw in ops.OfType<JObject>())
+                Hooks?.OnClientOperation(ClientOperation.FromJson(raw));
         }
 
         public Task<PersistentObject> SignInUsingAccessTokenAsync(string accessToken, string serviceProvider = "Microsoft")
