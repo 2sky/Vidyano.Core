@@ -427,7 +427,7 @@ namespace Vidyano
                 if (response["initial"] is JObject initialJson)
                 {
                     var initialPo = Hooks.OnConstruct(this, initialJson);
-                    if (initialPo.FullTypeName == "Vidyano.Error" || (initialPo.NotificationType == NotificationType.Error && !string.IsNullOrEmpty(initialPo.Notification)))
+                    if (initialPo.FullTypeName == "Vidyano.Error" || (initialPo.HasNotification && initialPo.NotificationType == NotificationType.Error))
                         throw new Exception(initialPo.Notification);
                     Initial = initialPo;
                 }
@@ -738,7 +738,7 @@ namespace Vidyano
             if (response["session"] != null)
             {
                 var sessionPo = Hooks.OnConstruct(this, (JObject)response["session"]);
-                if (sessionPo.FullTypeName == "Vidyano.Error" || (sessionPo.NotificationType == NotificationType.Error && !string.IsNullOrEmpty(sessionPo.Notification)))
+                if (sessionPo.FullTypeName == "Vidyano.Error" || (sessionPo.HasNotification && sessionPo.NotificationType == NotificationType.Error))
                     throw new Exception(sessionPo.Notification);
 
                 if (Session != null)
