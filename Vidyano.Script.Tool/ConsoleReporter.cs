@@ -108,14 +108,19 @@ public static class ConsoleReporter
     private static void RenderSnapshot(Snapshot snap)
     {
         if (snap.Po is { } po)
-        {
-            var t = new Table().Border(TableBorder.Rounded).Title($"[bold]{Markup.Escape(po.Type)}[/] / {Markup.Escape(po.ObjectId ?? "<new>")}");
-            t.AddColumn("Attribute"); t.AddColumn("Value"); t.AddColumn("R/O"); t.AddColumn("Req'd"); t.AddColumn("Vis.");
-            foreach (var a in po.Attributes)
-                t.AddRow(Markup.Escape(a.Name), Markup.Escape(a.DisplayValue ?? a.Value ?? ""), a.IsReadOnly ? "✓" : "", a.IsRequired ? "✓" : "", a.IsVisible ? "" : "hidden");
-            AnsiConsole.Write(t);
-        }
+            RenderPoTable(po, $"[bold]{Markup.Escape(po.Type)}[/] / {Markup.Escape(po.ObjectId ?? "<new>")}");
+        if (snap.SessionPo is { } sess)
+            RenderPoTable(sess, $"[bold]@session[/] [grey]({Markup.Escape(sess.Type)})[/]");
         if (snap.Query is { } q)
             AnsiConsole.MarkupLine($"    [grey]Query[/] {Markup.Escape(q.Name)} — {q.TotalItems} item(s)");
+    }
+
+    private static void RenderPoTable(PoSnapshot po, string title)
+    {
+        var t = new Table().Border(TableBorder.Rounded).Title(title);
+        t.AddColumn("Attribute"); t.AddColumn("Value"); t.AddColumn("R/O"); t.AddColumn("Req'd"); t.AddColumn("Vis.");
+        foreach (var a in po.Attributes)
+            t.AddRow(Markup.Escape(a.Name), Markup.Escape(a.DisplayValue ?? a.Value ?? ""), a.IsReadOnly ? "✓" : "", a.IsRequired ? "✓" : "", a.IsVisible ? "" : "hidden");
+        AnsiConsole.Write(t);
     }
 }

@@ -68,7 +68,9 @@ public sealed record RefreshStmt(string? Handle, SourceLocation Location) : Stat
 /// <c>SET Name = LOOKUP "filter"</c> forces a lookup search; <c>SET Name = ID "guid"</c> sets the
 /// raw <c>SelectedReferenceValue</c> without going through Options or Lookup.
 /// </summary>
-public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location) : Statement(Location);
+/// <param name="Scope">Reserved variable scope for the target PO (<c>"session"</c> for
+/// <c>@session.X</c>); <c>null</c> means the top of the navigation stack.</param>
+public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location, string? Scope = null) : Statement(Location);
 
 /// <summary><c>ACTION Approve [(Param=Value, ...)]</c>.</summary>
 public sealed record ActionStmt(string? Handle, string ActionName, IReadOnlyDictionary<string, Expression>? Parameters, SourceLocation Location) : Statement(Location);
@@ -127,8 +129,10 @@ public enum ExpectSubjectKind
 }
 
 /// <summary>A parsed <c>EXPECT</c> subject. <see cref="Name"/> is meaningful for Attribute/Action/AttributeFlag;
-/// <see cref="Lhs"/> is set for <see cref="ExpectSubjectKind.Expression"/> (interpolation-as-subject).</summary>
-public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null);
+/// <see cref="Lhs"/> is set for <see cref="ExpectSubjectKind.Expression"/> (interpolation-as-subject).
+/// <see cref="Scope"/> is the reserved variable scope (<c>"session"</c>) when the subject is
+/// <c>@session.X</c>; <c>null</c> means the top of the navigation stack.</summary>
+public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null);
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.</summary>
 public enum AttributeFlagKind { None, Visible, ReadOnly, Required }
@@ -150,3 +154,8 @@ public sealed record IdentifierExpr(string Name, SourceLocation Location) : Expr
 
 /// <summary><c>{{...}}</c> — a variable interpolation. <see cref="Inner"/> is the raw text between braces.</summary>
 public sealed record InterpExpr(string Inner, SourceLocation Location) : Expression(Location);
+
+/// <summary><c>@scope.AttributeName</c> in value position — read an attribute from a reserved
+/// scoped PO (<c>@session</c>). The interpreter dispatches to
+/// <see cref="VidyanoSession.GetScopedAttributeValue"/>.</summary>
+public sealed record VariableAttributeExpr(string Scope, string AttributeName, SourceLocation Location) : Expression(Location);

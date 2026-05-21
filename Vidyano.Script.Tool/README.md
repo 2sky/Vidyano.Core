@@ -98,6 +98,10 @@ EXPECT TotalItems = 6
 
 EXPECT supports nav-stack state, notification state, the `ClientOperation` queue, and arbitrary attributes on the current PO. CONTAINS / IS NULL / IS NOT NULL / NOT CONTAINS make negative assertions readable.
 
+### Reserved `@session`
+
+`Client.Session` (the built-in Vidyano session PO) is reachable as `@session.<attr>` — write with `SET @session.X = …` (auto-enters edit on the Session PO), read with `SET Y = @session.X` or `EXPECT @session.X = …`, interpolate with `{{@session.X}}`. The names `session`, `user`, and `application` are reserved by the engine — `@session = …` is a parse error.
+
 ## CI / agent use
 
 `--json` emits NDJSON suitable for piping into a log collector. Each verb produces one event with its result, timing, and any guard violation. Pair with an exit-code check:

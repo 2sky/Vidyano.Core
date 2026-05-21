@@ -53,6 +53,18 @@ A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with *
 - `SET <attribute> = <value>` — change an attribute (incl. reference SET semantics).
 - `EXECUTE <action>` — invoke an action by name.
 
+### Reserved `@session` variable
+
+`Client.Session` is reachable as `@session.<attr>` in any position — SET target, value, `EXPECT`, `{{…}}` interpolation — without leaving the current nav frame:
+
+```visc
+SET @session.Patient = LOOKUP "Naam:Smith"
+SET Year = @session.CurrentYear
+EXPECT @session.Patient CONTAINS "Smith"
+```
+
+The names `session`, `user`, `application` are reserved; `@session = …` is a parse error. `@user` / `@application` parse but produce a runtime diagnostic until wired up.
+
 EXPECT supports nav-stack state (`NavStack.Depth`, `NavStack.Top.Kind`, `NavStack.Top.Name`, `NavStack.Top.IsDialog`), query state (`TotalItems`, `IsInEdit`), notification state, and the `ClientOperation` queue:
 
 ```visc
