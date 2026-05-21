@@ -122,7 +122,7 @@ namespace Vidyano.ViewModel
             if (node["items"] is JArray items)
                 children.AddRange(items.OfType<JObject>().Select(Create));
             if (node["groups"] is JArray groups)
-                children.AddRange(groups.OfType<JObject>().Select(g => (ProgramUnitItem)new ProgramUnitItemGroup(g)));
+                children.AddRange(groups.OfType<JObject>().Select(g => new ProgramUnitItemGroup(g)));
             return children;
         }
     }
