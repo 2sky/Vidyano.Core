@@ -18,6 +18,7 @@ public static class VerbReference
 
         t.AddRow("@var = value",         "@app = http://localhost:5000",        "Define a script variable. Reference with {{var}}.");
         t.AddRow("@mode = ...",          "@mode = audit",                       "navigation (default) | audit | direct. Set before any verb.");
+        t.AddRow("@session.<attr>",      "SET @session.CurrentYear = 2026",     "Read/write Client.Session. Also: EXPECT @session.X = … and {{@session.X}}.");
         t.AddRow("SIGN-IN",              "SIGN-IN admin / admin",               "Or: SIGN-IN @admin = user / pwd  (named session).");
         t.AddRow("USE",                  "USE @admin",                          "Switch to a named session (multi-session not yet implemented).");
         t.AddRow("OPEN PersistentObject","OPEN PersistentObject \"Customer\" \"42\" AS @c","Opens a PO directly. In navigation mode requires reachability.");

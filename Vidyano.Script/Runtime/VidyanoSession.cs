@@ -557,14 +557,22 @@ public sealed class VidyanoSession : IDisposable
     public OpResult SetAttribute(string name, object? value, SourceLocation loc, ReferenceHint? hint = null)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
+        return SetAttributeOn(CurrentPo, name, value, loc, hint);
+    }
 
-        var attr = CurrentPo.GetAttribute(name);
+    /// <summary>Sets an attribute on an explicit PO. Shared body between the implicit current-PO
+    /// path (<see cref="SetAttribute"/>) and the scoped path (<see cref="SetScopedAttribute"/>).
+    /// The only difference between callers is which PO they target — the hidden/readonly guards,
+    /// the auto-enter-edit behaviour, and the reference-resolution branch are identical.</summary>
+    private OpResult SetAttributeOn(PersistentObject po, string name, object? value, SourceLocation loc, ReferenceHint? hint)
+    {
+        var attr = po.GetAttribute(name);
         if (attr is null)
         {
-            var candidates = CurrentPo.Attributes.Select(a => a.Name);
+            var candidates = po.Attributes.Select(a => a.Name);
             return OpResult.Fail(new Diagnostic(
                 ErrorKind.ResolveAttribute,
-                $"Attribute '{name}' does not exist on {CurrentPo.Type}.",
+                $"Attribute '{name}' does not exist on {po.Type}.",
                 loc,
                 Hint: Suggester.Hint(name, candidates)));
         }
@@ -572,7 +580,7 @@ public sealed class VidyanoSession : IDisposable
         if (!attr.IsVisible)
             return OpResult.Fail(new Diagnostic(
                 ErrorKind.GuardAttributeHidden,
-                $"Attribute '{name}' exists on {CurrentPo.Type} but is hidden — the UI would not allow setting it.",
+                $"Attribute '{name}' exists on {po.Type} but is hidden — the UI would not allow setting it.",
                 loc,
                 Hint: "Use mode=direct only if you intend to bypass the UI guard.",
                 Details: new Dictionary<string, object?> { ["attribute"] = name, ["isVisible"] = false }));
@@ -580,13 +588,13 @@ public sealed class VidyanoSession : IDisposable
         if (attr.IsReadOnly)
             return OpResult.Fail(new Diagnostic(
                 ErrorKind.GuardAttributeReadOnly,
-                $"Attribute '{name}' is read-only on {CurrentPo.Type}.",
+                $"Attribute '{name}' is read-only on {po.Type}.",
                 loc,
                 Hint: "Read-only attributes can be computed server-side — check the model or the action that sets it.",
                 Details: new Dictionary<string, object?> { ["attribute"] = name }));
 
-        if (!CurrentPo.IsInEdit)
-            CurrentPo.Edit();
+        if (!po.IsInEdit)
+            po.Edit();
 
         if (attr is PersistentObjectAttributeWithReference refAttr)
             return SetReferenceAttribute(refAttr, value, loc, hint);
@@ -686,6 +694,89 @@ public sealed class VidyanoSession : IDisposable
         }
     }
 
+    // --- reserved scopes (@session) -----------------------------------------------------------
+
+    /// <summary>A scoped PO + attribute pair returned by <see cref="ResolveScopedAttribute"/>.
+    /// Lets EXPECT branches reuse the same not-found / suggestion logic as SET/READ.</summary>
+    public sealed record ScopedAttribute(PersistentObject Po, PersistentObjectAttribute Attribute);
+
+    /// <summary>Resolves the PO backing a reserved variable scope. <c>"session"</c> maps to
+    /// <see cref="Vidyano.Client.Session"/>; <c>"user"</c> / <c>"application"</c> are reserved
+    /// shapes that return a not-implemented diagnostic. Anything else is rejected as unknown.</summary>
+    private OpResult<PersistentObject> ResolveScopePo(string scope, SourceLocation loc)
+    {
+        if (string.Equals(scope, "session", StringComparison.OrdinalIgnoreCase))
+        {
+            var po = Client.Session;
+            if (po is null)
+                return OpResult<PersistentObject>.Fail(new Diagnostic(
+                    ErrorKind.StateNoSession,
+                    "No Session PO on this app — `@session` is unbound.",
+                    loc,
+                    Hint: "Configure a Session PersistentObject on the server, or remove the @session reference."));
+            return OpResult<PersistentObject>.Success(po);
+        }
+        if (string.Equals(scope, "user", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(scope, "application", StringComparison.OrdinalIgnoreCase))
+        {
+            return OpResult<PersistentObject>.Fail(new Diagnostic(
+                ErrorKind.StateScopeNotImplemented,
+                $"Reserved scope '@{scope.ToLowerInvariant()}' is not yet implemented.",
+                loc,
+                Hint: "Only @session resolves in this build."));
+        }
+        return OpResult<PersistentObject>.Fail(new Diagnostic(
+            ErrorKind.ResolveVariable,
+            $"Unknown variable scope '@{scope}'.",
+            loc,
+            Hint: Suggester.Hint(scope, new[] { "session", "user", "application" })
+                  ?? "Valid scopes: @session."));
+    }
+
+    /// <summary>Resolves a scoped attribute by name, surfacing the same not-found suggestion
+    /// shape as the current-PO path. The EXPECT branches reuse this so flag/label checks share
+    /// the resolution logic with the value read.</summary>
+    public OpResult<ScopedAttribute> ResolveScopedAttribute(string scope, string attributeName, SourceLocation loc)
+    {
+        var poRes = ResolveScopePo(scope, loc);
+        if (!poRes.Ok) return OpResult<ScopedAttribute>.Fail(poRes.Error!);
+        var po = poRes.Value!;
+        var attr = po.GetAttribute(attributeName);
+        if (attr is null)
+            return OpResult<ScopedAttribute>.Fail(new Diagnostic(
+                ErrorKind.ResolveAttribute,
+                $"Attribute '{attributeName}' does not exist on @{scope} ({po.Type}).",
+                loc,
+                Hint: Suggester.Hint(attributeName, po.Attributes.Select(a => a.Name))));
+        return OpResult<ScopedAttribute>.Success(new ScopedAttribute(po, attr));
+    }
+
+    /// <summary>Reads an attribute value from a scoped PO (e.g. <c>@session.CurrentYear</c>).
+    /// Mirrors <see cref="ResolveExpectSubject"/>'s hidden-attribute guard so reads through this
+    /// path are subject to the same UI-visibility contract as the current-PO bare-name form.</summary>
+    public OpResult<object?> GetScopedAttributeValue(string scope, string attributeName, SourceLocation loc)
+    {
+        var res = ResolveScopedAttribute(scope, attributeName, loc);
+        if (!res.Ok) return OpResult<object?>.Fail(res.Error!);
+        var attr = res.Value!.Attribute;
+        if (!attr.IsVisible)
+            return OpResult<object?>.Fail(new Diagnostic(
+                ErrorKind.GuardAttributeHidden,
+                $"Attribute '{attributeName}' exists on @{scope} ({res.Value!.Po.Type}) but is hidden — the UI cannot read it.",
+                loc));
+        return OpResult<object?>.Success(attr.Value);
+    }
+
+    /// <summary>Sets an attribute on a scoped PO. Same edit/guard/reference-resolution semantics
+    /// as <see cref="SetAttribute"/>, but targeting <see cref="Vidyano.Client.Session"/> (or, in
+    /// the future, <c>@user</c>/<c>@application</c>) instead of the navigation-stack top.</summary>
+    public OpResult SetScopedAttribute(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc)
+    {
+        var poRes = ResolveScopePo(scope, loc);
+        if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
+        return SetAttributeOn(poRes.Value!, attributeName, value, loc, hint);
+    }
+
     /// <summary>
     /// Executes an action by name. Distinguishes: not found (typo → suggest), found but hidden,
     /// found and visible but <c>CanExecute=false</c>, transport/server error.
@@ -783,19 +874,8 @@ public sealed class VidyanoSession : IDisposable
     public Snapshot TakeSnapshot()
     {
         var session = IsSignedIn ? new SessionSnapshot(Client.User, Client.Uri) : null;
-        var po = CurrentPo is null ? null : new PoSnapshot(
-            Type: CurrentPo.Type,
-            ObjectId: CurrentPo.ObjectId,
-            IsInEdit: CurrentPo.IsInEdit,
-            IsDirty: CurrentPo.IsDirty,
-            IsNew: CurrentPo.IsNew,
-            Notification: CurrentPo.Notification,
-            NotificationType: CurrentPo.HasNotification ? CurrentPo.NotificationType.ToString() : null,
-            Attributes: CurrentPo.Attributes.Select(a => new AttributeSnapshot(
-                a.Name, a.Type, a.ValueDirect, SafeDisplay(a),
-                a.IsVisible, a.IsReadOnly, a.IsRequired, a.IsValueChanged, a.ValidationError)).ToList(),
-            Actions: CurrentPo.Actions.Concat(CurrentPo.PinnedActions)
-                .Select(a => new ActionSnapshot(a.Name, a.CanExecute, a.IsVisible)).ToList());
+        var po = CurrentPo is { } cur ? BuildPoSnapshot(cur) : null;
+        var sessionPo = Client.Session is { } sess ? BuildPoSnapshot(sess) : null;
 
         var query = CurrentQuery is null ? null : new QuerySnapshot(
             Name: CurrentQuery.Name,
@@ -810,8 +890,22 @@ public sealed class VidyanoSession : IDisposable
         IReadOnlyDictionary<string, string>? handles = _handles.Count == 0 ? null
             : _handles.ToDictionary(kv => kv.Key, kv => DescribeHandle(kv.Value));
 
-        return new Snapshot(session, po, query, handles);
+        return new Snapshot(session, po, query, handles, sessionPo);
     }
+
+    private static PoSnapshot BuildPoSnapshot(PersistentObject po) => new(
+        Type: po.Type,
+        ObjectId: po.ObjectId,
+        IsInEdit: po.IsInEdit,
+        IsDirty: po.IsDirty,
+        IsNew: po.IsNew,
+        Notification: po.Notification,
+        NotificationType: po.HasNotification ? po.NotificationType.ToString() : null,
+        Attributes: po.Attributes.Select(a => new AttributeSnapshot(
+            a.Name, a.Type, a.ValueDirect, SafeDisplay(a),
+            a.IsVisible, a.IsReadOnly, a.IsRequired, a.IsValueChanged, a.ValidationError)).ToList(),
+        Actions: po.Actions.Concat(po.PinnedActions)
+            .Select(a => new ActionSnapshot(a.Name, a.CanExecute, a.IsVisible)).ToList());
 
     private static string? SafeDisplay(PersistentObjectAttribute attr)
     {

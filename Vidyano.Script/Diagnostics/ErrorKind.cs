@@ -51,6 +51,8 @@ public static class ErrorKind
     public const string StateNotSignedIn         = "state-not-signed-in";
     public const string StateNoCurrentPo         = "state-no-current-po";
     public const string StateNoCurrentQuery      = "state-no-current-query";
+    public const string StateNoSession           = "state-no-session";
+    public const string StateScopeNotImplemented = "state-scope-not-implemented";
     public const string StateHandleStale         = "state-handle-stale";
 
     // Assertions

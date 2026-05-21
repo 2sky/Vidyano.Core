@@ -30,6 +30,15 @@ public sealed class Parser
         "PersistentObject", "Query", "MenuItem", "Detail",
     };
 
+    /// <summary>Reserved <c>@name</c> identifiers that the engine binds to fixed scoped PersistentObjects
+    /// (<c>session</c> → <c>Client.Session</c>; <c>user</c> / <c>application</c> reserved for future use).
+    /// Assigning to any of these is a parse error — they're not script variables, so allowing
+    /// <c>@session = …</c> would silently shadow the binding.</summary>
+    private static readonly HashSet<string> ReservedScopes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "session", "user", "application",
+    };
+
     public Parser(IReadOnlyList<Token> tokens, IEnumerable<Diagnostic>? lexerDiagnostics = null)
     {
         _tokens = tokens;
@@ -152,6 +161,17 @@ public sealed class Parser
             return null;
         }
 
+        if (ReservedScopes.Contains(at.Lexeme))
+        {
+            // Capitalize for the diagnostic — "Client.Session" reads better than "Client.session".
+            var pascal = char.ToUpperInvariant(at.Lexeme[0]) + at.Lexeme.Substring(1).ToLowerInvariant();
+            Error(ErrorKind.ParseUnexpectedToken,
+                $"`@{at.Lexeme}` is reserved — bound to Client.{pascal} by the engine.",
+                at.Location,
+                hint: $"Read with `@{at.Lexeme}.<attr>`; write with `SET @{at.Lexeme}.<attr> = …`. Pick a different name for a script variable.");
+            return null;
+        }
+
         if (!Match(TokenKind.Equals, out _))
         {
             Error(ErrorKind.ParseExpected,
@@ -196,7 +216,8 @@ public sealed class Parser
         string? sessionName = null;
         if (Peek().Kind == TokenKind.At)
         {
-            sessionName = Advance().Lexeme;
+            sessionName = ConsumeHandleName("SIGN-IN");
+            if (sessionName is null) return null;
             if (!Match(TokenKind.Equals, out _))
             {
                 Error(ErrorKind.ParseExpected, $"Expected '=' after SIGN-IN @{sessionName}.", Peek().Location);
@@ -231,7 +252,10 @@ public sealed class Parser
     {
         string? sessionName = null;
         if (Peek().Kind == TokenKind.At)
-            sessionName = Advance().Lexeme;
+        {
+            sessionName = ConsumeHandleName("SIGN-OUT");
+            if (sessionName is null) return null;
+        }
         return new SignOutStmt(sessionName, loc);
     }
 
@@ -245,7 +269,8 @@ public sealed class Parser
                 hint: "USE @admin");
             return null;
         }
-        var name = Advance().Lexeme;
+        var name = ConsumeHandleName("USE");
+        if (name is null) return null;
         return new UseSessionStmt(name, loc);
     }
 
@@ -326,15 +351,19 @@ public sealed class Parser
 
     private Statement? ParseSet(SourceLocation loc)
     {
-        if (Peek().Kind != TokenKind.Identifier)
+        // Optional reserved-scope prefix: SET @session.Attr = …
+        string? scope = null;
+        if (Peek().Kind == TokenKind.At)
         {
-            Error(ErrorKind.ParseExpected, "SET needs an attribute name.", Peek().Location, hint: "SET Name = \"value\"");
-            return null;
+            scope = TryConsumeScopePrefix();
+            if (scope == null) return null;
         }
-        var nameTok = Advance();
+
+        var attrName = ParseDottedAttributeName();
+        if (attrName == null) return null;
         if (!Match(TokenKind.Equals, out _))
         {
-            Error(ErrorKind.ParseExpected, $"Expected '=' after SET {nameTok.Lexeme}.", Peek().Location);
+            Error(ErrorKind.ParseExpected, $"Expected '=' after SET {attrName}.", Peek().Location);
             return null;
         }
 
@@ -348,7 +377,28 @@ public sealed class Parser
 
         var value = ParseValueExpression();
         if (value == null) return null;
-        return new SetStmt(null, nameTok.Lexeme, value, hint, loc);
+        return new SetStmt(null, attrName, value, hint, loc, scope);
+    }
+
+    /// <summary>Reads an attribute name token sequence of the form <c>Identifier (. Identifier)*</c>
+    /// and returns the dotted join. Vidyano auto-populates dotted attributes (e.g.
+    /// <c>Customer.Name</c> from a <c>Customer</c> reference), so the grammar must accept them
+    /// anywhere a single attribute identifier is expected. Returns null after emitting a diagnostic
+    /// when the leading token isn't an identifier.</summary>
+    private string? ParseDottedAttributeName()
+    {
+        if (Peek().Kind != TokenKind.Identifier)
+        {
+            Error(ErrorKind.ParseExpected, "Expected an attribute name.", Peek().Location);
+            return null;
+        }
+        var sb = new System.Text.StringBuilder(Advance().Lexeme);
+        while (Peek().Kind == TokenKind.Dot && _pos + 1 < _tokens.Count && _tokens[_pos + 1].Kind == TokenKind.Identifier)
+        {
+            Advance(); // '.'
+            sb.Append('.').Append(Advance().Lexeme);
+        }
+        return sb.ToString();
     }
 
     private Statement? ParseAction(SourceLocation loc)
@@ -491,6 +541,16 @@ public sealed class Parser
             return new ExpectSubject(ExpectSubjectKind.Expression, null, AttributeFlagKind.None, tok.Location, new InterpExpr(tok.Lexeme, tok.Location));
         }
 
+        // EXPECT @session.Attr ... — scoped bare-attribute subject.
+        if (tok.Kind == TokenKind.At)
+        {
+            var scope = TryConsumeScopePrefix();
+            if (scope == null) return null;
+            var attrName = ParseDottedAttributeName();
+            if (attrName == null) return null;
+            return new ExpectSubject(ExpectSubjectKind.Attribute, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
+        }
+
         if (tok.Kind != TokenKind.Identifier)
         {
             Error(ErrorKind.ParseExpected, "EXPECT needs a subject (attribute name, IsDirty, Notification, Action, …).", tok.Location);
@@ -558,20 +618,27 @@ public sealed class Parser
         if (string.Equals(tok.Lexeme, "Attribute", StringComparison.OrdinalIgnoreCase))
         {
             Advance();
+            string? scope = null;
+            if (Peek().Kind == TokenKind.At)
+            {
+                scope = TryConsumeScopePrefix();
+                if (scope == null) return null;
+            }
             if (Peek().Kind != TokenKind.Identifier)
             {
                 Error(ErrorKind.ParseExpected, "Expected an attribute name after 'Attribute'.", Peek().Location);
                 return null;
             }
-            var nameTok = Advance();
+            var attrName = ParseDottedAttributeName();
+            if (attrName == null) return null;
             // EXPECT Attribute X LABEL = "..."
             if (Peek().Kind == TokenKind.Identifier &&
                 string.Equals(Peek().Lexeme, "LABEL", StringComparison.OrdinalIgnoreCase))
             {
                 Advance();
-                return new ExpectSubject(ExpectSubjectKind.AttributeLabel, nameTok.Lexeme, AttributeFlagKind.None, tok.Location);
+                return new ExpectSubject(ExpectSubjectKind.AttributeLabel, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
             }
-            return new ExpectSubject(ExpectSubjectKind.AttributeFlag, nameTok.Lexeme, AttributeFlagKind.None, tok.Location);
+            return new ExpectSubject(ExpectSubjectKind.AttributeFlag, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
         }
 
         if (string.Equals(tok.Lexeme, "Query", StringComparison.OrdinalIgnoreCase))
@@ -648,9 +715,42 @@ public sealed class Parser
             return null;
         }
 
-        // Bare identifier — treat as attribute on the current PO.
-        Advance();
-        return new ExpectSubject(ExpectSubjectKind.Attribute, tok.Lexeme, AttributeFlagKind.None, tok.Location);
+        // Bare identifier — treat as attribute on the current PO (dotted names allowed).
+        var bareName = ParseDottedAttributeName();
+        if (bareName == null) return null;
+        return new ExpectSubject(ExpectSubjectKind.Attribute, bareName, AttributeFlagKind.None, tok.Location);
+    }
+
+    /// <summary>Consumes an <c>@scope</c> prefix used in SET targets, EXPECT subjects, and value
+    /// expressions. Emits a diagnostic and returns null when the name isn't a reserved scope. The
+    /// caller is responsible for consuming the trailing <c>.</c> (because some sites need to peek
+    /// further before deciding to require the dot).</summary>
+    private string? TryConsumeScopePrefix()
+    {
+        var atTok = Advance();
+        if (atTok.Lexeme.Length == 0)
+        {
+            Error(ErrorKind.ParseExpected, "Expected a scope name after '@'.", atTok.Location);
+            return null;
+        }
+        if (!ReservedScopes.Contains(atTok.Lexeme))
+        {
+            Error(ErrorKind.ParseUnexpectedToken,
+                $"Unknown variable scope '@{atTok.Lexeme}'.",
+                atTok.Location,
+                hint: Suggester.Hint(atTok.Lexeme, ReservedScopes)
+                      ?? "Valid scopes: @session. (@user and @application are reserved but not yet implemented.)");
+            return null;
+        }
+        if (!Match(TokenKind.Dot, out _))
+        {
+            Error(ErrorKind.ParseExpected,
+                $"Expected '.<attribute>' after @{atTok.Lexeme}.",
+                Peek().Location,
+                hint: $"`@{atTok.Lexeme}` is a PO reference, not a value — use `@{atTok.Lexeme}.<attr>`.");
+            return null;
+        }
+        return atTok.Lexeme;
     }
 
     private static AttributeFlagKind ToFlag(string lexeme) =>
@@ -724,6 +824,14 @@ public sealed class Parser
                 // An identifier as a value is legal for menu segments, bare flags, etc.
                 Advance();
                 return new IdentifierExpr(tok.Lexeme, tok.Location);
+            case TokenKind.At:
+                {
+                    var scope = TryConsumeScopePrefix();
+                    if (scope == null) return null;
+                    var attr = ParseDottedAttributeName();
+                    if (attr == null) return null;
+                    return new VariableAttributeExpr(scope, attr, tok.Location);
+                }
         }
         Error(ErrorKind.ParseExpected, $"Expected a value but got {Describe(tok)}.", tok.Location,
             hint: "Values can be \"strings\", numbers, true/false/null, {{interpolations}}, or bare identifiers.");
@@ -759,8 +867,28 @@ public sealed class Parser
             Error(ErrorKind.ParseExpected, "AS needs a @handle.", Peek().Location, hint: "OPEN Query Customers AS @customers");
             return null;
         }
-        return Advance().Lexeme;
+        return ConsumeHandleName("AS");
     }
+
+    /// <summary>Consumes an <c>@handle</c> token after a verb that binds a named session
+    /// (SIGN-IN/SIGN-OUT/USE) or attaches a handle via AS. Rejects names that collide with
+    /// reserved scopes so users can't shadow the <c>@session</c> binding with a same-named handle.</summary>
+    private string? ConsumeHandleName(string verb)
+    {
+        var tok = Advance();
+        if (ReservedScopes.Contains(tok.Lexeme))
+        {
+            Error(ErrorKind.ParseUnexpectedToken,
+                $"'@{tok.Lexeme}' is reserved and can't be used as a {verb} handle.",
+                tok.Location,
+                hint: $"'@{tok.Lexeme}' is bound to Client.{ToTitle(tok.Lexeme)} by the engine. Pick a different handle name.");
+            return null;
+        }
+        return tok.Lexeme;
+    }
+
+    private static string ToTitle(string s) =>
+        s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s.Substring(1).ToLowerInvariant();
 
     private void SkipNewlines()
     {
