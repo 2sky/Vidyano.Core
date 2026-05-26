@@ -33,6 +33,7 @@ public static class JsonReporter
                 {
                     type = "statement.result",
                     ok = s.Ok,
+                    skipped = s.Skipped,
                     location = s.Statement.Location,
                     statementType = s.Statement.GetType().Name,
                     snapshot = s.Snapshot,
@@ -48,6 +49,7 @@ public static class JsonReporter
             ok = result.Ok,
             stepCount = result.Steps.Count,
             failed = result.Steps.SelectMany(s => s.Statements).Count(s => !s.Ok),
+            skipped = result.Steps.SelectMany(s => s.Statements).Count(s => s.Skipped),
         });
     }
 

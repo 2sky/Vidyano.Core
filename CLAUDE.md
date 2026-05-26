@@ -127,6 +127,12 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 | `EXECUTE <action>` | Invoke an action by name. |
 | `EXPECT <state>` | Assert on `NavStack.*`, `TotalItems`, `IsInEdit`, `ClientOperation <type>`, attributes, notifications. Metadata forms: `Attribute X TYPE/TAG/TYPEHINT <k>`, `PO.<prop>` / `PO.Metadata.<k>` / `PO.NavigationHints.<k>`, `Query.<prop>` / `Query.Metadata.<k>` / `Query.NavigationHints.<k>` / `Query.PersistentObject.<prop>` / `Query.Columns[<name>].<prop>`. |
 | `TOOL <name> [k=v, …] [-> @var]` | Call a registered C# delegate. Named args only; throws become `tool-error` diagnostics. In-process: register on `VidyanoScriptOptions.Tools`. From the CLI: implement `IVidyanoScriptToolPack` in a DLL and pass `--tools <path.dll>`. |
+| `EXPECT <lhs> MATCHES "<regex>"` | Regex assertion on the subject's string form (1s ReDoS-guard timeout; null never matches). |
+| `REQUIRES <expect-subject> <op> <value>` | Precondition gate reusing the full EXPECT grammar. Holds → pass + continue. Unmet/unevaluable → skip the rest of the body (`state-requires-unmet`, not a failure). |
+| `REQUIRES TOOL <name>` | Capability gate; skips the body unless a tool of that name is registered. |
+| `CLEANUP` | Marker; statements after it always run, even when the body was skipped by an unmet `REQUIRES`. |
+| Built-in vars `{{@today}} {{@now}} {{@uuid}} {{@random}}` | Evaluated on each reference (like `DateTime.Now` / `rng.Next()` in C#) — capture into a var to freeze (`@id = {{@uuid}}`). `--seed <int>` / `.Seed` fixes the `@uuid`/`@random` sequence (independent streams, next value per reference); `--now <iso>` / `.Now` anchors the clock, which then flows by real elapsed time (so `@now` is anchored but not bit-reproducible). |
+| `"... {{x}} ..."` (in-string interpolation) | `{{...}}` holes resolve inside string literals (same forms as a standalone `{{...}}`), so values compose: `SET Name = "Acme {{@uuid}}"`. Escape a literal brace as `\{`. Hole-free strings are unchanged. |
 
 ### Samples and regression scripts
 `Vidyano.Script.Tool/samples/*.visc` — these double as regression tests:
@@ -136,6 +142,7 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 - `env-web.visc` (4/4) — verifies `environmentVersion=3` unlocks server filter machinery.
 - `tool-call.visc` — `TOOL` grammar (lint-only by default; pass `--tools <path.dll>` to a DLL implementing `IVidyanoScriptToolPack` to actually run it from the CLI).
 - `metadata-expect.visc` — `EXPECT` shapes for `Tag` / `Metadata` / `NavigationHints` / `TypeHints` / column properties (server-shape-dependent assertions commented).
+- `deterministic.visc` — lint-only demo of `REQUIRES` (TOOL + data gates), built-in vars (`{{@today}}`/`{{@now}}`/`{{@uuid}}`/`{{@random}}`), `EXPECT … MATCHES`, and a trailing `CLEANUP`.
 
 Run a sample (requires the local RavenDB sample at `https://localhost:44353/` for the local-only ones):
 

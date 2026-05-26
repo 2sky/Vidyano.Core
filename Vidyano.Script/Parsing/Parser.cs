@@ -24,6 +24,7 @@ public sealed class Parser
         "SET", "ACTION", "SEARCH", "SELECT-ROWS",
         "EXPECT", "GOTO",
         "TOOL",
+        "REQUIRES", "CLEANUP",
     };
 
     private static readonly HashSet<string> KnownOpenKinds = new(StringComparer.OrdinalIgnoreCase)
@@ -141,6 +142,8 @@ public sealed class Parser
             "SEARCH"      => ParseSearch(tok.Location),
             "EXPECT"      => ParseExpect(tok.Location),
             "TOOL"        => ParseTool(tok.Location),
+            "REQUIRES"    => ParseRequires(tok.Location),
+            "CLEANUP"     => new CleanupMarker(tok.Location),
             _             => UnimplementedVerb(tok),
         };
     }
@@ -552,6 +555,38 @@ public sealed class Parser
 
     private Statement? ParseExpect(SourceLocation loc)
     {
+        var parsed = ParseAssertion(loc);
+        if (parsed is null) return null;
+        return new ExpectStmt(parsed.Value.Subject, parsed.Value.Op, parsed.Value.Value, loc);
+    }
+
+    /// <summary><c>REQUIRES &lt;assertion&gt;</c> or <c>REQUIRES TOOL &lt;name&gt;</c>. The assertion
+    /// form reuses the entire EXPECT subject+operator grammar via <see cref="ParseAssertion"/>; the
+    /// capability form peeks for a leading <c>TOOL</c> keyword.</summary>
+    private Statement? ParseRequires(SourceLocation loc)
+    {
+        if (Peek().Kind == TokenKind.Identifier &&
+            string.Equals(Peek().Lexeme, "TOOL", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            if (Peek().Kind != TokenKind.Identifier)
+            {
+                Error(ErrorKind.ParseExpected, "REQUIRES TOOL needs a tool name.", Peek().Location, hint: "REQUIRES TOOL seed-db");
+                return null;
+            }
+            return new RequiresToolStmt(Advance().Lexeme, loc);
+        }
+
+        var parsed = ParseAssertion(loc);
+        if (parsed is null) return null;
+        return new RequiresStmt(parsed.Value.Subject, parsed.Value.Op, parsed.Value.Value, loc);
+    }
+
+    /// <summary>Parses the shared <c>&lt;subject&gt; &lt;op&gt; [value]</c> grammar used by both
+    /// <c>EXPECT</c> and the data/state form of <c>REQUIRES</c>. Returns <c>null</c> after emitting a
+    /// diagnostic on malformed input.</summary>
+    private (ExpectSubject Subject, ExpectOp Op, Expression? Value)? ParseAssertion(SourceLocation loc)
+    {
         var subject = ParseExpectSubject();
         if (subject == null)
             return null;
@@ -559,7 +594,7 @@ public sealed class Parser
         // Bare form for ClientOperation: 'EXPECT ClientOperation Refresh' means 'a Refresh op fired'.
         // For other subjects we still require an explicit operator — they have no useful bare meaning.
         if (subject.Kind == ExpectSubjectKind.ClientOperation && IsLineTerminator(Peek()))
-            return new ExpectStmt(subject, ExpectOp.IsNotNull, null, loc);
+            return (subject, ExpectOp.IsNotNull, null);
 
         // IS [NOT] form for action/attribute-flag subjects and IS [NOT] NULL on any subject
         if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "IS", StringComparison.OrdinalIgnoreCase))
@@ -581,7 +616,7 @@ public sealed class Parser
 
             // IS [NOT] NULL
             if (string.Equals(word.Lexeme, "null", StringComparison.OrdinalIgnoreCase))
-                return new ExpectStmt(subject, negate ? ExpectOp.IsNotNull : ExpectOp.IsNull, null, loc);
+                return (subject, negate ? ExpectOp.IsNotNull : ExpectOp.IsNull, null);
 
             // IS [NOT] <FLAG>  — only valid for Action / AttributeFlag subjects
             var op = negate ? ExpectOp.IsNot : ExpectOp.Is;
@@ -597,7 +632,7 @@ public sealed class Parser
                         hint: "Use EXPECT Action Name IS [NOT] AVAILABLE or IS [NOT] VISIBLE.");
                     return null;
                 }
-                return new ExpectStmt(subject with { Flag = ToFlag(word.Lexeme) }, op, null, loc);
+                return (subject with { Flag = ToFlag(word.Lexeme) }, op, null);
             }
             if (subject.Kind == ExpectSubjectKind.AttributeFlag)
             {
@@ -611,7 +646,7 @@ public sealed class Parser
                         hint: "Use EXPECT Attribute Name IS [NOT] VISIBLE | READONLY | REQUIRED.");
                     return null;
                 }
-                return new ExpectStmt(subject with { Flag = ToFlag(word.Lexeme) }, op, null, loc);
+                return (subject with { Flag = ToFlag(word.Lexeme) }, op, null);
             }
 
             Error(ErrorKind.ParseUnexpectedToken,
@@ -630,7 +665,7 @@ public sealed class Parser
         }
         var rhs = ParseValueExpression();
         if (rhs == null) return null;
-        return new ExpectStmt(subject, cmp, rhs, loc);
+        return (subject, cmp, rhs);
     }
 
     private ExpectSubject? ParseExpectSubject()
@@ -768,7 +803,7 @@ public sealed class Parser
                         return null;
                     }
                     var keyTok = Advance();
-                    var keyText = keyTok.Kind == TokenKind.String ? (string)keyTok.Value! : keyTok.Lexeme;
+                    var keyText = keyTok.Kind == TokenKind.String ? (keyTok.Value as string ?? keyTok.Lexeme) : keyTok.Lexeme;
                     return new ExpectSubject(ExpectSubjectKind.AttributeTypeHint, attrName, AttributeFlagKind.None, tok.Location, Scope: scope, MetadataKey: keyText);
                 }
             }
@@ -916,7 +951,7 @@ public sealed class Parser
                 return null;
             }
             var keyTok = Advance();
-            var keyText = keyTok.Kind == TokenKind.String ? (string)keyTok.Value! : keyTok.Lexeme;
+            var keyText = keyTok.Kind == TokenKind.String ? (keyTok.Value as string ?? keyTok.Lexeme) : keyTok.Lexeme;
             var kind = forQuery
                 ? (isMetadata ? ExpectSubjectKind.QueryMetadata : ExpectSubjectKind.QueryNavigationHints)
                 : (isMetadata ? ExpectSubjectKind.PoMetadata    : ExpectSubjectKind.PoNavigationHints);
@@ -959,7 +994,7 @@ public sealed class Parser
                 return null;
             }
             var colTok = Advance();
-            var colName = colTok.Kind == TokenKind.String ? (string)colTok.Value! : colTok.Lexeme;
+            var colName = colTok.Kind == TokenKind.String ? (colTok.Value as string ?? colTok.Lexeme) : colTok.Lexeme;
             if (!Match(TokenKind.RBracket, out _))
             {
                 Error(ErrorKind.ParseExpected, "Expected ']' after column name.", Peek().Location);
@@ -1053,6 +1088,12 @@ public sealed class Parser
                 op = ExpectOp.Contains;
                 return true;
             }
+            if (string.Equals(Peek().Lexeme, "MATCHES", StringComparison.OrdinalIgnoreCase))
+            {
+                Advance();
+                op = ExpectOp.Matches;
+                return true;
+            }
             if (string.Equals(Peek().Lexeme, "NOT", StringComparison.OrdinalIgnoreCase) &&
                 _pos + 1 < _tokens.Count &&
                 _tokens[_pos + 1].Kind == TokenKind.Identifier &&
@@ -1078,7 +1119,9 @@ public sealed class Parser
         {
             case TokenKind.String:
                 Advance();
-                return new LiteralExpr(tok.Value, tok.Location);
+                return tok.Value is IReadOnlyList<object> stringParts
+                    ? BuildStringInterp(stringParts, tok.Location)
+                    : new LiteralExpr(tok.Value, tok.Location);
             case TokenKind.Integer:
             case TokenKind.Number:
             case TokenKind.Literal:
@@ -1103,6 +1146,18 @@ public sealed class Parser
         Error(ErrorKind.ParseExpected, $"Expected a value but got {Describe(tok)}.", tok.Location,
             hint: "Values can be \"strings\", numbers, true/false/null, {{interpolations}}, or bare identifiers.");
         return null;
+    }
+
+    /// <summary>Turns the lexer's interleaved literal/hole parts (from a <c>"..."</c> token that
+    /// contained <c>{{...}}</c>) into a <see cref="StringInterpExpr"/>, lifting each
+    /// <see cref="InterpHole"/> to an <see cref="InterpExpr"/> so holes resolve through the same
+    /// evaluator as a standalone interpolation.</summary>
+    private static Expression BuildStringInterp(IReadOnlyList<object> parts, SourceLocation loc)
+    {
+        var exprs = new List<object>(parts.Count);
+        foreach (var p in parts)
+            exprs.Add(p is InterpHole h ? new InterpExpr(h.Inner, h.Location) : p);
+        return new StringInterpExpr(exprs, loc);
     }
 
     // --- token helpers ------------------------------------------------------------------------

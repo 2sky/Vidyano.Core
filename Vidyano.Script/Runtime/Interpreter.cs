@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -21,15 +22,29 @@ public sealed class Interpreter
     private readonly Dictionary<string, object?> _vars;
     private readonly IReadOnlyDictionary<string, ScriptToolHandler> _tools;
     private readonly CancellationToken _cancellationToken;
+    private readonly DateTimeOffset? _now;
+    private readonly int? _seed;
     private GuardMode _mode = GuardMode.Navigation;
     private bool _statementsExecuted;
+
+    // Per-run state. Reset at the top of every RunAsync so a REPL — which reuses one Interpreter
+    // across typed lines — never carries a skip, a cleanup phase, a clock anchor, or an RNG stream
+    // position from one line into the next.
+    private bool _skipped;
+    private bool _inCleanup;
+    private DateTimeOffset _clockAnchor;
+    private Stopwatch _stopwatch = null!;
+    private Random _uuidRng = null!;
+    private Random _randomRng = null!;
 
     public Interpreter(
         VidyanoSession session,
         IReadOnlyDictionary<string, object?>? initialVars = null,
         GuardMode mode = GuardMode.Navigation,
         IReadOnlyDictionary<string, ScriptToolHandler>? tools = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? now = null,
+        int? seed = null)
     {
         _session = session;
         _vars = initialVars is null
@@ -38,6 +53,9 @@ public sealed class Interpreter
         _mode = mode;
         _tools = tools ?? new Dictionary<string, ScriptToolHandler>(StringComparer.OrdinalIgnoreCase);
         _cancellationToken = cancellationToken;
+        _now = now;
+        _seed = seed;
+        ResetRunState();
     }
 
     /// <summary>Effective guard mode after any <c>@mode</c> directives have been processed.</summary>
@@ -48,6 +66,10 @@ public sealed class Interpreter
 
     public async Task<ScriptResult> RunAsync(ScriptAst script)
     {
+        // Reset per-run state (D3): the REPL reuses one Interpreter across lines, so skip/cleanup
+        // flags, the clock anchor, and the RNG streams must start clean for every run.
+        ResetRunState();
+
         var steps = new List<StepResult>();
         var anyFail = false;
         foreach (var step in script.Steps)
@@ -69,11 +91,25 @@ public sealed class Interpreter
             stmtResults.Add(r);
             if (!r.Ok) anyFail = true;
         }
-        return (new StepResult(step.Label, step.Location, !anyFail, stmtResults), !anyFail);
+        var skipped = stmtResults.Count > 0 && stmtResults.All(s => s.Skipped);
+        return (new StepResult(step.Label, step.Location, !anyFail, stmtResults, skipped), !anyFail);
     }
 
     private async Task<StatementResult> RunStatementAsync(Statement stmt)
     {
+        // CLEANUP opens the cleanup phase: every statement after it runs even when the body was
+        // skipped by an unmet REQUIRES. The marker itself is recorded as a normal pass.
+        if (stmt is CleanupMarker)
+        {
+            _inCleanup = true;
+            return Ok(stmt);
+        }
+
+        // Once an unmet REQUIRES has set the skip flag, body statements are recorded as skipped
+        // without executing. Cleanup statements are exempt — they always run.
+        if (_skipped && !_inCleanup)
+            return Skip(stmt, null);
+
         // Track whether real work has happened, so @mode can be rejected after the first execution.
         var isMetaStmt = stmt is VariableAssignment or ModeDirective;
         if (!isMetaStmt) _statementsExecuted = true;
@@ -140,6 +176,8 @@ public sealed class Interpreter
             case SearchStmt q:                 return await DoSearch(q).ConfigureAwait(false);
             case ExpectStmt ex:                return DoExpect(ex);
             case ToolCallStmt tc:              return await DoTool(tc).ConfigureAwait(false);
+            case RequiresStmt rq:              return DoRequires(rq);
+            case RequiresToolStmt rqt:         return DoRequiresTool(rqt);
         }
         return Fail(stmt, new Diagnostic(ErrorKind.ParseUnexpectedToken, $"Statement type {stmt.GetType().Name} is not supported.", stmt.Location));
     }
@@ -156,6 +194,9 @@ public sealed class Interpreter
             SaveStmt sv  => string.Equals(sv.Scope, "initial", StringComparison.OrdinalIgnoreCase),
             SetStmt set  => string.Equals(set.Scope, "initial", StringComparison.OrdinalIgnoreCase),
             ExpectStmt   => true,
+            // REQUIRES is a read-only precondition gate; let it evaluate (an unevaluable gate skips,
+            // per D8) rather than tripping the initial-pending guard.
+            RequiresStmt or RequiresToolStmt => true,
             _ => false,
         };
 
@@ -377,8 +418,54 @@ public sealed class Interpreter
         var rhs = EvaluateExpression(ex.Value!);
         if (!rhs.Ok) return Fail(ex, rhs.Error!);
 
+        // MATCHES is split out from the generic comparison so a malformed pattern surfaces as a
+        // clean authoring diagnostic rather than letting RegexParseException escape and abort the run.
+        if (ex.Op == ExpectOp.Matches)
+        {
+            if (!TryRegexMatches(lhs.Value, rhs.Value, out var matched, out var patternError))
+                return Fail(ex, new Diagnostic(ErrorKind.ParseInvalidValue,
+                    $"MATCHES pattern is not a valid regular expression: {patternError}", ex.Location,
+                    Hint: "Fix the regex literal on the right-hand side of MATCHES."));
+            return matched ? Ok(ex) : Fail(ex, AssertDiag(ex, rhs.Value, lhs.Value));
+        }
+
         var ok = Compare(lhs.Value, rhs.Value, ex.Op);
         return ok ? Ok(ex) : Fail(ex, AssertDiag(ex, rhs.Value, lhs.Value));
+    }
+
+    /// <summary>Evaluates a <c>REQUIRES &lt;assertion&gt;</c> gate using the exact same logic as
+    /// <c>EXPECT</c>. When the gate holds the statement is a normal pass and execution continues.
+    /// When it does not hold — or evaluating it raises a resolution error (D8) — the skip flag is set
+    /// and the statement is recorded as a skipped pass with an informational diagnostic.</summary>
+    private StatementResult DoRequires(RequiresStmt rq)
+    {
+        var probe = new ExpectStmt(rq.Subject, rq.Op, rq.Value, rq.Location);
+        var result = DoExpect(probe);
+        if (result.Ok)
+            return Ok(rq);
+
+        var reason = result.Diagnostics.Count > 0 ? result.Diagnostics[0].Message : "precondition not met";
+        _skipped = true;
+        return Skip(rq, new Diagnostic(
+            ErrorKind.StateRequiresUnmet,
+            $"Precondition not met ({reason}) — skipping the rest of the body.",
+            rq.Location,
+            Hint: "Statements after CLEANUP still run. REQUIRES gates the body, it does not fail the run."));
+    }
+
+    /// <summary>Evaluates a <c>REQUIRES TOOL &lt;name&gt;</c> capability gate: satisfied iff a tool of
+    /// that name is registered. Unsatisfied gates skip the rest of the body.</summary>
+    private StatementResult DoRequiresTool(RequiresToolStmt rqt)
+    {
+        if (_tools.ContainsKey(rqt.ToolName))
+            return Ok(rqt);
+
+        _skipped = true;
+        return Skip(rqt, new Diagnostic(
+            ErrorKind.StateRequiresUnmet,
+            $"Required tool '{rqt.ToolName}' is not registered — skipping the rest of the body.",
+            rqt.Location,
+            Hint: "Register it via VidyanoScriptOptions.Tools or pass --tools <pack.dll>. Statements after CLEANUP still run."));
     }
 
     private StatementResult DoExpectClientOperation(ExpectStmt ex)
@@ -850,9 +937,34 @@ public sealed class Interpreter
             case LiteralExpr l: return OpResult<object?>.Success(l.Value);
             case IdentifierExpr i: return OpResult<object?>.Success(i.Name);
             case InterpExpr interp: return EvaluateInterpolation(interp);
+            case StringInterpExpr si: return EvaluateStringInterp(si);
             case VariableAttributeExpr v: return _session.GetScopedAttributeValue(v.Scope, v.AttributeName, v.Location);
         }
         return Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken, "Unhandled expression.", expr.Location));
+    }
+
+    /// <summary>Evaluates a <c>"..."</c> literal that carried <c>{{...}}</c> holes: literal runs pass
+    /// through verbatim, holes resolve via <see cref="EvaluateInterpolation"/>, and every piece is
+    /// coerced with <see cref="AsString"/> before concatenation. A failing hole (e.g. an undefined
+    /// variable) surfaces its diagnostic and aborts the statement — the same loud failure a
+    /// standalone <c>{{...}}</c> would produce.</summary>
+    private OpResult<object?> EvaluateStringInterp(StringInterpExpr si)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var part in si.Parts)
+        {
+            if (part is InterpExpr hole)
+            {
+                var v = EvaluateInterpolation(hole);
+                if (!v.Ok) return v;
+                sb.Append(AsString(v.Value));
+            }
+            else
+            {
+                sb.Append((string)part);
+            }
+        }
+        return OpResult<object?>.Success(sb.ToString());
     }
 
     private OpResult<object?> EvaluateInterpolation(InterpExpr interp)
@@ -864,6 +976,19 @@ public sealed class Interpreter
             var val = Environment.GetEnvironmentVariable(name);
             return OpResult<object?>.Success(val);
         }
+        // Built-in deterministic variables (D5): dotless @-names resolved before the @scope.attr
+        // path. Each is evaluated on every reference, not memoized: {{@now}} flows from a per-run
+        // anchor, and {{@uuid}}/{{@random}} draw the next value from a seeded stream. To freeze a
+        // value for reuse, capture it into a variable (@id = {{@uuid}}) — same idiom as C#.
+        if (string.Equals(inner, "@today", StringComparison.OrdinalIgnoreCase))
+            return OpResult<object?>.Success((object?)BuiltinToday());
+        if (string.Equals(inner, "@now", StringComparison.OrdinalIgnoreCase))
+            return OpResult<object?>.Success((object?)BuiltinNow());
+        if (string.Equals(inner, "@uuid", StringComparison.OrdinalIgnoreCase))
+            return OpResult<object?>.Success((object?)BuiltinUuid());
+        if (string.Equals(inner, "@random", StringComparison.OrdinalIgnoreCase))
+            return OpResult<object?>.Success((object?)BuiltinRandom());
+
         // {{@session.Attr}} — read an attribute from a reserved scoped PO. Mirrors the SET shape
         // so authors don't need to remember a separate interpolation syntax. Scope and attribute
         // parts are trimmed individually so {{ @session . X }} reads the same as {{@session.X}}.
@@ -923,6 +1048,46 @@ public sealed class Interpreter
             Hint: Suggester.Hint(inner, _vars.Keys)));
     }
 
+    // --- built-in deterministic variables -----------------------------------------------------
+
+    /// <summary>Resets everything scoped to a single RunAsync: a fresh clock anchor + stopwatch and
+    /// fresh RNG streams. Called from the constructor and the top of every run so a reused
+    /// Interpreter (the REPL) never leaks per-run state across lines.</summary>
+    private void ResetRunState()
+    {
+        _skipped = false;
+        _inCleanup = false;
+        // Anchor the clock once per run; each {{@now}} read = anchor + real elapsed. A pinned --now
+        // fixes the origin, but time still flows the way a live session's would (the delta is real,
+        // so it is NOT bit-reproducible — capture into a variable when an exact value is needed).
+        _clockAnchor = _now ?? DateTimeOffset.Now;
+        _stopwatch = Stopwatch.StartNew();
+        // Independent seeded streams: adding a {{@random}} draw never perturbs the {{@uuid}}
+        // sequence (and vice versa). Same seed -> same sequence, distinct value per reference.
+        _uuidRng = _seed is { } us ? new Random(us) : new Random();
+        _randomRng = _seed is { } rs ? new Random(rs ^ unchecked((int)0x9E3779B9)) : new Random();
+    }
+
+    private DateTimeOffset Clock => _clockAnchor + _stopwatch.Elapsed;
+
+    private string BuiltinToday() =>
+        Clock.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private string BuiltinNow() =>
+        Clock.ToString("o", CultureInfo.InvariantCulture);
+
+    private string BuiltinUuid()
+    {
+        var bytes = new byte[16];
+        _uuidRng.NextBytes(bytes);
+        return new Guid(bytes).ToString();
+    }
+
+    private long BuiltinRandom() =>
+        // Random.NextInt64 isn't on netstandard2.0, so compose a non-negative 62-bit value from two
+        // 31-bit draws — the long return then spans well beyond int.MaxValue.
+        ((long)_randomRng.Next() << 31) | (long)_randomRng.Next();
+
     // --- comparison / coercion ----------------------------------------------------------------
 
     private static bool Compare(object? left, object? right, ExpectOp op)
@@ -941,6 +1106,9 @@ public sealed class Interpreter
             return op == ExpectOp.Contains ? contained : !contained;
         }
 
+        // ExpectOp.Matches is handled in DoExpect (it needs to distinguish a malformed pattern from a
+        // non-match), so it never reaches Compare.
+
         // Numeric comparisons coerce both sides to decimal when possible.
         if (!TryCoerceDecimal(left, out var l) || !TryCoerceDecimal(right, out var r))
             return false;
@@ -953,6 +1121,39 @@ public sealed class Interpreter
             ExpectOp.GtEq => l >= r,
             _ => false,
         };
+    }
+
+    /// <summary><c>EXPECT … MATCHES "pattern"</c> — regex test of the left side's string form. Returns
+    /// <c>true</c> when the pattern is valid and was evaluated (a null subject is a clean non-match, and
+    /// a 1s ReDoS-guard timeout is also treated as a non-match — never a crash); <paramref name="matched"/>
+    /// carries the outcome. Returns <c>false</c> with <paramref name="error"/> set when the pattern is not
+    /// a valid regex, so the caller can surface a clean authoring diagnostic instead of letting the
+    /// exception abort the run.</summary>
+    private static bool TryRegexMatches(object? left, object? pattern, out bool matched, out string? error)
+    {
+        matched = false;
+        error = null;
+        if (left is null || pattern is null) return true;
+        var subject = left as string ?? left.ToString();
+        var pat = pattern as string ?? pattern.ToString();
+        if (subject is null || pat is null) return true;
+        try
+        {
+            matched = System.Text.RegularExpressions.Regex.IsMatch(
+                subject, pat,
+                System.Text.RegularExpressions.RegexOptions.None,
+                TimeSpan.FromSeconds(1));
+            return true;
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            error = ex.Message;
+            return false;
+        }
     }
 
     private static bool ContainsSubstring(object? haystack, object? needle)
@@ -1025,4 +1226,11 @@ public sealed class Interpreter
 
     private StatementResult Fail(Statement stmt, Diagnostic d) =>
         new(stmt, false, _session.TakeSnapshot(), new[] { d });
+
+    /// <summary>A skipped statement: a non-failing pass that did not execute. <paramref name="d"/>
+    /// carries an informational diagnostic explaining the skip (e.g. an unmet REQUIRES).</summary>
+    private StatementResult Skip(Statement stmt, Diagnostic? d) =>
+        new(stmt, true, _session.TakeSnapshot(),
+            d is null ? Array.Empty<Diagnostic>() : new[] { d },
+            Skipped: true);
 }

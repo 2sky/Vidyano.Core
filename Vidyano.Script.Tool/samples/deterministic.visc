@@ -1,0 +1,38 @@
+### Determinism — REQUIRES gates, built-in vars, MATCHES, and CLEANUP
+###
+### This file lints cleanly with no backend. It demonstrates the determinism feature set:
+###   • REQUIRES — precondition gates that SKIP the rest of the body when unmet (they never fail).
+###   • Built-in vars — {{@today}} {{@now}} {{@uuid}} {{@random}}, evaluated on each reference
+###     (like DateTime.Now / rng.Next() in C#). Capture into a var to freeze: `@id = {{@uuid}}`.
+###     --seed fixes the @uuid/@random sequence; --now anchors the clock (then flows by real elapsed):
+###     `vidyano run deterministic.visc --seed 42 --now 2026-05-26T09:00:00Z`.
+###   • EXPECT … MATCHES "pattern" — regex assertions (1s ReDoS-guard timeout).
+###   • CLEANUP — a marker; statements after it always run, even when the body was skipped.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+### Capability gate: skips everything below (until CLEANUP) unless a `seed-db` tool is registered.
+### With no --tools pack loaded this gate is unmet, so the body is skipped — not failed.
+REQUIRES TOOL seed-db
+
+OPEN Query Customers
+
+### Data gate: reuses the full EXPECT subject+operator grammar.
+REQUIRES TotalItems >= 1
+
+### Built-in vars interpolate inside "..." strings, so they compose into unique,
+### recognizable test data. Escape a literal brace as \{ if you ever need one.
+EDIT
+SET Name = "Acme {{@uuid}}"
+SET CreatedOn = "{{@today}}"
+
+### Regex assertion against the composed name — a stable GUID shape under --seed.
+EXPECT Name MATCHES "^Acme [0-9a-fA-F-]{36}$"
+
+SAVE
+
+### Everything from here runs regardless of the skips above.
+CLEANUP
+EXPECT NavStack.Depth >= 0

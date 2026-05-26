@@ -53,4 +53,21 @@ public sealed class VidyanoScriptOptions
     /// Ignored when <see cref="HttpClient"/> is supplied.
     /// </summary>
     public bool AcceptAnyServerCertificate { get; set; }
+
+    /// <summary>
+    /// Anchors the run clock for the built-in <c>{{@today}}</c> / <c>{{@now}}</c> variables. Each
+    /// <c>{{@now}}</c> reference reads the anchor plus real elapsed time since the run started, so a
+    /// pinned value fixes the origin while the clock still flows (it is not bit-reproducible — capture
+    /// into a variable for an exact value). When unset, the anchor is the live system clock. Anchoring
+    /// is an invocation concern — the script stays portable.
+    /// </summary>
+    public System.DateTimeOffset? Now { get; set; }
+
+    /// <summary>
+    /// Seeds the generators behind the built-in <c>{{@uuid}}</c> / <c>{{@random}}</c> variables.
+    /// Each reference draws the next value from a seeded stream (the two streams are independent), so
+    /// the same seed replays the same sequence across runs while distinct references stay distinct.
+    /// Capture into a variable to freeze a value for reuse. When unset, the streams are unseeded.
+    /// </summary>
+    public int? Seed { get; set; }
 }

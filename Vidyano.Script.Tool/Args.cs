@@ -16,6 +16,8 @@ public sealed class Args
     public bool Verbose { get; set; }
     public bool Insecure { get; set; }
     public List<string> ToolPaths { get; } = new();
+    public int? Seed { get; set; }
+    public DateTimeOffset? Now { get; set; }
     public List<string> Unknown { get; } = new();
 
     /// <summary>Parses positional + flag arguments. Unknown flags are collected; callers decide whether to error.</summary>
@@ -48,6 +50,22 @@ public sealed class Args
                 case "--tools":
                     if (i + 1 >= args.Length) { result.Unknown.Add("--tools requires a DLL path"); break; }
                     result.ToolPaths.Add(args[++i]); break;
+                case "--seed":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--seed requires an integer"); break; }
+                    if (!int.TryParse(args[++i], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var seed))
+                    {
+                        result.Unknown.Add($"--seed '{args[i]}' is not an integer");
+                        break;
+                    }
+                    result.Seed = seed; break;
+                case "--now":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--now requires an ISO datetime"); break; }
+                    if (!DateTimeOffset.TryParse(args[++i], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var now))
+                    {
+                        result.Unknown.Add($"--now '{args[i]}' is not a valid ISO datetime");
+                        break;
+                    }
+                    result.Now = now; break;
                 case "--json":     result.Json = true; break;
                 case "--verbose":  result.Verbose = true; break;
                 case "--insecure": result.Insecure = true; break;
@@ -64,7 +82,13 @@ public sealed class Args
     /// <summary>Builds the <see cref="VidyanoScriptOptions"/> the engine expects.</summary>
     public VidyanoScriptOptions ToOptions()
     {
-        var opts = new VidyanoScriptOptions { RemoteUri = AppUri, AcceptAnyServerCertificate = Insecure };
+        var opts = new VidyanoScriptOptions
+        {
+            RemoteUri = AppUri,
+            AcceptAnyServerCertificate = Insecure,
+            Seed = Seed,
+            Now = Now,
+        };
         if (Mode is { } m) opts.Mode = m;
         foreach (var kv in Vars) opts.Variables[kv.Key] = kv.Value;
         return opts;

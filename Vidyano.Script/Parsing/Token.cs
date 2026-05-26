@@ -63,9 +63,17 @@ public enum TokenKind
 /// <summary>
 /// One lexeme from a .visc source. <see cref="Lexeme"/> is the raw text as it appeared;
 /// <see cref="Value"/> is the typed payload for literals (string, long, decimal, bool, null).
+/// A <see cref="TokenKind.String"/> token whose literal contains <c>{{...}}</c> holes carries an
+/// <c>IReadOnlyList&lt;object&gt;</c> in <see cref="Value"/> (literal <see cref="string"/> runs
+/// interleaved with <see cref="InterpHole"/>s); hole-free strings keep a plain <see cref="string"/>.
 /// </summary>
 public readonly record struct Token(
     TokenKind Kind,
     string Lexeme,
     SourceLocation Location,
     object? Value = null);
+
+/// <summary>A <c>{{...}}</c> hole found inside a string literal. The lexer emits these as parts of a
+/// <see cref="TokenKind.String"/> token's <see cref="Token.Value"/>; the parser turns each into an
+/// <see cref="InterpExpr"/>. <see cref="Inner"/> is the trimmed text between the braces.</summary>
+public sealed record InterpHole(string Inner, SourceLocation Location);

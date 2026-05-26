@@ -55,6 +55,9 @@ public static class ErrorKind
     public const string StateScopeNotImplemented = "state-scope-not-implemented";
     public const string StateInitialPending      = "state-initial-pending";
     public const string StateHandleStale         = "state-handle-stale";
+    /// <summary>Informational: a <c>REQUIRES</c> precondition was not met (or could not be
+    /// evaluated), so the rest of the body is skipped. Not a failure.</summary>
+    public const string StateRequiresUnmet       = "state-requires-unmet";
 
     // Assertions
     public const string AssertFailed             = "assert-failed";

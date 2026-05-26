@@ -12,14 +12,17 @@ public sealed record StatementResult(
     Statement Statement,
     bool Ok,
     Snapshot? Snapshot,
-    IReadOnlyList<Diagnostic> Diagnostics);
+    IReadOnlyList<Diagnostic> Diagnostics,
+    bool Skipped = false);
 
-/// <summary>Aggregate of all <see cref="StatementResult"/>s in one <see cref="Step"/>.</summary>
+/// <summary>Aggregate of all <see cref="StatementResult"/>s in one <see cref="Step"/>.
+/// <see cref="Skipped"/> is <c>true</c> when the step had statements and every one was skipped.</summary>
 public sealed record StepResult(
     string Label,
     SourceLocation Location,
     bool Ok,
-    IReadOnlyList<StatementResult> Statements);
+    IReadOnlyList<StatementResult> Statements,
+    bool Skipped = false);
 
 /// <summary>Top-level outcome of running a whole .visc.</summary>
 public sealed record ScriptResult(

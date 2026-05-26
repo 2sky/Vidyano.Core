@@ -92,6 +92,8 @@ public static class Cli
         AnsiConsole.MarkupLine("  [green]--mode[/] navigation|audit|direct");
         AnsiConsole.MarkupLine("                          Guard mode (overrides script's @mode).");
         AnsiConsole.MarkupLine("  [green]--tools[/] <path.dll>      Load an external tool pack (IVidyanoScriptToolPack). Repeatable.");
+        AnsiConsole.MarkupLine("  [green]--seed[/] <int>           Fix the {{@uuid}}/{{@random}} sequence (next value per reference).");
+        AnsiConsole.MarkupLine("  [green]--now[/] <iso-datetime>   Anchor the run clock for {{@today}}/{{@now}} (then flows by real elapsed).");
         AnsiConsole.MarkupLine("  [green]--json[/]                   NDJSON output (one event per line).");
         AnsiConsole.MarkupLine("  [green]--verbose[/]                Show per-statement snapshot detail.");
         AnsiConsole.MarkupLine("  [green]--insecure[/]               Bypass TLS validation (local dev certs only).");

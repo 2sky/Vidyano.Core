@@ -88,6 +88,21 @@ public sealed record ExpectStmt(ExpectSubject Subject, ExpectOp Op, Expression? 
 /// Tools are registered on <see cref="VidyanoScriptOptions.Tools"/>.</summary>
 public sealed record ToolCallStmt(string Name, IReadOnlyDictionary<string, Expression> Args, string? ResultVariable, SourceLocation Location) : Statement(Location);
 
+/// <summary><c>REQUIRES &lt;expect-subject&gt; &lt;op&gt; &lt;value&gt;</c> — a precondition gate that
+/// reuses the entire <c>EXPECT</c> subject+operator grammar. When the gate does not hold (or can't be
+/// evaluated) the rest of the body is skipped rather than failed; statements after a
+/// <see cref="CleanupMarker"/> still run. The capability form <c>REQUIRES TOOL &lt;name&gt;</c> is a
+/// separate <see cref="RequiresToolStmt"/>.</summary>
+public sealed record RequiresStmt(ExpectSubject Subject, ExpectOp Op, Expression? Value, SourceLocation Location) : Statement(Location);
+
+/// <summary><c>REQUIRES TOOL &lt;name&gt;</c> — capability gate, satisfied iff a tool named
+/// <see cref="ToolName"/> is registered. Unsatisfied gates skip the rest of the body.</summary>
+public sealed record RequiresToolStmt(string ToolName, SourceLocation Location) : Statement(Location);
+
+/// <summary><c>CLEANUP</c> — marker after which every statement always runs, even when the body was
+/// skipped by an unmet <c>REQUIRES</c>. Zero-arg; only its position in the statement stream matters.</summary>
+public sealed record CleanupMarker(SourceLocation Location) : Statement(Location);
+
 // --- EXPECT subject + operator ----------------------------------------------------------------
 
 /// <summary>Categories of things EXPECT can target.</summary>
@@ -185,7 +200,7 @@ public enum AttributeFlagKind { None, Visible, ReadOnly, Required }
 
 /// <summary>EXPECT comparison operators. <see cref="Is"/>/<see cref="IsNot"/> drive boolean assertions like IS AVAILABLE.
 /// <see cref="Contains"/>/<see cref="NotContains"/> do case-insensitive substring matching against the subject's string form.</summary>
-public enum ExpectOp { Eq, NotEq, Lt, LtEq, Gt, GtEq, Is, IsNot, IsNull, IsNotNull, Contains, NotContains }
+public enum ExpectOp { Eq, NotEq, Lt, LtEq, Gt, GtEq, Is, IsNot, IsNull, IsNotNull, Contains, NotContains, Matches }
 
 // --- Expressions --------------------------------------------------------------------------------
 
@@ -200,6 +215,12 @@ public sealed record IdentifierExpr(string Name, SourceLocation Location) : Expr
 
 /// <summary><c>{{...}}</c> — a variable interpolation. <see cref="Inner"/> is the raw text between braces.</summary>
 public sealed record InterpExpr(string Inner, SourceLocation Location) : Expression(Location);
+
+/// <summary>A <c>"..."</c> string literal containing one or more <c>{{...}}</c> holes. Each entry in
+/// <see cref="Parts"/> is either a <see cref="string"/> (a literal run) or an <see cref="InterpExpr"/>
+/// (a hole resolved with the same machinery as a standalone interpolation). Hole-free literals never
+/// produce this node — they stay <see cref="LiteralExpr"/> — so the common case is unchanged.</summary>
+public sealed record StringInterpExpr(IReadOnlyList<object> Parts, SourceLocation Location) : Expression(Location);
 
 /// <summary><c>@scope.AttributeName</c> in value position — read an attribute from a reserved
 /// scoped PO (<c>@session</c>). The interpreter dispatches to

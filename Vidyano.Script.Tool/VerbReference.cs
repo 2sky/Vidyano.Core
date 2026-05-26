@@ -45,10 +45,15 @@ public static class VerbReference
         t.AddRow("EXPECT PO.<prop>",     "EXPECT PO.Type = \"Customer\"",         "Plus PO.Tag / PO.Metadata.<k> / PO.NavigationHints.<k>.");
         t.AddRow("EXPECT Query.<prop>",  "EXPECT Query.Columns[[Name]].Label = …", "Plus Query.Metadata.<k>, Query.PersistentObject.Type, etc.");
         t.AddRow("TOOL",                 "TOOL fetch-user id=42 -> @user",      "Registered handler. CLI: load via --tools <pack.dll> (IVidyanoScriptToolPack).");
+        t.AddRow("EXPECT … MATCHES",     "EXPECT Code MATCHES \"^[A-Z]{2}\\\\d+$\"", "Regex assertion (1s ReDoS-guard timeout). Null never matches.");
+        t.AddRow("REQUIRES",             "REQUIRES TotalItems >= 1",            "Precondition gate (reuses EXPECT grammar). Unmet → skip rest of body.");
+        t.AddRow("REQUIRES TOOL",        "REQUIRES TOOL seed-db",               "Capability gate: skip the body unless the named tool is registered.");
+        t.AddRow("CLEANUP",              "CLEANUP",                             "Marker; statements after it always run, even when the body was skipped.");
 
         AnsiConsole.Write(t);
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[grey]Comments start with # — they're ignored, but `### label` starts a new step.[/]");
-        AnsiConsole.MarkupLine("[grey]Strings: \"...\" with \\\" \\n \\t escapes.  Variables: {{name}} or {{$env VAR}}.[/]");
+        AnsiConsole.MarkupLine("[grey]Strings: \"...\" with \\\" \\n \\t escapes; {{...}} interpolates inside strings (escape a literal brace as \\{).[/]");
+        AnsiConsole.MarkupLine("[grey]Built-in vars: {{@today}} {{@now}} {{@uuid}} {{@random}} — evaluated per reference (capture into a var to freeze); --seed fixes the @uuid/@random sequence, --now anchors the clock.[/]");
     }
 }

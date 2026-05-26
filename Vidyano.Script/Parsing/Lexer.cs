@@ -141,7 +141,15 @@ public sealed class Lexer
     {
         var loc = Here();
         _pos++; _col++; // opening quote
-        var sb = new StringBuilder();
+        var sb = new StringBuilder();   // current literal run (decoded)
+        var raw = new StringBuilder();  // full text for Lexeme; holes rendered back as {{inner}}
+        List<object>? parts = null;     // non-null once the first hole is seen
+
+        void FlushLiteral()
+        {
+            if (sb.Length > 0) { parts!.Add(sb.ToString()); sb.Clear(); }
+        }
+
         while (_pos < _source.Length && _source[_pos] != '"')
         {
             var c = _source[_pos];
@@ -152,22 +160,69 @@ public sealed class Lexer
                     "String literal is missing its closing quote.",
                     loc,
                     Hint: "Add a closing \" before the end of the line, or escape newlines as \\n."));
-                return new Token(TokenKind.String, sb.ToString(), loc, sb.ToString());
+                if (parts is null) return new Token(TokenKind.String, sb.ToString(), loc, sb.ToString());
+                FlushLiteral();
+                return new Token(TokenKind.String, raw.ToString(), loc, parts);
             }
             if (c == '\\' && _pos + 1 < _source.Length)
             {
                 _pos++; _col++;
                 var esc = _source[_pos];
-                sb.Append(esc switch { 'n' => '\n', 't' => '\t', 'r' => '\r', '"' => '"', '\\' => '\\', _ => esc });
+                // `\{` / `\}` escape a literal brace so an author can write a literal {{ that is not a hole.
+                var decoded = esc switch { 'n' => '\n', 't' => '\t', 'r' => '\r', '"' => '"', '\\' => '\\', '{' => '{', '}' => '}', _ => esc };
+                sb.Append(decoded);
+                raw.Append(decoded);
                 _pos++; _col++;
                 continue;
             }
+            // {{...}} hole — resolved at eval time by the same machinery as a standalone interpolation.
+            if (c == '{' && Peek(1) == '{')
+            {
+                parts ??= new List<object>();
+                FlushLiteral();
+                var holeLoc = Here();
+                _pos += 2; _col += 2; // skip "{{"
+                var inner = new StringBuilder();
+                var closed = false;
+                while (_pos < _source.Length && _source[_pos] != '"')
+                {
+                    if (_source[_pos] == '}' && Peek(1) == '}') { _pos += 2; _col += 2; closed = true; break; }
+                    if (_source[_pos] == '\n') break;
+                    inner.Append(_source[_pos]);
+                    _pos++; _col++;
+                }
+                var innerRaw = inner.ToString();
+                var innerText = innerRaw.Trim();
+                if (!closed)
+                    _diagnostics.Add(new Diagnostic(
+                        ErrorKind.ParseUnexpectedToken,
+                        "Interpolation {{...}} inside a string is missing its closing }}.",
+                        holeLoc,
+                        Hint: "Close the hole with }} before the end of the string, or escape a literal brace as \\{."));
+                else if (innerText.Length == 0)
+                    _diagnostics.Add(new Diagnostic(
+                        ErrorKind.ParseInvalidValue,
+                        "Empty interpolation {{}} inside a string has nothing to resolve.",
+                        holeLoc,
+                        Hint: "Put a variable, scope, or built-in inside the braces, or escape a literal brace as \\{."));
+                parts.Add(new InterpHole(innerText, holeLoc));
+                // Keep the lexeme byte-faithful to the source: re-emit the hole with its original
+                // (untrimmed) inner text rather than the trimmed form used for resolution.
+                raw.Append("{{").Append(innerRaw).Append("}}");
+                continue;
+            }
             sb.Append(c);
+            raw.Append(c);
             _pos++; _col++;
         }
         if (_pos < _source.Length) { _pos++; _col++; } // closing quote
-        var s = sb.ToString();
-        return new Token(TokenKind.String, s, loc, s);
+        if (parts is null)
+        {
+            var s = sb.ToString();
+            return new Token(TokenKind.String, s, loc, s);
+        }
+        FlushLiteral();
+        return new Token(TokenKind.String, raw.ToString(), loc, parts);
     }
 
     private Token ReadInterp()

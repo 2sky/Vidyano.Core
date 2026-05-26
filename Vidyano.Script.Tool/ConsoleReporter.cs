@@ -24,7 +24,7 @@ public static class ConsoleReporter
             return;
         }
 
-        var passed = 0; var failed = 0; var total = 0;
+        var passed = 0; var failed = 0; var skipped = 0; var total = 0;
         foreach (var step in result.Steps)
         {
             if (!string.IsNullOrEmpty(step.Label))
@@ -36,7 +36,13 @@ public static class ConsoleReporter
             foreach (var s in step.Statements)
             {
                 total++;
-                if (s.Ok)
+                if (s.Skipped)
+                {
+                    skipped++;
+                    AnsiConsole.MarkupLine($"  [yellow]↓[/] [grey]{Describe(s.Statement)}[/]");
+                    foreach (var d in s.Diagnostics) WriteDiagnostic(d, indent: "    ");
+                }
+                else if (s.Ok)
                 {
                     passed++;
                     AnsiConsole.MarkupLine($"  [green]✓[/] {Describe(s.Statement)}");
@@ -55,6 +61,7 @@ public static class ConsoleReporter
         AnsiConsole.WriteLine();
         var summary = $"[bold]{passed}[/]/{total} ok";
         if (failed > 0) summary += $", [red]{failed} failed[/]";
+        if (skipped > 0) summary += $", [yellow]{skipped} skipped[/]";
         AnsiConsole.MarkupLine(summary);
     }
 
@@ -87,6 +94,9 @@ public static class ConsoleReporter
             SearchStmt                 => "SEARCH …",
             ExpectStmt e               => $"EXPECT {DescribeSubject(e.Subject)}",
             ToolCallStmt t             => $"TOOL {Markup.Escape(t.Name)}{(t.ResultVariable is null ? "" : $" -> @{Markup.Escape(t.ResultVariable)}")}",
+            RequiresStmt r             => $"REQUIRES {DescribeSubject(r.Subject)}",
+            RequiresToolStmt rt        => $"REQUIRES TOOL {Markup.Escape(rt.ToolName)}",
+            CleanupMarker              => "CLEANUP",
             UseSessionStmt u           => $"USE @{u.SessionName}",
             SignOutStmt                => "SIGN-OUT",
             _                          => stmt.GetType().Name,
