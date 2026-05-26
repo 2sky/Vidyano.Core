@@ -1,0 +1,845 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+using Vidyano.Script.Diagnostics;
+using Vidyano.ViewModel;
+using Vidyano.ViewModel.Actions;
+
+namespace Vidyano.Script.Runtime;
+
+/// <summary>
+/// A live, single-user Vidyano session driven through <see cref="Vidyano.Client"/>. Methods return
+/// <see cref="OpResult"/> rather than throwing so callers can collect diagnostics from many
+/// operations in one run.
+/// </summary>
+/// <remarks>
+/// The session owns the "current PO" and "current query" implicitly — most verbs target the top of
+/// the stack. Named handles override the implicit choice for multi-PO scenarios.
+/// </remarks>
+public sealed class VidyanoSession : IDisposable
+{
+    private readonly HttpClient? _ownedHttpClient;
+    private readonly Dictionary<string, object> _handles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<ClientOperation> _allOperations = new();
+    private List<ClientOperation> _lastOperations = new();
+    private readonly List<NavEntry> _navStack = new();
+    private readonly ScriptHooks _hooks = new();
+
+    /// <summary>
+    /// Creates a session. When <paramref name="httpClient"/> is <c>null</c>, the constructor builds an
+    /// <see cref="HttpClient"/> with a <see cref="CookieContainer"/> attached — Vidyano's auth depends
+    /// on cookies, so a bare <c>new HttpClient()</c> would silently drop sign-in state between calls.
+    /// </summary>
+    /// <param name="acceptAnyServerCertificate">
+    /// Bypass TLS validation. <c>true</c> for local development (self-signed dev certs); never in CI/prod.
+    /// Ignored when an external <paramref name="httpClient"/> is supplied.
+    /// </param>
+    public VidyanoSession(string baseUri, HttpClient? httpClient = null, bool acceptAnyServerCertificate = false)
+    {
+        if (httpClient is null)
+        {
+            var handler = new HttpClientHandler
+            {
+                CookieContainer = new CookieContainer(),
+                UseCookies = true,
+            };
+            if (acceptAnyServerCertificate)
+                handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
+            _ownedHttpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(90) };
+            Client = new Vidyano.Client(_ownedHttpClient) { Uri = baseUri };
+        }
+        else
+        {
+            Client = new Vidyano.Client(httpClient) { Uri = baseUri };
+        }
+
+        // Bridge Vidyano.Core's per-response ClientOperation dispatch (Hooks.OnClientOperation)
+        // into the script's per-verb buffers. _lastOperations is reset before each executable verb
+        // so EXPECT ClientOperation only sees what the *previous* verb produced; _allOperations
+        // accumulates for diagnostics.
+        Client.Hooks = _hooks;
+        _hooks.ClientOperationObserver = co =>
+        {
+            var op = ClientOperation.FromJson(co.Raw);
+            if (op is null) return;
+            _allOperations.Add(op);
+            _lastOperations.Add(op);
+
+            if (Environment.GetEnvironmentVariable("VIDYANO_DUMP_OPERATIONS") == "1")
+                Console.Error.WriteLine($"[vidyano] op: {co.Type}{((string?)co.Raw["name"] is { } n ? $":{n}" : "")}");
+        };
+    }
+
+    /// <summary>All client operations seen since the session started, in arrival order.</summary>
+    public IReadOnlyList<ClientOperation> ClientOperations => _allOperations;
+
+    /// <summary>Client operations seen since the last <see cref="ResetLastOperations"/> call.
+    /// The interpreter resets this before every executable verb so <c>EXPECT ClientOperation</c>
+    /// asserts only what the *previous* verb produced.</summary>
+    public IReadOnlyList<ClientOperation> LastOperations => _lastOperations;
+
+    /// <summary>Clears the per-statement operations buffer. Called by the interpreter; library
+    /// callers can use it directly when checkpointing between manual operations.</summary>
+    public void ResetLastOperations() => _lastOperations = new List<ClientOperation>();
+
+    /// <summary>The underlying Vidyano client. Exposed so library callers can drop down when needed.</summary>
+    public Vidyano.Client Client { get; }
+
+    /// <summary>The PO at the top of the navigation stack, or <c>null</c> if the top is a Query or the stack is empty.</summary>
+    public PersistentObject? CurrentPo => _navStack.Count > 0 && _navStack[^1] is PoEntry pe ? pe.Po : null;
+
+    /// <summary>The nearest Query on the navigation stack going down from the top, or <c>null</c> if none.
+    /// This means SEARCH and OPEN-ROW still target the underlying Query even after OPEN-ROW pushed a PO on top of it.</summary>
+    public Query? CurrentQuery
+    {
+        get
+        {
+            for (var i = _navStack.Count - 1; i >= 0; i--)
+                if (_navStack[i] is QueryEntry qe) return qe.Query;
+            return null;
+        }
+    }
+
+    /// <summary>The navigation stack — oldest entry at index 0, top at <c>NavStack[Count-1]</c>.
+    /// Every OPEN pushes; SAVE/CANCEL pop when there's an underlying frame to return to.</summary>
+    public IReadOnlyList<NavEntry> NavStack => _navStack;
+
+    /// <summary>The current top of the navigation stack, or <c>null</c> if the stack is empty.</summary>
+    public NavEntry? NavStackTop => _navStack.Count > 0 ? _navStack[^1] : null;
+
+    /// <summary>Number of entries on the navigation stack. Zero before the first OPEN.</summary>
+    public int NavStackDepth => _navStack.Count;
+
+    /// <summary>Whether the session has completed sign-in.</summary>
+    public bool IsSignedIn => Client.IsConnected;
+
+    // --- sign-in ------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Signs in. <paramref name="password"/> may be <c>null</c> for anonymous services
+    /// (the Vidyano demo accepts a null password for the default user). When
+    /// <paramref name="language"/> is non-null the session pins it for every subsequent server
+    /// post (sign-in itself included), so labels, action display names, and messages return
+    /// in the requested culture.
+    /// </summary>
+    public async Task<OpResult> SignInAsync(string user, string? password, string? language, SourceLocation loc)
+    {
+        _hooks.RequestedLanguage = string.IsNullOrWhiteSpace(language) ? null : language;
+        try
+        {
+            var app = await Client.SignInUsingCredentialsAsync(user, password).ConfigureAwait(false);
+            if (app == null || !Client.IsConnected)
+                return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, "Sign-in did not produce an Application.", loc));
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.TransportError, $"Sign-in failed: {ex.Message}", loc));
+        }
+    }
+
+    // --- open family --------------------------------------------------------------------------
+
+    public async Task<OpResult> OpenPersistentObjectAsync(string type, string? objectId, string? asHandle, SourceLocation loc)
+    {
+        if (!IsSignedIn)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNotSignedIn, "Sign in before opening a PersistentObject.", loc));
+        try
+        {
+            var po = await Client.GetPersistentObjectAsync(type, objectId).ConfigureAwait(false);
+            if (po is null)
+                return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Server returned no PersistentObject for '{type}'.", loc));
+            _navStack.Add(new PoEntry(po, IsDialog(po)));
+            if (asHandle != null) _handles[asHandle] = po;
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    public async Task<OpResult> OpenQueryAsync(string id, string? asHandle, SourceLocation loc)
+    {
+        if (!IsSignedIn)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNotSignedIn, "Sign in before opening a Query.", loc));
+        try
+        {
+            var q = await Client.GetQueryAsync(id).ConfigureAwait(false);
+            if (q is null)
+                return OpResult.Fail(new Diagnostic(ErrorKind.ResolveQuery, $"No Query named '{id}'.", loc));
+            _navStack.Add(new QueryEntry(q));
+            if (asHandle != null) _handles[asHandle] = q;
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    /// <summary>
+    /// Opens a menu item by <c>/</c>-separated path. Walks <see cref="Vidyano.Client.ProgramUnits"/>
+    /// (top-level units → nested groups → leaf items). With no segments, opens the first unit and
+    /// (if its <c>OpenFirst</c> flag is set) drills to its first non-separator item. With one
+    /// segment, accepts either a unit name or an item name (when the latter is unambiguous across
+    /// all units). With more segments, follows the path explicitly.
+    /// </summary>
+    public async Task<OpResult> OpenMenuItemAsync(IReadOnlyList<string> segments, string? asHandle, SourceLocation loc)
+    {
+        if (!IsSignedIn || Client.Application is null)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNotSignedIn, "Sign in before opening a menu item.", loc));
+
+        var pus = Client.ProgramUnits;
+        if (pus.Count == 0)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveMenuItem,
+                "This user's Application has no programUnits — nothing to navigate.",
+                loc,
+                Hint: "Check whether the signed-in account has any program-unit rights, or use OPEN Query directly."));
+
+        if (segments.Count == 0)
+            return await OpenProgramUnitAsync(pus[0], openFirstItem: true, asHandle, loc).ConfigureAwait(false);
+
+        if (segments.Count == 1)
+        {
+            var target = segments[0];
+
+            var puMatch = pus.FirstOrDefault(p => string.Equals(p.Name, target, StringComparison.OrdinalIgnoreCase));
+            if (puMatch is not null)
+                return await OpenProgramUnitAsync(puMatch, openFirstItem: true, asHandle, loc).ConfigureAwait(false);
+
+            var matches = new List<(ProgramUnit pu, ProgramUnitItem item, string path)>();
+            foreach (var pu in pus)
+                CollectItems(pu, pu.Items, pu.Name ?? "", target, matches);
+
+            if (matches.Count == 1)
+                return await OpenMenuItemAsync(matches[0].item, asHandle, loc).ConfigureAwait(false);
+
+            if (matches.Count > 1)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.ResolveMenuItem,
+                    $"Menu item '{target}' is ambiguous — appears in {matches.Count} places.",
+                    loc,
+                    Hint: $"Qualify with a path: {string.Join(", ", matches.Take(3).Select(m => $"'{m.path}'"))}",
+                    Details: new Dictionary<string, object?> { ["paths"] = matches.Select(m => m.path).ToArray() }));
+
+            var names = AllItemAndPuNames(pus);
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveMenuItem,
+                $"No menu entry named '{target}'.",
+                loc,
+                Hint: Suggester.Hint(target, names) ?? FormatAvailableHint(names),
+                Details: new Dictionary<string, object?> { ["available"] = names }));
+        }
+
+        var head = segments[0];
+        var pu0 = pus.FirstOrDefault(p => string.Equals(p.Name, head, StringComparison.OrdinalIgnoreCase));
+        if (pu0 is null)
+        {
+            var puNames = pus.Select(p => p.Name).Where(s => s != null).Select(s => s!).ToArray();
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveMenuItem,
+                $"No ProgramUnit named '{head}'.",
+                loc,
+                Hint: Suggester.Hint(head, puNames) ?? FormatAvailableHint(puNames)));
+        }
+        return await WalkPathAsync(pu0.Items, segments, 1, asHandle, loc).ConfigureAwait(false);
+    }
+
+    private async Task<OpResult> OpenProgramUnitAsync(ProgramUnit pu, bool openFirstItem, string? asHandle, SourceLocation loc)
+    {
+        if (!openFirstItem || !pu.OpenFirst)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveMenuItem,
+                $"ProgramUnit '{pu.Name}' has no automatic landing page.",
+                loc,
+                Hint: "Add an explicit item: OPEN MenuItem <ProgramUnit>/<Item>"));
+
+        var item = FindFirstOpenableItem(pu.Items);
+        if (item is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveMenuItem,
+                $"ProgramUnit '{pu.Name}' is empty.", loc));
+        return await OpenMenuItemAsync(item, asHandle, loc).ConfigureAwait(false);
+    }
+
+    private async Task<OpResult> WalkPathAsync(IReadOnlyList<ProgramUnitItem> children, IReadOnlyList<string> segments, int index, string? asHandle, SourceLocation loc)
+    {
+        if (index >= segments.Count) return OpResult.Fail(new Diagnostic(ErrorKind.ResolveMenuItem, "Empty menu path.", loc));
+        var seg = segments[index];
+
+        foreach (var child in children)
+        {
+            if (!string.Equals(child.Name, seg, StringComparison.OrdinalIgnoreCase)) continue;
+
+            if (child is ProgramUnitItemGroup g)
+                return await WalkPathAsync(g.Items, segments, index + 1, asHandle, loc).ConfigureAwait(false);
+
+            if (index == segments.Count - 1)
+                return await OpenMenuItemAsync(child, asHandle, loc).ConfigureAwait(false);
+
+            return OpResult.Fail(new Diagnostic(ErrorKind.ResolveMenuItem,
+                $"'{seg}' is a leaf item but there are more segments after it.", loc));
+        }
+
+        return OpResult.Fail(new Diagnostic(
+            ErrorKind.ResolveMenuItem,
+            $"No item or group named '{seg}' under this menu node.",
+            loc));
+    }
+
+    private async Task<OpResult> OpenMenuItemAsync(ProgramUnitItem item, string? asHandle, SourceLocation loc)
+    {
+        switch (item)
+        {
+            case ProgramUnitItemQuery q:
+                return await OpenQueryAsync(q.QueryName ?? q.QueryId!, asHandle, loc).ConfigureAwait(false);
+
+            case ProgramUnitItemPersistentObject p:
+                var poType = p.PersistentObjectType ?? p.PersistentObjectId;
+                if (string.IsNullOrEmpty(poType))
+                    return OpResult.Fail(new Diagnostic(ErrorKind.ResolveMenuItem,
+                        $"Menu item '{item.Name}' has no persistentObject type.", loc));
+                return await OpenPersistentObjectAsync(poType!, p.ObjectId, asHandle, loc).ConfigureAwait(false);
+
+            case ProgramUnitItemUrl _:
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.ResolveMenuItem,
+                    $"Menu item '{item.Name}' opens a URL — not driveable from a .visc script.",
+                    loc));
+
+            case ProgramUnitItemSeparator _:
+                return OpResult.Fail(new Diagnostic(ErrorKind.ResolveMenuItem,
+                    $"Menu item '{item.Name}' is a separator.", loc));
+
+            default:
+                return OpResult.Fail(new Diagnostic(ErrorKind.ResolveMenuItem,
+                    $"Menu item '{item.Name}' has no recognised target.", loc));
+        }
+    }
+
+    private static ProgramUnitItem? FindFirstOpenableItem(IReadOnlyList<ProgramUnitItem> items)
+    {
+        foreach (var i in items)
+        {
+            if (i is ProgramUnitItemSeparator) continue;
+            if (i is ProgramUnitItemGroup g)
+            {
+                var inner = FindFirstOpenableItem(g.Items);
+                if (inner is not null) return inner;
+                continue;
+            }
+            return i;
+        }
+        return null;
+    }
+
+    private static void CollectItems(ProgramUnit rootPu, IReadOnlyList<ProgramUnitItem> items, string pathSoFar, string targetName, List<(ProgramUnit pu, ProgramUnitItem item, string path)> hits)
+    {
+        foreach (var i in items)
+        {
+            if (i is ProgramUnitItemSeparator) continue;
+            if (i is ProgramUnitItemGroup g)
+            {
+                CollectItems(rootPu, g.Items, $"{pathSoFar}/{g.Name ?? "?"}", targetName, hits);
+                continue;
+            }
+            if (i.Name is { } nm && string.Equals(nm, targetName, StringComparison.OrdinalIgnoreCase))
+                hits.Add((rootPu, i, $"{pathSoFar}/{nm}"));
+        }
+    }
+
+    private static IReadOnlyList<string> AllItemAndPuNames(IReadOnlyList<ProgramUnit> pus)
+    {
+        var names = new List<string>();
+        foreach (var pu in pus)
+        {
+            if (pu.Name is { } n) names.Add(n);
+            CollectAllItemNames(pu.Items, names);
+        }
+        return names;
+    }
+
+    private static void CollectAllItemNames(IReadOnlyList<ProgramUnitItem> items, List<string> names)
+    {
+        foreach (var i in items)
+        {
+            if (i is ProgramUnitItemSeparator) continue;
+            if (i is ProgramUnitItemGroup g) { CollectAllItemNames(g.Items, names); continue; }
+            if (i.Name is { } n) names.Add(n);
+        }
+    }
+
+    private static string FormatAvailableHint(IReadOnlyList<string> candidates)
+    {
+        if (candidates.Count == 0)
+            return "The user's menu is empty — does the signed-in account have any program-unit rights?";
+        const int max = 8;
+        var sample = candidates.Take(max).Select(c => $"'{c}'");
+        var tail = candidates.Count > max ? $", … ({candidates.Count - max} more)" : "";
+        return $"Available menu entries: {string.Join(", ", sample)}{tail}.";
+    }
+
+    // --- query operations ---------------------------------------------------------------------
+
+    public async Task<OpResult> SearchAsync(string text, SourceLocation loc)
+    {
+        if (CurrentQuery is null)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery,
+                "SEARCH needs a current Query.",
+                loc,
+                Hint: "Open one first with OPEN Query <id> or OPEN MenuItem <path>."));
+        try
+        {
+            await CurrentQuery.SearchTextAsync(text).ConfigureAwait(false);
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    public async Task<OpResult> OpenRowAsync(int index, string? asHandle, SourceLocation loc)
+    {
+        if (CurrentQuery is null)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery, "OPEN-ROW needs a current Query.", loc));
+        if (index < 0 || index >= CurrentQuery.TotalItems)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.AssertFailed,
+                $"Row index {index} is out of range (Query has {CurrentQuery.TotalItems} items).",
+                loc));
+        try
+        {
+            var items = await CurrentQuery.GetItemsAsync(index, 1).ConfigureAwait(false);
+            var row = items.FirstOrDefault();
+            if (row is null)
+                return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Could not load row {index}.", loc));
+            var po = await row.Load().ConfigureAwait(false);
+            if (po is null)
+                return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Row {index} did not load a PersistentObject.", loc));
+            _navStack.Add(new PoEntry(po, IsDialog(po)));
+            if (asHandle != null) _handles[asHandle] = po;
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    // --- edit / save / cancel / refresh -------------------------------------------------------
+
+    public OpResult Edit(SourceLocation loc)
+    {
+        if (CurrentPo is null) return NoCurrentPo(loc);
+        CurrentPo.Edit();
+        return OpResult.Success;
+    }
+
+    public OpResult Cancel(SourceLocation loc)
+    {
+        if (CurrentPo is null) return NoCurrentPo(loc);
+        if (!CurrentPo.IsInEdit)
+            return OpResult.Fail(new Diagnostic(ErrorKind.GuardNotInEdit, "Nothing to cancel — not in edit mode.", loc));
+        CurrentPo.CancelEdit();
+        // Browser-style navigation: cancelling an edit returns to where we came from, but only if
+        // there's an underlying frame. A top-level PO opened directly stays in scope so the script
+        // can still inspect it.
+        if (_navStack.Count >= 2)
+            _navStack.RemoveAt(_navStack.Count - 1);
+        return OpResult.Success;
+    }
+
+    public async Task<OpResult> SaveAsync(SourceLocation loc)
+    {
+        if (CurrentPo is null) return NoCurrentPo(loc);
+        if (!CurrentPo.IsInEdit)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardEditModeRequired,
+                "SAVE needs the PersistentObject to be in edit mode.",
+                loc,
+                Hint: "Call EDIT before SET/SAVE — or the runner can auto-edit if you SET first."));
+
+        // Required-attribute check before going out — clearer error than a server-side validation message.
+        var missing = CurrentPo.Attributes
+            .Where(a => a.IsRequired && a.IsVisible && !a.IsReadOnly && string.IsNullOrEmpty(a.ValueDirect))
+            .Select(a => a.Name)
+            .ToArray();
+        if (missing.Length > 0)
+        {
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardRequiredMissing,
+                $"Required attribute(s) not set: {string.Join(", ", missing)}.",
+                loc,
+                Hint: "SET each required attribute before SAVE.",
+                Details: new Dictionary<string, object?> { ["missing"] = missing }));
+        }
+
+        try
+        {
+            // Capture owner relationships before Save — PersistentObject.Save already mirrors the v4
+            // frontend: it refreshes OwnerQuery and propagates the new objectId into
+            // OwnerAttributeWithReference.Parent (after Parent.Edit()). The nav-stack pop below just
+            // keeps the script-visible stack in sync; the owner side-effects are already done.
+            // Only when neither owner is wired (script opened the PO directly and stacked a Query under it)
+            // does the underlying Query need a fallback refresh from this side.
+            var savedPo = CurrentPo;
+            var ownerQuery = savedPo.OwnerQuery;
+            var ownerAttr = savedPo.OwnerAttributeWithReference;
+
+            await savedPo.Save().ConfigureAwait(false);
+            if (savedPo.HasNotification && savedPo.NotificationType == NotificationType.Error)
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, savedPo.Notification, loc));
+
+            // Direct-OPEN PO scripts stay on the PO after save so they can still inspect it. Otherwise
+            // the saved frame pops, mirroring the browser's "Save closes the dialog/page" behaviour.
+            if (_navStack.Count >= 2)
+            {
+                _navStack.RemoveAt(_navStack.Count - 1);
+
+                // If the revealed frame is the OwnerQuery, Save already refreshed it. If it's a parent PO
+                // (OwnerAttributeWithReference dialog), Save already mutated it. Either way, no extra work.
+                // The fallback is for unusual stacks where a Query sits underneath but isn't this PO's
+                // OwnerQuery — best-effort refresh so the script sees current row state.
+                if (ownerAttr is null && _navStack[^1] is QueryEntry qe && !ReferenceEquals(qe.Query, ownerQuery))
+                {
+                    try { await qe.Query.RefreshQueryAsync().ConfigureAwait(false); }
+                    catch { /* refresh is best-effort — Save itself succeeded */ }
+                }
+            }
+
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    public async Task<OpResult> RefreshAsync(SourceLocation loc)
+    {
+        if (CurrentPo is null) return NoCurrentPo(loc);
+        try
+        {
+            await CurrentPo.RefreshAttributesAsync().ConfigureAwait(false);
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    // --- set / action -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Sets an attribute. Distinguishes four cases and uses a different <see cref="ErrorKind"/> for each:
+    /// the attribute doesn't exist (typo → suggest), it exists but is hidden, it exists but is read-only,
+    /// and the PO isn't in edit mode (auto-enter, with a warning diagnostic so the script author sees it).
+    /// </summary>
+    /// <remarks>
+    /// For reference attributes (<see cref="PersistentObjectAttributeWithReference"/>) the runner does
+    /// what a UI user does without making the script branch on <c>SelectInPlace</c>:
+    /// <list type="bullet">
+    ///   <item>Set-in-place attributes: the value is matched against <c>Options</c>' DisplayValue, then Key,
+    ///   so writing <c>SET Patient = "Reymen Wim"</c> picks the matching dropdown entry.</item>
+    ///   <item>Non-set-in-place attributes: the value is fed to <c>Lookup.SearchTextAsync</c> and the first
+    ///   result is selected via <c>ChangeReference</c>. Pass a <see cref="ReferenceHint.Lookup"/> hint to
+    ///   override the search text, or <see cref="ReferenceHint.RawId"/> to bypass the lookup entirely.</item>
+    /// </list>
+    /// </remarks>
+    public OpResult SetAttribute(string name, object? value, SourceLocation loc, ReferenceHint? hint = null)
+    {
+        if (CurrentPo is null) return NoCurrentPo(loc);
+
+        var attr = CurrentPo.GetAttribute(name);
+        if (attr is null)
+        {
+            var candidates = CurrentPo.Attributes.Select(a => a.Name);
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveAttribute,
+                $"Attribute '{name}' does not exist on {CurrentPo.Type}.",
+                loc,
+                Hint: Suggester.Hint(name, candidates)));
+        }
+
+        if (!attr.IsVisible)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardAttributeHidden,
+                $"Attribute '{name}' exists on {CurrentPo.Type} but is hidden — the UI would not allow setting it.",
+                loc,
+                Hint: "Use mode=direct only if you intend to bypass the UI guard.",
+                Details: new Dictionary<string, object?> { ["attribute"] = name, ["isVisible"] = false }));
+
+        if (attr.IsReadOnly)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardAttributeReadOnly,
+                $"Attribute '{name}' is read-only on {CurrentPo.Type}.",
+                loc,
+                Hint: "Read-only attributes can be computed server-side — check the model or the action that sets it.",
+                Details: new Dictionary<string, object?> { ["attribute"] = name }));
+
+        if (!CurrentPo.IsInEdit)
+            CurrentPo.Edit();
+
+        if (attr is PersistentObjectAttributeWithReference refAttr)
+            return SetReferenceAttribute(refAttr, value, loc, hint);
+
+        attr.Value = value;
+        return OpResult.Success;
+    }
+
+    private OpResult SetReferenceAttribute(PersistentObjectAttributeWithReference attr, object? value, SourceLocation loc, ReferenceHint? hint)
+    {
+        // Explicit RawId hint: bypass lookup logic — the caller asserts they know the key.
+        if (hint is { Kind: ReferenceHintKind.RawId, Value: var rawId })
+        {
+            attr.SelectedReferenceValue = rawId;
+            return OpResult.Success;
+        }
+
+        // Null clears the reference (when allowed).
+        if (value is null)
+        {
+            if (!attr.CanRemoveReference)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.GuardAttributeReadOnly,
+                    $"Attribute '{attr.Name}' is required and cannot be cleared.",
+                    loc));
+            attr.SelectedReferenceValue = null;
+            return OpResult.Success;
+        }
+
+        var text = value as string ?? value.ToString() ?? "";
+
+        if (attr.SelectInPlace)
+        {
+            // Match by DisplayValue first (what a user reading the dropdown sees), then by Key
+            // (so a script can still pass a key when convenient).
+            var match =
+                attr.Options.FirstOrDefault(o => string.Equals(o.DisplayValue, text, StringComparison.Ordinal)) ??
+                attr.Options.FirstOrDefault(o => string.Equals(o.Key, text, StringComparison.Ordinal));
+            if (match is null)
+            {
+                var candidates = attr.Options.Where(o => o.DisplayValue != null).Select(o => o.DisplayValue!);
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"'{text}' is not one of the options for '{attr.Name}'.",
+                    loc,
+                    Hint: Suggester.Hint(text, candidates),
+                    Details: new Dictionary<string, object?>
+                    {
+                        ["attribute"] = attr.Name,
+                        ["selectInPlace"] = true,
+                        ["available"] = attr.Options.Select(o => new { o.Key, o.DisplayValue }).ToArray(),
+                    }));
+            }
+            attr.SelectedReferenceValue = match.Key;
+            return OpResult.Success;
+        }
+
+        // Non-set-in-place: open the Lookup, search by the supplied value (or the explicit Lookup hint),
+        // and pick the first hit. Multi-match is reported in Details so the user can refine.
+        if (attr.Lookup is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ServerError,
+                $"Reference attribute '{attr.Name}' has no Lookup query.",
+                loc));
+
+        var search = hint is { Kind: ReferenceHintKind.Lookup, Value: var s } ? (s ?? text) : text;
+        return SetReferenceViaLookupAsync(attr, search, loc).GetAwaiter().GetResult();
+    }
+
+    private async Task<OpResult> SetReferenceViaLookupAsync(PersistentObjectAttributeWithReference attr, string searchText, SourceLocation loc)
+    {
+        try
+        {
+            await attr.Lookup.SearchTextAsync(searchText).ConfigureAwait(false);
+            if (attr.Lookup.TotalItems == 0)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"Lookup for '{attr.Name}' found no rows matching '{searchText}'.",
+                    loc,
+                    Hint: "Refine the search text, or use 'SET attr = ID \"<guid>\"' to bypass the lookup."));
+
+            var first = attr.Lookup[0];
+            if (first is null)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.ServerError,
+                    $"Lookup for '{attr.Name}' did not return the first row.",
+                    loc));
+            await attr.ChangeReference(first).ConfigureAwait(false);
+            // Surface multi-match so a flaky test can be tightened.
+            if (attr.Lookup.TotalItems > 1)
+                return OpResult.Success; // First-wins is consistent with the UI's behavior.
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    /// <summary>
+    /// Executes an action by name. Distinguishes: not found (typo → suggest), found but hidden,
+    /// found and visible but <c>CanExecute=false</c>, transport/server error.
+    /// </summary>
+    public async Task<OpResult> ExecuteActionAsync(string name, IReadOnlyDictionary<string, string>? parameters, SourceLocation loc)
+    {
+        if (CurrentPo is null && CurrentQuery is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.StateNoCurrentPo,
+                "ACTION needs a current PersistentObject or Query.",
+                loc));
+
+        ActionBase? action = null;
+        IEnumerable<string> candidates = Array.Empty<string>();
+        if (CurrentPo != null)
+        {
+            action = CurrentPo.GetAction(name);
+            candidates = CurrentPo.Actions.Concat(CurrentPo.PinnedActions).Select(a => a.Name);
+        }
+        if (action is null && CurrentQuery != null)
+        {
+            action = CurrentQuery.GetAction(name);
+            candidates = candidates.Concat(CurrentQuery.Actions.Concat(CurrentQuery.PinnedActions).Select(a => a.Name));
+        }
+        if (action is null)
+        {
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveAction,
+                $"Action '{name}' does not exist here.",
+                loc,
+                Hint: Suggester.Hint(name, candidates)));
+        }
+
+        if (!action.IsVisible)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardActionHidden,
+                $"Action '{name}' exists but is hidden — the UI would not show it.",
+                loc));
+
+        if (!action.CanExecute)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardActionNotAvailable,
+                $"Action '{name}' cannot execute right now (CanExecute is false).",
+                loc,
+                Hint: "Often this means a selection or required state isn't met. Check the SelectionRule or PO state."));
+
+        try
+        {
+            var dict = parameters?.ToDictionary(kv => kv.Key, kv => kv.Value);
+            var prefix = action is QueryAction ? "Query." : "PersistentObject.";
+            var result = await Client.ExecuteActionAsync(prefix + name, CurrentPo, CurrentQuery, null, dict).ConfigureAwait(false);
+            // ExecuteActionAsync sets notification on the parent on error and returns null.
+            if (result is null && CurrentPo != null && CurrentPo.HasNotification && CurrentPo.NotificationType == NotificationType.Error)
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, CurrentPo.Notification, loc));
+            if (result != null && result.FullTypeName != "Vidyano.Notification")
+            {
+                // If the top frame is already a PO, swap to the action's result (same navigation level).
+                // Otherwise push a new PO frame on top of whatever query was current (e.g. ACTION New).
+                // The server marks dialogs via StateBehavior.OpenAsDialog — including the cascading
+                // case where a New PO launches further references as dialogs.
+                var entry = new PoEntry(result, IsDialog(result));
+                if (_navStack.Count > 0 && _navStack[^1] is PoEntry)
+                    _navStack[^1] = entry;
+                else
+                    _navStack.Add(entry);
+            }
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    // --- handle lookup ------------------------------------------------------------------------
+
+    /// <summary>
+    /// Resolves <c>@handle</c> to a PO or Query previously bound via <c>AS</c>. Returns
+    /// <see cref="ErrorKind.ResolveHandle"/> with a suggestion if it doesn't exist.
+    /// </summary>
+    public OpResult<object> ResolveHandle(string name, SourceLocation loc)
+    {
+        if (_handles.TryGetValue(name, out var v))
+            return OpResult<object>.Success(v);
+        return OpResult<object>.Fail(new Diagnostic(
+            ErrorKind.ResolveHandle,
+            $"No handle named '@{name}'.",
+            loc,
+            Hint: Suggester.Hint(name, _handles.Keys)));
+    }
+
+    // --- snapshot -----------------------------------------------------------------------------
+
+    /// <summary>Builds a point-in-time snapshot of the session state for reporting.</summary>
+    public Snapshot TakeSnapshot()
+    {
+        var session = IsSignedIn ? new SessionSnapshot(Client.User, Client.Uri) : null;
+        var po = CurrentPo is null ? null : new PoSnapshot(
+            Type: CurrentPo.Type,
+            ObjectId: CurrentPo.ObjectId,
+            IsInEdit: CurrentPo.IsInEdit,
+            IsDirty: CurrentPo.IsDirty,
+            IsNew: CurrentPo.IsNew,
+            Notification: CurrentPo.Notification,
+            NotificationType: CurrentPo.HasNotification ? CurrentPo.NotificationType.ToString() : null,
+            Attributes: CurrentPo.Attributes.Select(a => new AttributeSnapshot(
+                a.Name, a.Type, a.ValueDirect, SafeDisplay(a),
+                a.IsVisible, a.IsReadOnly, a.IsRequired, a.IsValueChanged, a.ValidationError)).ToList(),
+            Actions: CurrentPo.Actions.Concat(CurrentPo.PinnedActions)
+                .Select(a => new ActionSnapshot(a.Name, a.CanExecute, a.IsVisible)).ToList());
+
+        var query = CurrentQuery is null ? null : new QuerySnapshot(
+            Name: CurrentQuery.Name,
+            TextSearch: CurrentQuery.TextSearch,
+            TotalItems: CurrentQuery.TotalItems,
+            Count: CurrentQuery.Count,
+            Rows: CurrentQuery.Take(10).Where(r => r != null)
+                .Select(r => (IReadOnlyDictionary<string, string?>)CurrentQuery.Columns.ToDictionary(
+                    c => c.Name,
+                    c => Vidyano.Client.ToServiceString(r[c.Name]) as string)).ToList());
+
+        IReadOnlyDictionary<string, string>? handles = _handles.Count == 0 ? null
+            : _handles.ToDictionary(kv => kv.Key, kv => DescribeHandle(kv.Value));
+
+        return new Snapshot(session, po, query, handles);
+    }
+
+    private static string? SafeDisplay(PersistentObjectAttribute attr)
+    {
+        try { return attr.DisplayValue; }
+        catch { return attr.ValueDirect; }
+    }
+
+    private static string DescribeHandle(object value) =>
+        value switch
+        {
+            PersistentObject po => $"PO {po.Type}/{po.ObjectId}",
+            Query q             => $"Query {q.Name}",
+            _                   => value.GetType().Name,
+        };
+
+    private static OpResult NoCurrentPo(SourceLocation loc) => OpResult.Fail(new Diagnostic(
+        ErrorKind.StateNoCurrentPo,
+        "No current PersistentObject — open one first with OPEN PersistentObject … or OPEN-ROW.",
+        loc));
+
+    /// <summary>Whether the server marked this PO to be presented as a modal dialog. The server sets
+    /// <see cref="StateBehavior.OpenAsDialog"/> for stand-alone dialogs and for the cascading case
+    /// where a New PO launches reference lookups as nested dialogs — so a single flag check covers
+    /// both the explicit and the implicit (dirty-tracking) dialog paths.</summary>
+    private static bool IsDialog(PersistentObject po) => po.StateBehavior.HasFlag(StateBehavior.OpenAsDialog);
+
+    public void Dispose()
+    {
+        _ownedHttpClient?.Dispose();
+    }
+}

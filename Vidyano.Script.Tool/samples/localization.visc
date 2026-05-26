@@ -1,0 +1,38 @@
+### Localization-aware EXPECT — SIGN-IN ... LANGUAGE pins the session to a culture; subsequent
+### Label / DisplayName lookups and {{Messages.X}} interpolations come back in that culture.
+### The Raven sample bundles en / nl / fr / de / ja in App_Data/culture.json — model labels are
+### English-only in this fixture (Order.Company.Label is "Company" in every language), so the
+### useful localization asserts target the framework Messages table, which IS translated.
+
+@app = "https://localhost:44353/"
+
+### Default culture (no LANGUAGE clause) — server picks its default (en in this fixture).
+SIGN-IN admin / anything
+EXPECT {{Messages.Save}} = "Save"
+EXPECT {{Messages.Cancel}} = "Cancel"
+
+### Open an Order so EXPECT Attribute … LABEL and EXPECT Action … DISPLAY-NAME have a target.
+OPEN MenuItem Home/Orders
+EXPECT Query LABEL = "Orders"
+
+OPEN-ROW 0
+### The Order model uses English labels for every language in this sample — assert the value
+### is what the model carries, not the culture-specific translation.
+EXPECT Attribute Company LABEL = "Company"
+
+### Built-in actions DO have culture.json display names — assert the English one here.
+EXPECT Action Edit DISPLAY-NAME = "Edit"
+
+### Sign in again with LANGUAGE nl — re-issues GetApplication with requestedLanguage=nl, so the
+### server returns the Dutch Messages map and Application label set.
+SIGN-IN admin / anything LANGUAGE nl
+EXPECT {{Messages.Save}} = "Opslaan"
+EXPECT {{Messages.Cancel}} = "Annuleren"
+
+OPEN MenuItem Home/Orders
+OPEN-ROW 0
+EXPECT Action Edit DISPLAY-NAME = "Bewerken"
+
+### Two-segment culture codes are trimmed to two letters server-side (nl-BE → nl).
+SIGN-IN admin / anything LANGUAGE nl-BE
+EXPECT {{Messages.Save}} = "Opslaan"

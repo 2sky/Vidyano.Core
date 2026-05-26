@@ -1,0 +1,17 @@
+# Deliberately broken — used to demonstrate the diagnostic output.
+@app = "https://demo.vidyano.com/"
+
+### Misspelled verb
+SIGNIN admin / admin
+
+### Missing comparison operator
+EXPECT Name "Acme"
+
+### Unknown mode
+@mode = navigaion
+
+### Missing closing quote
+SEARCH "Acme
+
+### Misspelled EXPECT subject keyword
+EXPECT Atribute Name IS VISIBLE

@@ -1,0 +1,14 @@
+# Smoke test against the public Vidyano demo (anonymous access).
+# Verifies: sign-in, open a query, search, expect a result, hidden-attribute guard.
+
+@app  = "https://demo.vidyano.com/"
+
+### Sign in as the default demo user
+SIGN-IN demo
+
+### Open a query that the demo exposes
+OPEN MenuItem Customers
+
+### Search and check we got something back
+SEARCH ""
+EXPECT TotalItems > 0

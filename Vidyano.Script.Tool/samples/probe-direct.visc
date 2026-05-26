@@ -1,0 +1,7 @@
+@app = "https://localhost:44353/"
+SIGN-IN admin / anything
+
+### Try Companies (one of the menu items in programUnits.json)
+OPEN Query Companies
+SEARCH ""
+EXPECT TotalItems >= 0

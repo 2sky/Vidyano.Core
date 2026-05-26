@@ -462,7 +462,7 @@ namespace Vidyano.ViewModel
 
         protected override string[] GetServiceProperties()
         {
-            return new[] { "id", "type", "objectId", "isNew", "isHidden", "bulkObjectIds", "securityToken" };
+            return new[] { "id", "type", "objectId", "isNew", "isHidden", "bulkObjectIds", "securityToken", "metadata", "tag", "navigationHints" };
         }
 
         internal override JObject ToServiceObject()

@@ -1,0 +1,16 @@
+# Smoke test against the local RavenDB sample running at https://localhost:44353/
+# Sign-in accepts admin with any password (test fixture).
+# Run:  dotnet vidyano run samples/raven-local.visc --insecure --verbose
+
+@app = "https://localhost:44353/"
+
+### Sign in
+SIGN-IN admin / anything
+
+### List the menu — pick whichever query the sample exposes
+# (We assume "Customers" or similar exists. Adjust if your sample uses a different name.)
+OPEN MenuItem Customers
+
+### Run an empty search to populate TotalItems
+SEARCH ""
+EXPECT TotalItems >= 0

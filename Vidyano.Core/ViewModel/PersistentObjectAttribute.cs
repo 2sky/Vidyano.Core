@@ -354,7 +354,7 @@ namespace Vidyano.ViewModel
 
         protected override string[] GetServiceProperties()
         {
-            return new[] { "id", "name", "value", "label", "options", "type", "isReadOnly", "triggersRefresh", "isRequired", "differsInBulkEditMode", "isValueChanged", "displayAttribute", "objectId", "visibility" };
+            return new[] { "id", "name", "value", "label", "options", "type", "isReadOnly", "triggersRefresh", "isRequired", "differsInBulkEditMode", "isValueChanged", "displayAttribute", "objectId", "visibility", "metadata", "tag" };
         }
 
         #endregion

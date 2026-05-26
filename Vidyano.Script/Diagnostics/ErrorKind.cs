@@ -1,0 +1,64 @@
+namespace Vidyano.Script.Diagnostics;
+
+/// <summary>
+/// Stable identifiers for every kind of failure a .visc script can produce.
+/// These are what agents branch on; they show up in JSON output verbatim.
+/// </summary>
+/// <remarks>
+/// The category prefix encodes the layer that produced it:
+/// <list type="bullet">
+///   <item><c>parse-*</c> — the source wasn't well-formed.</item>
+///   <item><c>resolve-*</c> — a name was used that doesn't exist in the current context.</item>
+///   <item><c>guard-*</c> — the operation is well-formed but a real UI client wouldn't allow it.</item>
+///   <item><c>state-*</c> — the session isn't in the right state for the operation.</item>
+///   <item><c>assert-*</c> — an <c>EXPECT</c> didn't hold.</item>
+///   <item><c>transport-*</c> — protocol/network/server failure.</item>
+/// </list>
+/// </remarks>
+public static class ErrorKind
+{
+    // Parsing
+    public const string ParseUnknownVerb         = "parse-unknown-verb";
+    public const string ParseUnexpectedToken     = "parse-unexpected-token";
+    public const string ParseUnterminatedString  = "parse-unterminated-string";
+    public const string ParseExpected            = "parse-expected";
+    public const string ParseInvalidValue        = "parse-invalid-value";
+    public const string ParseInvalidMode         = "parse-invalid-mode";
+
+    // Resolution — name not found
+    public const string ResolveVariable          = "resolve-variable";
+    public const string ResolveSession           = "resolve-session";
+    public const string ResolveHandle            = "resolve-handle";
+    public const string ResolveAttribute         = "resolve-attribute";
+    public const string ResolveAction            = "resolve-action";
+    public const string ResolveQuery             = "resolve-query";
+    public const string ResolveMenuItem          = "resolve-menu-item";
+
+    // Tier-1 guard — operation invalid for the current PO/Query
+    public const string GuardAttributeHidden     = "guard-attribute-hidden";
+    public const string GuardAttributeReadOnly   = "guard-attribute-read-only";
+    public const string GuardActionNotAvailable  = "guard-action-not-available";
+    public const string GuardActionHidden        = "guard-action-hidden";
+    public const string GuardRequiredMissing     = "guard-required-missing";
+    public const string GuardEditModeRequired    = "guard-edit-mode-required";
+    public const string GuardNotInEdit           = "guard-not-in-edit";
+
+    // Tier-2 guard — reachability (used in `navigation` mode)
+    public const string GuardNotReachable        = "guard-not-reachable";
+
+    // Session state
+    public const string StateNotConnected        = "state-not-connected";
+    public const string StateNotSignedIn         = "state-not-signed-in";
+    public const string StateNoCurrentPo         = "state-no-current-po";
+    public const string StateNoCurrentQuery      = "state-no-current-query";
+    public const string StateHandleStale         = "state-handle-stale";
+
+    // Assertions
+    public const string AssertFailed             = "assert-failed";
+    public const string AssertNotificationError  = "assert-notification-error";
+    public const string AssertValidationError    = "assert-validation-error";
+
+    // Transport / server
+    public const string TransportError           = "transport-error";
+    public const string ServerError              = "server-error";
+}
