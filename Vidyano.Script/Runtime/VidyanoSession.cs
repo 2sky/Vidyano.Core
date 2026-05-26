@@ -522,6 +522,58 @@ public sealed class VidyanoSession : IDisposable
         }
     }
 
+    /// <summary>
+    /// Saves <see cref="Vidyano.Client.Initial"/> — the gate PO surfaced when the server requires
+    /// the user to satisfy something before the app loads (license-terms acceptance, forced
+    /// two-factor enrolment, password reset). On a clean Save calls <see cref="Vidyano.Client.ClearInitial"/>,
+    /// matching v4's <c>service.clearInitial()</c>. The Initial PO is NOT on the navigation stack,
+    /// so no stack mutation happens here — this is parallel to <see cref="SaveAsync"/>, not a path
+    /// through it.
+    /// </summary>
+    public async Task<OpResult> SaveInitialAsync(SourceLocation loc)
+    {
+        var resolved = ResolveScopePo("initial", loc);
+        if (!resolved.Ok)
+            return OpResult.Fail(resolved.Error!);
+        var po = resolved.Value!;
+
+        // Auto-enter edit — deliberately asymmetric with SaveAsync, which errors when the PO
+        // isn't in edit. The gate PO has no script-level EDIT verb in front of it (v4's sign-in
+        // component begins-edit implicitly when binding the gate UI), and SAVE @initial is a
+        // single-shot atomic operation in scripts: the user satisfies the gate, no fine-grained
+        // edit workflow. Auto-edit mirrors that.
+        if (!po.IsInEdit)
+            po.Edit();
+
+        var missing = po.Attributes
+            .Where(a => a.IsRequired && a.IsVisible && !a.IsReadOnly && string.IsNullOrEmpty(a.ValueDirect))
+            .Select(a => a.Name)
+            .ToArray();
+        if (missing.Length > 0)
+        {
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardRequiredMissing,
+                $"Required attribute(s) on @initial not set: {string.Join(", ", missing)}.",
+                loc,
+                Hint: "SET each required @initial attribute before SAVE @initial.",
+                Details: new Dictionary<string, object?> { ["missing"] = missing }));
+        }
+
+        try
+        {
+            await po.Save().ConfigureAwait(false);
+            if (po.HasNotification && po.NotificationType == NotificationType.Error)
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, po.Notification, loc));
+
+            Client.ClearInitial();
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
     public async Task<OpResult> RefreshAsync(SourceLocation loc)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
@@ -701,9 +753,11 @@ public sealed class VidyanoSession : IDisposable
     public sealed record ScopedAttribute(PersistentObject Po, PersistentObjectAttribute Attribute);
 
     /// <summary>Resolves the PO backing a reserved variable scope. <c>"session"</c> maps to
-    /// <see cref="Vidyano.Client.Session"/>; <c>"user"</c> / <c>"application"</c> are reserved
-    /// shapes that return a not-implemented diagnostic. Anything else is rejected as unknown.</summary>
-    private OpResult<PersistentObject> ResolveScopePo(string scope, SourceLocation loc)
+    /// <see cref="Vidyano.Client.Session"/>; <c>"initial"</c> maps to <see cref="Vidyano.Client.Initial"/>
+    /// (the gate PO surfaced when the server requires license-terms acceptance / 2FA enrol /
+    /// password reset). <c>"user"</c> / <c>"application"</c> are reserved shapes that return a
+    /// not-implemented diagnostic. Anything else is rejected as unknown.</summary>
+    internal OpResult<PersistentObject> ResolveScopePo(string scope, SourceLocation loc)
     {
         if (string.Equals(scope, "session", StringComparison.OrdinalIgnoreCase))
         {
@@ -716,6 +770,17 @@ public sealed class VidyanoSession : IDisposable
                     Hint: "Configure a Session PersistentObject on the server, or remove the @session reference."));
             return OpResult<PersistentObject>.Success(po);
         }
+        if (string.Equals(scope, "initial", StringComparison.OrdinalIgnoreCase))
+        {
+            var po = Client.Initial;
+            if (po is null)
+                return OpResult<PersistentObject>.Fail(new Diagnostic(
+                    ErrorKind.StateNoSession,
+                    "No Initial PO on this session — `@initial` is unbound.",
+                    loc,
+                    Hint: "The server only returns an Initial PO when a gate (license terms, 2FA enrol, password reset) is required. Check `Client.Initial` after sign-in."));
+            return OpResult<PersistentObject>.Success(po);
+        }
         if (string.Equals(scope, "user", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(scope, "application", StringComparison.OrdinalIgnoreCase))
         {
@@ -723,14 +788,14 @@ public sealed class VidyanoSession : IDisposable
                 ErrorKind.StateScopeNotImplemented,
                 $"Reserved scope '@{scope.ToLowerInvariant()}' is not yet implemented.",
                 loc,
-                Hint: "Only @session resolves in this build."));
+                Hint: "Only @session and @initial resolve in this build."));
         }
         return OpResult<PersistentObject>.Fail(new Diagnostic(
             ErrorKind.ResolveVariable,
             $"Unknown variable scope '@{scope}'.",
             loc,
-            Hint: Suggester.Hint(scope, new[] { "session", "user", "application" })
-                  ?? "Valid scopes: @session."));
+            Hint: Suggester.Hint(scope, new[] { "session", "initial", "user", "application" })
+                  ?? "Valid scopes: @session, @initial."));
     }
 
     /// <summary>Resolves a scoped attribute by name, surfacing the same not-found suggestion

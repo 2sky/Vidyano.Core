@@ -1,0 +1,15 @@
+### @initial — the gate PO surfaced by Client.Initial (license terms, 2FA enrol, password reset).
+### LINT-ONLY: actually executing this sample requires a server that returns an Initial PO from
+### GetApplication; the public demo doesn't, so this script just exercises the grammar. See
+### docs/design/initial-po.md for the protocol.
+
+@app = "https://localhost:5001/"
+SIGN-IN admin / admin
+
+### 1. Identify the gate by its FullTypeName, satisfy it via SAVE @initial, then assert it cleared.
+###    SAVE @initial calls Client.ClearInitial() on a clean save, mirroring v4's service.clearInitial().
+###    The "MyApp.LicenseTerms" type below is illustrative — replace with whatever your server
+###    returns from GetApplication.Initial.
+EXPECT @initial.FullTypeName = "MyApp.LicenseTerms"
+SAVE @initial
+EXPECT @initial IS NULL

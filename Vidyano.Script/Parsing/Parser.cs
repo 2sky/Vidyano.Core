@@ -32,12 +32,13 @@ public sealed class Parser
     };
 
     /// <summary>Reserved <c>@name</c> identifiers that the engine binds to fixed scoped PersistentObjects
-    /// (<c>session</c> → <c>Client.Session</c>; <c>user</c> / <c>application</c> reserved for future use).
+    /// (<c>session</c> → <c>Client.Session</c>; <c>initial</c> → <c>Client.Initial</c>;
+    /// <c>user</c> / <c>application</c> reserved for future use).
     /// Assigning to any of these is a parse error — they're not script variables, so allowing
     /// <c>@session = …</c> would silently shadow the binding.</summary>
     private static readonly HashSet<string> ReservedScopes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "session", "user", "application",
+        "session", "initial", "user", "application",
     };
 
     public Parser(IReadOnlyList<Token> tokens, IEnumerable<Diagnostic>? lexerDiagnostics = null)
@@ -133,7 +134,7 @@ public sealed class Parser
             "OPEN-ROW"    => ParseOpenRow(tok.Location),
             "EDIT"        => new EditStmt(null, tok.Location),
             "CANCEL"      => new CancelStmt(null, tok.Location),
-            "SAVE"        => new SaveStmt(null, tok.Location),
+            "SAVE"        => ParseSave(tok.Location),
             "REFRESH"     => new RefreshStmt(null, tok.Location),
             "SET"         => ParseSet(tok.Location),
             "ACTION"      => ParseAction(tok.Location),
@@ -447,6 +448,37 @@ public sealed class Parser
         return new SearchStmt(null, text, loc);
     }
 
+    /// <summary><c>SAVE</c> on the top of the nav stack, or <c>SAVE @initial</c> against
+    /// <see cref="Vidyano.Client.Initial"/>. <c>@session</c> is intentionally rejected —
+    /// the session PO auto-roundtrips on every server call, so an explicit SAVE is meaningless
+    /// (and would mislead authors into thinking they need it).</summary>
+    private Statement? ParseSave(SourceLocation loc)
+    {
+        if (Peek().Kind != TokenKind.At)
+            return new SaveStmt(null, loc);
+
+        var scope = TryConsumeScopePrefix(requireDot: false);
+        if (scope == null) return null;
+
+        if (string.Equals(scope, "session", StringComparison.OrdinalIgnoreCase))
+        {
+            Error(ErrorKind.ParseExpected,
+                "`@session` cannot be SAVEd — it auto-roundtrips on every server call.",
+                loc,
+                hint: "Drop the `@session` — bare SAVE acts on the current PO; @session is mutated via SET @session.<attr> and persists implicitly.");
+            return null;
+        }
+        if (!string.Equals(scope, "initial", StringComparison.OrdinalIgnoreCase))
+        {
+            Error(ErrorKind.ParseExpected,
+                $"SAVE @{scope} is not yet implemented.",
+                loc,
+                hint: "Only `SAVE` (current PO) and `SAVE @initial` are supported in this build.");
+            return null;
+        }
+        return new SaveStmt(null, loc, Scope: scope);
+    }
+
     // --- TOOL ---------------------------------------------------------------------------------
 
     /// <summary><c>TOOL &lt;name&gt; [k=v (, k=v)*] [-&gt; @var]</c>. Args are named-only; positional
@@ -613,10 +645,14 @@ public sealed class Parser
         }
 
         // EXPECT @session.Attr ... — scoped bare-attribute subject.
+        // EXPECT @initial IS NULL — scoped root (no attribute) so the gate-PO presence can be asserted.
         if (tok.Kind == TokenKind.At)
         {
-            var scope = TryConsumeScopePrefix();
+            var scope = TryConsumeScopePrefix(requireDot: false);
             if (scope == null) return null;
+            if (Peek().Kind != TokenKind.Dot)
+                return new ExpectSubject(ExpectSubjectKind.ScopedRoot, null, AttributeFlagKind.None, tok.Location, Scope: scope);
+            Advance(); // '.'
             var attrName = ParseDottedAttributeName();
             if (attrName == null) return null;
             return new ExpectSubject(ExpectSubjectKind.Attribute, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
@@ -952,10 +988,11 @@ public sealed class Parser
     }
 
     /// <summary>Consumes an <c>@scope</c> prefix used in SET targets, EXPECT subjects, and value
-    /// expressions. Emits a diagnostic and returns null when the name isn't a reserved scope. The
-    /// caller is responsible for consuming the trailing <c>.</c> (because some sites need to peek
-    /// further before deciding to require the dot).</summary>
-    private string? TryConsumeScopePrefix()
+    /// expressions. Emits a diagnostic and returns null when the name isn't a reserved scope.
+    /// When <paramref name="requireDot"/> is <c>true</c> (the default) a trailing <c>.</c> is also
+    /// consumed; callers that may legitimately appear without one (<c>SAVE @initial</c>,
+    /// <c>EXPECT @initial IS NULL</c>) pass <c>false</c> and check what follows themselves.</summary>
+    private string? TryConsumeScopePrefix(bool requireDot = true)
     {
         var atTok = Advance();
         if (atTok.Lexeme.Length == 0)
@@ -969,10 +1006,10 @@ public sealed class Parser
                 $"Unknown variable scope '@{atTok.Lexeme}'.",
                 atTok.Location,
                 hint: Suggester.Hint(atTok.Lexeme, ReservedScopes)
-                      ?? "Valid scopes: @session. (@user and @application are reserved but not yet implemented.)");
+                      ?? "Valid scopes: @session, @initial. (@user and @application are reserved but not yet implemented.)");
             return null;
         }
-        if (!Match(TokenKind.Dot, out _))
+        if (requireDot && !Match(TokenKind.Dot, out _))
         {
             Error(ErrorKind.ParseExpected,
                 $"Expected '.<attribute>' after @{atTok.Lexeme}.",

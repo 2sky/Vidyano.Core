@@ -57,8 +57,10 @@ public sealed record EditStmt(string? Handle, SourceLocation Location) : Stateme
 /// <summary><c>CANCEL</c> — discard pending edits.</summary>
 public sealed record CancelStmt(string? Handle, SourceLocation Location) : Statement(Location);
 
-/// <summary><c>SAVE</c> — persist pending edits.</summary>
-public sealed record SaveStmt(string? Handle, SourceLocation Location) : Statement(Location);
+/// <summary><c>SAVE</c> on the current PO (top of nav stack) or <c>SAVE @initial</c> on the
+/// gate PO surfaced by <see cref="Vidyano.Client.Initial"/>. <see cref="Scope"/> is <c>"initial"</c>
+/// for the gate variant; <c>null</c> targets the current PO.</summary>
+public sealed record SaveStmt(string? Handle, SourceLocation Location, string? Scope = null) : Statement(Location);
 
 /// <summary><c>REFRESH</c> — refresh attributes (calls <c>PersistentObject.Refresh</c>).</summary>
 public sealed record RefreshStmt(string? Handle, SourceLocation Location) : Statement(Location);
@@ -162,6 +164,11 @@ public enum ExpectSubjectKind
     /// <summary><c>EXPECT Query.Columns[name].&lt;prop&gt; = "..."</c> — Label / Type / Offset.
     /// <see cref="ExpectSubject.Name"/> holds the column name, <see cref="ExpectSubject.MetadataKey"/> the leaf property name.</summary>
     QueryColumn,
+    /// <summary><c>EXPECT @initial IS NULL</c> — the reserved scope PO itself (no attribute).
+    /// Used to assert presence/absence of the scoped PO (<see cref="Vidyano.Client.Initial"/>
+    /// for <c>@initial</c>, <see cref="Vidyano.Client.Session"/> for <c>@session</c>) without
+    /// reaching into an attribute. <see cref="ExpectSubject.Scope"/> identifies which scope.</summary>
+    ScopedRoot,
 }
 
 /// <summary>A parsed <c>EXPECT</c> subject. <see cref="Name"/> is meaningful for Attribute/Action/AttributeFlag

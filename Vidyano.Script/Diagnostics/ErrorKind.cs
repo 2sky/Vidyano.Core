@@ -53,6 +53,7 @@ public static class ErrorKind
     public const string StateNoCurrentQuery      = "state-no-current-query";
     public const string StateNoSession           = "state-no-session";
     public const string StateScopeNotImplemented = "state-scope-not-implemented";
+    public const string StateInitialPending      = "state-initial-pending";
     public const string StateHandleStale         = "state-handle-stale";
 
     // Assertions

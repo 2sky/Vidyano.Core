@@ -84,6 +84,21 @@ public sealed class Interpreter
         if (!isMetaStmt && stmt is not ExpectStmt)
             _session.ResetLastOperations();
 
+        // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the
+        // gate, matching the spec ("Until @initial == null, non-initial verbs error with
+        // state-initial-pending"). Only meta statements, SAVE @initial, and EXPECTs that
+        // observe the @initial scope are allowed through. `@mode = direct` is the documented
+        // escape hatch. Lint never sees this — the guard requires a live Client.Initial.
+        if (!isMetaStmt && _mode != GuardMode.Direct && _session.Client.Initial is not null
+            && !IsInitialScoped(stmt))
+        {
+            return Fail(stmt, new Diagnostic(
+                ErrorKind.StateInitialPending,
+                "An Initial PO is pending — the server returned a gate (license terms, 2FA enrol, password reset) that must be satisfied first.",
+                stmt.Location,
+                Hint: "Drive @initial to a clean SAVE (SAVE @initial) or set `@mode = direct` at the top of the script to bypass the gate."));
+        }
+
         switch (stmt)
         {
             case VariableAssignment va:
@@ -112,7 +127,13 @@ public sealed class Interpreter
             case OpenRowStmt or:               return await DoOpenRow(or).ConfigureAwait(false);
             case EditStmt e:                   return Wrap(stmt, _session.Edit(e.Location));
             case CancelStmt c:                 return Wrap(stmt, _session.Cancel(c.Location));
-            case SaveStmt sv:                  return Wrap(stmt, await _session.SaveAsync(sv.Location).ConfigureAwait(false));
+            case SaveStmt sv:
+                {
+                    var saveRes = string.Equals(sv.Scope, "initial", StringComparison.OrdinalIgnoreCase)
+                        ? await _session.SaveInitialAsync(sv.Location).ConfigureAwait(false)
+                        : await _session.SaveAsync(sv.Location).ConfigureAwait(false);
+                    return Wrap(stmt, saveRes);
+                }
             case RefreshStmt rf:               return Wrap(stmt, await _session.RefreshAsync(rf.Location).ConfigureAwait(false));
             case SetStmt s:                    return await DoSet(s).ConfigureAwait(false);
             case ActionStmt a:                 return await DoAction(a).ConfigureAwait(false);
@@ -122,6 +143,21 @@ public sealed class Interpreter
         }
         return Fail(stmt, new Diagnostic(ErrorKind.ParseUnexpectedToken, $"Statement type {stmt.GetType().Name} is not supported.", stmt.Location));
     }
+
+    /// <summary>Returns <c>true</c> when a statement is permitted while
+    /// <see cref="Vidyano.Client.Initial"/> is pending. Two categories are allowed: statements
+    /// that drive the gate (<c>SAVE @initial</c>, <c>SET @initial.X = …</c>), and any
+    /// <c>EXPECT</c> — assertions are read-only, so blocking them only hurts observability
+    /// without preventing mutation. All other statements trip the <c>state-initial-pending</c>
+    /// guard.</summary>
+    private static bool IsInitialScoped(Statement stmt) =>
+        stmt switch
+        {
+            SaveStmt sv  => string.Equals(sv.Scope, "initial", StringComparison.OrdinalIgnoreCase),
+            SetStmt set  => string.Equals(set.Scope, "initial", StringComparison.OrdinalIgnoreCase),
+            ExpectStmt   => true,
+            _ => false,
+        };
 
     // --- statement handlers -------------------------------------------------------------------
 
@@ -447,7 +483,37 @@ public sealed class Interpreter
             case ExpectSubjectKind.Attribute:
                 {
                     if (subj.Scope is not null)
-                        return _session.GetScopedAttributeValue(subj.Scope, subj.Name!, loc);
+                    {
+                        var scopedAttr = _session.GetScopedAttributeValue(subj.Scope, subj.Name!, loc);
+                        if (scopedAttr.Ok) return scopedAttr;
+                        // `@scope.Prop` may be a PO scalar (FullTypeName, Type, IsNew, …) rather
+                        // than an attribute — common for @initial where the script wants to
+                        // identify the gate by FullTypeName. Fall back to PO-property lookup,
+                        // but only when the attribute genuinely doesn't exist; visibility errors
+                        // still surface as-is.
+                        if (scopedAttr.Error!.Kind == ErrorKind.ResolveAttribute)
+                        {
+                            var scopePo = _session.ResolveScopePo(subj.Scope, loc);
+                            if (scopePo.Ok)
+                            {
+                                var poProp = ReadPoProperty(scopePo.Value!, subj.Name!, loc);
+                                if (poProp.Ok) return poProp;
+                                // Neither attribute nor PO scalar — reshape the diagnostic so the
+                                // hint reflects both search spaces. The original attribute-only
+                                // hint (e.g. "did you mean Customer?") is misleading when the user
+                                // typed `FullTypeName`.
+                                var attrCandidates = scopePo.Value!.Attributes.Select(a => a.Name);
+                                var poScalars = new[] { "Type", "FullTypeName", "Breadcrumb", "IsNew", "IsHidden", "ObjectId", "Label", "Tag" };
+                                return Fail<object?>(new Diagnostic(
+                                    ErrorKind.ResolveAttribute,
+                                    $"`@{subj.Scope}` has no attribute or PO property named '{subj.Name}'.",
+                                    loc,
+                                    Hint: Suggester.Hint(subj.Name!, attrCandidates.Concat(poScalars))
+                                          ?? "PO scalars: Type, FullTypeName, Breadcrumb, IsNew, IsHidden, ObjectId, Label, Tag."));
+                            }
+                        }
+                        return scopedAttr;
+                    }
                     if (po is null)
                         return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT on an attribute needs a current PersistentObject.", loc));
                     var attr = po.GetAttribute(subj.Name!);
@@ -645,6 +711,21 @@ public sealed class Interpreter
                         return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo,
                             $"Query '{query.Name}' has no associated PersistentObject.", loc));
                     return ReadPoProperty(qpo, subj.Name!, loc);
+                }
+            case ExpectSubjectKind.ScopedRoot:
+                {
+                    // `EXPECT @initial IS NULL` / `EXPECT @session IS NOT NULL` — surface the PO
+                    // directly. Going through ResolveScopePo here would turn an unbound scope
+                    // into a `state-no-session` diagnostic, but the entire point of this subject
+                    // shape is to *observe* presence/absence, not error on it. Bypass the
+                    // diagnostic by reading Client.Initial / Client.Session straight.
+                    if (string.Equals(subj.Scope, "initial", StringComparison.OrdinalIgnoreCase))
+                        return OpResult<object?>.Success((object?)_session.Client.Initial);
+                    if (string.Equals(subj.Scope, "session", StringComparison.OrdinalIgnoreCase))
+                        return OpResult<object?>.Success((object?)_session.Client.Session);
+                    return Fail<object?>(new Diagnostic(ErrorKind.ResolveVariable,
+                        $"Unknown variable scope '@{subj.Scope}'.", loc,
+                        Hint: "Valid scopes: @session, @initial."));
                 }
             case ExpectSubjectKind.QueryColumn:
                 {
