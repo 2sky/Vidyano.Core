@@ -122,6 +122,31 @@ Argument values participate in the regular expression grammar (literals, `{{vars
 
 For CLI-driven runs, implement `IVidyanoScriptToolPack` and load the DLL with `vidyano run … --tools <path.dll>` — see the [Vidyano.Script.Tool README](https://www.nuget.org/packages/Vidyano.Script.Tool/) for the plugin contract.
 
+## Deterministic regression scripts
+
+A script you check in has to pass on a teammate's machine with different data. These features let one `.visc` gate itself, pin its own randomness, and assert with patterns instead of exact values:
+
+```visc
+### Built-ins evaluate per reference (capture to freeze); Now/Seed pin them below.
+EDIT
+SET Name      = "Acme {{@uuid}}"        ## {{...}} resolves inside "..." too
+SET CreatedOn = "{{@today}}"
+EXPECT Name MATCHES "^Acme [0-9a-fA-F-]{36}$"
+
+### REQUIRES gates the body: if it doesn't hold, the rest is skipped (not failed).
+REQUIRES TotalItems >= 1
+REQUIRES TOOL seed-db
+
+CLEANUP                                  ## statements below always run, even after a skip
+EXECUTE Delete
+```
+
+- **`REQUIRES <assertion>`** — reuses the full `EXPECT` grammar. Holds → continue; unmet or unevaluable → skip the rest of the body with a `state-requires-unmet` diagnostic (a skip, **not** a failure). **`REQUIRES TOOL <name>`** gates on a registered tool.
+- **`CLEANUP`** — a marker; everything after it runs even when the body was skipped, so teardown never gets stranded.
+- **Built-in vars** `{{@today}} {{@now}} {{@uuid}} {{@random}}` — evaluated on each reference, mirroring `DateTime.Now` / `rng.Next()` in C#. `Seed` fixes the `@uuid`/`@random` sequence (independent streams; each reference draws the next value); `Now` anchors the clock, which then flows by real elapsed time. Capture into a variable (`@id = {{@uuid}}`) to freeze a value for reuse.
+- **`EXPECT … MATCHES "<regex>"`** — regex assertion on the subject's string form (1s ReDoS-guard timeout; a malformed pattern is a clean failure, null never matches).
+- **In-string interpolation** — `{{…}}` holes resolve inside `"…"` literals using the same machinery as a standalone `{{…}}`, so values compose (`"Acme {{@uuid}}"`). Escape a literal brace as `\{`.
+
 ## Modes
 
 A `@mode` directive (or `VidyanoScriptOptions.Mode`) selects how strictly the engine guards observable state:
@@ -139,6 +164,8 @@ var options = new VidyanoScriptOptions
     Mode = ScriptMode.Audit,
     AcceptAnyServerCertificate = true,        // dev certs only
     Variables = { ["customerId"] = "abc-123" }, // pre-seed @vars
+    Now = DateTimeOffset.Parse("2026-05-26T00:00:00Z"), // pin {{@today}}/{{@now}}
+    Seed = 1234,                              // pin {{@uuid}}/{{@random}}
 };
 
 var result = await VidyanoScript.RunFileAsync("regression.visc", options);

@@ -54,6 +54,8 @@ vidyano help  [verbs]                 Show help. 'verbs' lists every .visc verb.
 | `--var key=value` | Pre-seed a script variable. Repeatable. |
 | `--mode navigation\|audit\|direct` | Guard mode. Overrides `@mode` in the script. |
 | `--tools <path.dll>` | Load an external tool pack. Repeatable — see [Tool packs](#tool-packs-external-c-logic) below. |
+| `--now <iso>` | Pin `{{@today}}` / `{{@now}}` to a fixed instant (parsed as UTC). |
+| `--seed <int>` | Pin `{{@uuid}}` / `{{@random}}` for reproducible runs. |
 | `--json` | NDJSON output — one event per line. Pipe-friendly for CI / agents. |
 | `--verbose` | Print per-statement snapshot detail. |
 | `--insecure` | Bypass TLS validation. **Local dev certs only.** |
@@ -107,6 +109,26 @@ EXPECT Attribute FirstName TYPEHINT maxLength = "50"
 EXPECT PO.Metadata.brand = "vidyano"
 EXPECT Query.Columns[FirstName].Label = "First name"
 ```
+
+### Deterministic regression scripts
+
+So a checked-in script passes on any machine, it can gate itself and pin its own randomness:
+
+```visc
+REQUIRES TotalItems >= 1                 ## unmet -> skip the rest (not a failure)
+EDIT
+SET Name = "Acme {{@uuid}}"              ## {{...}} resolves inside "..." too
+EXPECT Name MATCHES "^Acme [0-9a-fA-F-]{36}$"
+CLEANUP                                  ## runs even if the body was skipped
+EXECUTE Delete
+```
+
+- `REQUIRES <assertion>` / `REQUIRES TOOL <name>` — precondition gates; an unmet gate skips the rest of the body (`state-requires-unmet`) rather than failing.
+- `CLEANUP` — statements after it always run, so teardown isn't stranded by a skip.
+- Built-in vars `{{@today}} {{@now}} {{@uuid}} {{@random}}` — evaluated on each reference, like calling `DateTime.Now` / `rng.Next()` in C#. `--seed` fixes the `@uuid`/`@random` sequence (each reference draws the next value); `--now` anchors the clock, which then flows by real elapsed time. To freeze a value for reuse, capture it: `@id = {{@uuid}}`.
+- `EXPECT … MATCHES "<regex>"` — regex assertion (1s ReDoS guard; a bad pattern is a clean failure).
+
+Run `vidyano help verbs` for the full grammar.
 
 ### TOOL — host-registered logic
 
