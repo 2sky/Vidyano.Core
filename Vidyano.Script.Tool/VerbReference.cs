@@ -23,7 +23,7 @@ public static class VerbReference
         t.AddRow("USE",                  "USE @admin",                          "Switch to a named session (multi-session not yet implemented).");
         t.AddRow("OPEN PersistentObject","OPEN PersistentObject \"Customer\" \"42\" AS @c","Opens a PO directly. In navigation mode requires reachability.");
         t.AddRow("OPEN Query",           "OPEN Query Customers AS @customers",  "Opens a query by id.");
-        t.AddRow("OPEN MenuItem",        "OPEN MenuItem Sales/Customers",       "Walks the user's menu (Application.Queries[ProgramUnits]).");
+        t.AddRow("OPEN MenuItem",        "OPEN MenuItem Sales/Customers",       "Walks the user's menu (Application.Queries[[ProgramUnits]]).");
         t.AddRow("OPEN-ROW",             "OPEN-ROW 0 AS @row",                  "Opens the PO behind a row of the current query.");
         t.AddRow("SEARCH",               "SEARCH \"Acme\"",                      "Searches the current query.");
         t.AddRow("EDIT",                 "EDIT",                                "Enters edit mode on the current PO. SET auto-enters.");
@@ -42,7 +42,7 @@ public static class VerbReference
         t.AddRow("EXPECT TotalItems",    "EXPECT TotalItems >= 1",              "On the current query.");
         t.AddRow("EXPECT Attr TYPE",     "EXPECT Attribute X TYPE = \"String\"",  "Or TAG / TYPEHINT key for round-tripped metadata.");
         t.AddRow("EXPECT PO.<prop>",     "EXPECT PO.Type = \"Customer\"",         "Plus PO.Tag / PO.Metadata.<k> / PO.NavigationHints.<k>.");
-        t.AddRow("EXPECT Query.<prop>",  "EXPECT Query.Columns[Name].Label = …", "Plus Query.Metadata.<k>, Query.PersistentObject.Type, etc.");
+        t.AddRow("EXPECT Query.<prop>",  "EXPECT Query.Columns[[Name]].Label = …", "Plus Query.Metadata.<k>, Query.PersistentObject.Type, etc.");
         t.AddRow("TOOL",                 "TOOL fetch-user id=42 -> @user",      "Registered handler. CLI: load via --tools <pack.dll> (IVidyanoScriptToolPack).");
 
         AnsiConsole.Write(t);
