@@ -8,7 +8,7 @@
     <RootNamespace>Vidyano.Script</RootNamespace>
     <AssemblyName>Vidyano.Script</AssemblyName>
     <PackageId>Vidyano.Script</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>5.55.0</Version>
     <Authors>2sky</Authors>
     <PackageTags>vidyano script visc testing automation agent</PackageTags>
     <PackageProjectUrl>http://www.vidyano.com/</PackageProjectUrl>

@@ -12,7 +12,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>vidyano</ToolCommandName>
     <PackageId>Vidyano.Script.Tool</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>5.55.0</Version>
     <Authors>2sky</Authors>
     <Description>CLI for running .visc Vidyano scripts. Installs as `dotnet vidyano`.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

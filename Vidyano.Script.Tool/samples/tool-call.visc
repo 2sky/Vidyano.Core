@@ -5,9 +5,10 @@
 ### without embedding C# in the script. Args are named (k=v); the return value can be bound
 ### with `-> @var` to a script variable.
 ###
-### This file is intentionally NOT runnable with the bare CLI — the CLI does not register
-### tools. Host this through `VidyanoScript.RunAsync(body, options)` after seeding
-### `options.Tools["..."]` to exercise it. The file lints cleanly.
+### This file lints cleanly without any plugin. To actually execute it, either:
+###   • host through `VidyanoScript.RunAsync(body, options)` after seeding `options.Tools[...]`, or
+###   • run from the CLI with `--tools <path.dll>` pointing at an assembly that implements
+###     `Vidyano.Script.Runtime.IVidyanoScriptToolPack` and registers the names below.
 
 @app = "https://demo.vidyano.com"
 

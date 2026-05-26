@@ -43,7 +43,7 @@ public static class VerbReference
         t.AddRow("EXPECT Attr TYPE",     "EXPECT Attribute X TYPE = \"String\"",  "Or TAG / TYPEHINT key for round-tripped metadata.");
         t.AddRow("EXPECT PO.<prop>",     "EXPECT PO.Type = \"Customer\"",         "Plus PO.Tag / PO.Metadata.<k> / PO.NavigationHints.<k>.");
         t.AddRow("EXPECT Query.<prop>",  "EXPECT Query.Columns[Name].Label = …", "Plus Query.Metadata.<k>, Query.PersistentObject.Type, etc.");
-        t.AddRow("TOOL",                 "TOOL fetch-user id=42 -> @user",      "Host-registered handler (VidyanoScriptOptions.Tools).");
+        t.AddRow("TOOL",                 "TOOL fetch-user id=42 -> @user",      "Registered handler. CLI: load via --tools <pack.dll> (IVidyanoScriptToolPack).");
 
         AnsiConsole.Write(t);
         AnsiConsole.WriteLine();

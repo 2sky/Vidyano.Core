@@ -33,8 +33,26 @@ public static class ReplCommand
             return Cli.ExitUsage;
         }
 
+        var options = a.ToOptions();
+        if (a.ToolPaths.Count > 0)
+        {
+            try
+            {
+                var packs = ToolPackLoader.LoadInto(a.ToolPaths, options);
+                foreach (var p in packs)
+                    AnsiConsole.MarkupLine(
+                        $"[grey]loaded[/] [yellow]{Markup.Escape(p.PackTypeName)}[/] " +
+                        $"({p.ToolNames.Count} tool(s): {Markup.Escape(string.Join(", ", p.ToolNames))})");
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]error:[/] {Markup.Escape(ex.Message)}");
+                return Cli.ExitUsage;
+            }
+        }
+
         using var session = new VidyanoSession(a.AppUri, acceptAnyServerCertificate: a.Insecure);
-        var interpreter = new Interpreter(session, a.ToOptions().Variables, a.Mode ?? GuardMode.Navigation);
+        var interpreter = new Interpreter(session, options.Variables, a.Mode ?? GuardMode.Navigation, options.Tools);
 
         AnsiConsole.MarkupLine($"[bold]vidyano repl[/] — connected to [green]{Markup.Escape(a.AppUri)}[/]");
         AnsiConsole.MarkupLine("[grey]Type a .visc line at the prompt. ':help' lists commands. ':save <path>' to write history. Ctrl-C exits.[/]");

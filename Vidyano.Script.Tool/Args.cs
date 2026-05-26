@@ -15,6 +15,7 @@ public sealed class Args
     public bool Json { get; set; }
     public bool Verbose { get; set; }
     public bool Insecure { get; set; }
+    public List<string> ToolPaths { get; } = new();
     public List<string> Unknown { get; } = new();
 
     /// <summary>Parses positional + flag arguments. Unknown flags are collected; callers decide whether to error.</summary>
@@ -44,6 +45,9 @@ public sealed class Args
                         break;
                     }
                     result.Mode = m; break;
+                case "--tools":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--tools requires a DLL path"); break; }
+                    result.ToolPaths.Add(args[++i]); break;
                 case "--json":     result.Json = true; break;
                 case "--verbose":  result.Verbose = true; break;
                 case "--insecure": result.Insecure = true; break;

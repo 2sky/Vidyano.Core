@@ -35,7 +35,28 @@ public static class RunCommand
             return Cli.ExitUsage;
         }
 
-        var result = await VidyanoScript.RunFileAsync(a.File, a.ToOptions()).ConfigureAwait(false);
+        var options = a.ToOptions();
+        if (a.ToolPaths.Count > 0)
+        {
+            try
+            {
+                var packs = ToolPackLoader.LoadInto(a.ToolPaths, options);
+                if (a.Verbose && !a.Json)
+                {
+                    foreach (var p in packs)
+                        AnsiConsole.MarkupLine(
+                            $"[grey]loaded[/] [yellow]{Markup.Escape(p.PackTypeName)}[/] " +
+                            $"({p.ToolNames.Count} tool(s): {Markup.Escape(string.Join(", ", p.ToolNames))})");
+                }
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]error:[/] {Markup.Escape(ex.Message)}");
+                return Cli.ExitUsage;
+            }
+        }
+
+        var result = await VidyanoScript.RunFileAsync(a.File, options).ConfigureAwait(false);
 
         if (a.Json)
             JsonReporter.Write(result);

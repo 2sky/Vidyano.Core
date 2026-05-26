@@ -120,6 +120,8 @@ EXPECT TotalItems >= 1
 
 Argument values participate in the regular expression grammar (literals, `{{vars}}`, `@session.X` reads). A throw becomes a `tool-error` diagnostic with the call site; cancellation flows through the host-supplied `CancellationToken`.
 
+For CLI-driven runs, implement `IVidyanoScriptToolPack` and load the DLL with `vidyano run … --tools <path.dll>` — see the [Vidyano.Script.Tool README](https://www.nuget.org/packages/Vidyano.Script.Tool/) for the plugin contract.
+
 ## Modes
 
 A `@mode` directive (or `VidyanoScriptOptions.Mode`) selects how strictly the engine guards observable state:

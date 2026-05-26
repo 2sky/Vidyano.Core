@@ -53,6 +53,7 @@ vidyano help  [verbs]                 Show help. 'verbs' lists every .visc verb.
 | `--app <uri>` | Base URI of the Vidyano service. Overrides `@app` in the script. |
 | `--var key=value` | Pre-seed a script variable. Repeatable. |
 | `--mode navigation\|audit\|direct` | Guard mode. Overrides `@mode` in the script. |
+| `--tools <path.dll>` | Load an external tool pack. Repeatable — see [Tool packs](#tool-packs-external-c-logic) below. |
 | `--json` | NDJSON output — one event per line. Pipe-friendly for CI / agents. |
 | `--verbose` | Print per-statement snapshot detail. |
 | `--insecure` | Bypass TLS validation. **Local dev certs only.** |
@@ -109,13 +110,46 @@ EXPECT Query.Columns[FirstName].Label = "First name"
 
 ### TOOL — host-registered logic
 
-The `TOOL` verb calls a C# delegate the host has registered on `VidyanoScriptOptions.Tools`, with named arguments and an optional return binding. It is intended for scripts driven from a host process (xUnit fixture, custom CLI) — the bundled `vidyano` CLI does not register tools, so a script with `TOOL` will lint clean but fail at runtime when run from the CLI.
+The `TOOL` verb calls a C# delegate registered on `VidyanoScriptOptions.Tools`, with named arguments and an optional return binding:
 
 ```visc
 TOOL warmup
 TOOL lookup-customer email="alice@example.com" -> @cust
 SEARCH "CustomerId:{{cust}}"
 ```
+
+Host processes (xUnit fixture, custom CLI) register handlers directly on `options.Tools`. The `vidyano` CLI loads them from an external DLL via `--tools` — see below.
+
+### Tool packs (external C# logic)
+
+`--tools <path.dll>` loads an external assembly and discovers every public, non-abstract type that implements `Vidyano.Script.Runtime.IVidyanoScriptToolPack`. Each pack's `Register` is called with the same dictionary backing `VidyanoScriptOptions.Tools`, so anything a host process could register is reachable from the CLI.
+
+Minimal plugin:
+
+```csharp
+// MyTools.csproj — net10.0, references Vidyano.Script
+using Vidyano.Script.Runtime;
+
+public sealed class MyTools : IVidyanoScriptToolPack
+{
+    public void Register(IDictionary<string, ScriptToolHandler> tools)
+    {
+        tools["lookup-customer"] = async (ctx, args, ct) =>
+        {
+            var email = (string?)args["email"];
+            var id    = await MyDb.FindCustomerIdAsync(email, ct);
+            return ScriptToolResult.Value(id);
+        };
+    }
+}
+```
+
+```bash
+dotnet build MyTools.csproj
+vidyano run regression.visc --tools ./bin/Debug/net10.0/MyTools.dll
+```
+
+`--tools` is repeatable — pass multiple flags to merge several DLLs. The loader uses the default load context, so plugins must build against a Vidyano.Script version compatible with the installed CLI (drift is the plugin author's responsibility, not the CLI's).
 
 ### Reserved `@session`
 
