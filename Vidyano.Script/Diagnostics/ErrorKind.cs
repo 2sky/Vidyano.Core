@@ -63,4 +63,9 @@ public static class ErrorKind
     // Transport / server
     public const string TransportError           = "transport-error";
     public const string ServerError              = "server-error";
+
+    // Host-registered TOOL calls (Vidyano.Script.Runtime.ScriptToolHandler)
+    public const string ToolUnknown              = "tool-unknown";
+    public const string ToolError                = "tool-error";
+    public const string ToolNoValue              = "tool-no-value";
 }

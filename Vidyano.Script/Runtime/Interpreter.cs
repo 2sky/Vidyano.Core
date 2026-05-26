@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Vidyano.Script.Diagnostics;
 using Vidyano.Script.Parsing;
@@ -18,16 +19,25 @@ public sealed class Interpreter
 {
     private readonly VidyanoSession _session;
     private readonly Dictionary<string, object?> _vars;
+    private readonly IReadOnlyDictionary<string, ScriptToolHandler> _tools;
+    private readonly CancellationToken _cancellationToken;
     private GuardMode _mode = GuardMode.Navigation;
     private bool _statementsExecuted;
 
-    public Interpreter(VidyanoSession session, IReadOnlyDictionary<string, object?>? initialVars = null, GuardMode mode = GuardMode.Navigation)
+    public Interpreter(
+        VidyanoSession session,
+        IReadOnlyDictionary<string, object?>? initialVars = null,
+        GuardMode mode = GuardMode.Navigation,
+        IReadOnlyDictionary<string, ScriptToolHandler>? tools = null,
+        CancellationToken cancellationToken = default)
     {
         _session = session;
         _vars = initialVars is null
             ? new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, object?>(initialVars, StringComparer.OrdinalIgnoreCase);
         _mode = mode;
+        _tools = tools ?? new Dictionary<string, ScriptToolHandler>(StringComparer.OrdinalIgnoreCase);
+        _cancellationToken = cancellationToken;
     }
 
     /// <summary>Effective guard mode after any <c>@mode</c> directives have been processed.</summary>
@@ -108,6 +118,7 @@ public sealed class Interpreter
             case ActionStmt a:                 return await DoAction(a).ConfigureAwait(false);
             case SearchStmt q:                 return await DoSearch(q).ConfigureAwait(false);
             case ExpectStmt ex:                return DoExpect(ex);
+            case ToolCallStmt tc:              return await DoTool(tc).ConfigureAwait(false);
         }
         return Fail(stmt, new Diagnostic(ErrorKind.ParseUnexpectedToken, $"Statement type {stmt.GetType().Name} is not supported.", stmt.Location));
     }
@@ -211,6 +222,83 @@ public sealed class Interpreter
         if (!v.Ok) return Fail(q, v.Error!);
         var res = await _session.SearchAsync(AsString(v.Value), q.Location).ConfigureAwait(false);
         return Wrap(q, res);
+    }
+
+    // --- TOOL ---------------------------------------------------------------------------------
+
+    private async Task<StatementResult> DoTool(ToolCallStmt tc)
+    {
+        if (!_tools.TryGetValue(tc.Name, out var handler))
+        {
+            return Fail(tc, new Diagnostic(
+                ErrorKind.ToolUnknown,
+                $"No tool named '{tc.Name}' was registered.",
+                tc.Location,
+                Hint: Suggester.Hint(tc.Name, _tools.Keys, "tool")
+                      ?? "Register one via VidyanoScriptOptions.Tools[\"name\"] = (ctx, args, ct) => …"));
+        }
+
+        // Evaluate all arguments up-front so a bad value surfaces before the tool side-effects.
+        var args = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (k, expr) in tc.Args)
+        {
+            var v = EvaluateExpression(expr);
+            if (!v.Ok) return Fail(tc, v.Error!);
+            args[k] = v.Value;
+        }
+
+        var ctx = new ToolContext(_session, _vars, tc.Location, tc.Name);
+        ScriptToolResult result;
+        try
+        {
+            result = await handler(ctx, args, _cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_cancellationToken.IsCancellationRequested)
+        {
+            return Fail(tc, new Diagnostic(
+                ErrorKind.ToolError,
+                $"[tool:{tc.Name}] cancelled.",
+                tc.Location));
+        }
+        catch (Exception ex)
+        {
+            return Fail(tc, new Diagnostic(
+                ErrorKind.ToolError,
+                $"[tool:{tc.Name}] {ex.Message}",
+                tc.Location));
+        }
+
+        if (result is null)
+        {
+            return Fail(tc, new Diagnostic(
+                ErrorKind.ToolError,
+                $"[tool:{tc.Name}] returned null. Use ScriptToolResult.Ok or ScriptToolResult.Value(...).",
+                tc.Location));
+        }
+
+        if (tc.ResultVariable is not null)
+        {
+            if (!result.HasValue)
+                return Fail(tc, new Diagnostic(
+                    ErrorKind.ToolNoValue,
+                    $"[tool:{tc.Name}] returned ScriptToolResult.Ok but the call binds to @{tc.ResultVariable}.",
+                    tc.Location,
+                    Hint: "Either drop the `-> @var` or return ScriptToolResult.Value(...) from the handler."));
+            _vars[tc.ResultVariable] = result.ValueOrNull;
+        }
+
+        return Ok(tc);
+    }
+
+    /// <summary>Implementation of <see cref="IScriptToolContext"/> handed to a
+    /// <see cref="ScriptToolHandler"/>. <see cref="Variables"/> aliases the interpreter's own
+    /// variable table — writes are immediately visible to subsequent <c>{{var}}</c> reads.</summary>
+    private sealed class ToolContext(VidyanoSession session, Dictionary<string, object?> variables, SourceLocation location, string toolName) : IScriptToolContext
+    {
+        public VidyanoSession Session => session;
+        public IDictionary<string, object?> Variables => variables;
+        public SourceLocation Location => location;
+        public string ToolName => toolName;
     }
 
     // --- EXPECT -------------------------------------------------------------------------------
@@ -486,8 +574,178 @@ public sealed class Interpreter
                 }
             case ExpectSubjectKind.Expression:
                 return EvaluateExpression(subj.Lhs!);
+            case ExpectSubjectKind.AttributeType:
+                {
+                    var ar = ResolveAttributeForMetadata(subj, loc);
+                    if (!ar.Ok) return Fail<object?>(ar.Error!);
+                    return OpResult<object?>.Success((object?)ar.Value!.Type);
+                }
+            case ExpectSubjectKind.AttributeTag:
+                {
+                    var ar = ResolveAttributeForMetadata(subj, loc);
+                    if (!ar.Ok) return Fail<object?>(ar.Error!);
+                    return OpResult<object?>.Success(ar.Value!.Tag);
+                }
+            case ExpectSubjectKind.AttributeTypeHint:
+                {
+                    var ar = ResolveAttributeForMetadata(subj, loc);
+                    if (!ar.Ok) return Fail<object?>(ar.Error!);
+                    var hints = ar.Value!.TypeHints;
+                    if (hints is null)
+                        return OpResult<object?>.Success((object?)null);
+                    // KeyValueList is case-insensitive in its TryGetValue; do a manual scan so any
+                    // dictionary impl (including read-only) works the same way.
+                    foreach (var kv in hints)
+                        if (string.Equals(kv.Key, subj.MetadataKey, StringComparison.OrdinalIgnoreCase))
+                            return OpResult<object?>.Success((object?)kv.Value);
+                    return OpResult<object?>.Success((object?)null);
+                }
+            case ExpectSubjectKind.PoProperty:
+                {
+                    if (po is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, $"EXPECT PO.{subj.Name} needs a current PersistentObject.", loc));
+                    return ReadPoProperty(po, subj.Name!, loc);
+                }
+            case ExpectSubjectKind.PoMetadata:
+                {
+                    if (po is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT PO.Metadata needs a current PersistentObject.", loc));
+                    return OpResult<object?>.Success(BagLookup(po.Metadata, subj.MetadataKey!));
+                }
+            case ExpectSubjectKind.PoNavigationHints:
+                {
+                    if (po is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT PO.NavigationHints needs a current PersistentObject.", loc));
+                    return OpResult<object?>.Success(BagLookup(po.NavigationHints, subj.MetadataKey!));
+                }
+            case ExpectSubjectKind.QueryProperty:
+                {
+                    if (query is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, $"EXPECT Query.{subj.Name} needs a current Query.", loc));
+                    return ReadQueryProperty(query, subj.Name!, loc);
+                }
+            case ExpectSubjectKind.QueryMetadata:
+                {
+                    if (query is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Query.Metadata needs a current Query.", loc));
+                    return OpResult<object?>.Success(BagLookup(query.Metadata, subj.MetadataKey!));
+                }
+            case ExpectSubjectKind.QueryNavigationHints:
+                {
+                    if (query is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Query.NavigationHints needs a current Query.", loc));
+                    return OpResult<object?>.Success(BagLookup(query.NavigationHints, subj.MetadataKey!));
+                }
+            case ExpectSubjectKind.QueryPoProperty:
+                {
+                    if (query is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, $"EXPECT Query.PersistentObject.{subj.Name} needs a current Query.", loc));
+                    var qpo = query.PersistentObject;
+                    if (qpo is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo,
+                            $"Query '{query.Name}' has no associated PersistentObject.", loc));
+                    return ReadPoProperty(qpo, subj.Name!, loc);
+                }
+            case ExpectSubjectKind.QueryColumn:
+                {
+                    if (query is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Query.Columns needs a current Query.", loc));
+                    var col = (query.Columns ?? Array.Empty<Vidyano.ViewModel.QueryColumn>())
+                        .FirstOrDefault(c => string.Equals(c.Name, subj.Name, StringComparison.OrdinalIgnoreCase));
+                    if (col is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.ResolveAttribute,
+                            $"Query '{query.Name}' has no column named '{subj.Name}'.", loc,
+                            Hint: Suggester.Hint(subj.Name!, (query.Columns ?? Array.Empty<Vidyano.ViewModel.QueryColumn>()).Select(c => c.Name))));
+                    return ReadColumnProperty(col, subj.MetadataKey!, loc);
+                }
         }
         return Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken, "Unhandled EXPECT subject.", loc));
+    }
+
+    /// <summary>Resolves the target attribute for the metadata-shaped EXPECTs (Type / Tag /
+    /// TypeHint). Handles scoped <c>@session</c> attributes uniformly with bare ones.</summary>
+    private OpResult<PersistentObjectAttribute> ResolveAttributeForMetadata(ExpectSubject subj, SourceLocation loc)
+    {
+        if (subj.Scope is not null)
+        {
+            var scoped = _session.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
+            if (!scoped.Ok) return OpResult<PersistentObjectAttribute>.Fail(scoped.Error!);
+            return OpResult<PersistentObjectAttribute>.Success(scoped.Value!.Attribute);
+        }
+        var po = _session.CurrentPo;
+        if (po is null)
+            return OpResult<PersistentObjectAttribute>.Fail(new Diagnostic(ErrorKind.StateNoCurrentPo,
+                $"EXPECT Attribute {subj.Name} needs a current PersistentObject.", loc));
+        var attr = po.GetAttribute(subj.Name!);
+        if (attr is null)
+            return OpResult<PersistentObjectAttribute>.Fail(new Diagnostic(ErrorKind.ResolveAttribute,
+                $"Attribute '{subj.Name}' does not exist on {po.Type}.", loc,
+                Hint: Suggester.Hint(subj.Name!, po.Attributes.Select(a => a.Name))));
+        return OpResult<PersistentObjectAttribute>.Success(attr);
+    }
+
+    /// <summary>Maps an <c>EXPECT PO.&lt;prop&gt;</c> identifier to the corresponding CLR property
+    /// on the live <see cref="PersistentObject"/>. Recognized names are case-insensitive.</summary>
+    private static OpResult<object?> ReadPoProperty(PersistentObject po, string name, SourceLocation loc)
+    {
+        return name.ToUpperInvariant() switch
+        {
+            "TYPE"          => OpResult<object?>.Success((object?)po.Type),
+            "FULLTYPENAME"  => OpResult<object?>.Success((object?)po.FullTypeName),
+            "BREADCRUMB"    => OpResult<object?>.Success((object?)po.Breadcrumb),
+            "ISNEW"         => OpResult<object?>.Success((object?)po.IsNew),
+            "ISHIDDEN"      => OpResult<object?>.Success((object?)po.IsHidden),
+            "OBJECTID"      => OpResult<object?>.Success((object?)po.ObjectId),
+            "LABEL"         => OpResult<object?>.Success((object?)po.Label),
+            "TAG"           => OpResult<object?>.Success(po.Tag),
+            _ => Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken,
+                $"PO has no property '{name}' for EXPECT.", loc,
+                Hint: "Supported: Type, FullTypeName, Breadcrumb, IsNew, IsHidden, ObjectId, Label, Tag, Metadata.<key>, NavigationHints.<key>.")),
+        };
+    }
+
+    private static OpResult<object?> ReadQueryProperty(Query query, string name, SourceLocation loc)
+    {
+        return name.ToUpperInvariant() switch
+        {
+            "NAME"        => OpResult<object?>.Success((object?)query.Name),
+            "LABEL"       => OpResult<object?>.Success((object?)query.Label),
+            "ID"          => OpResult<object?>.Success((object?)query.Id),
+            "TAG"         => OpResult<object?>.Success(query.Tag),
+            "HASSEARCHED" => OpResult<object?>.Success((object?)query.HasSearched),
+            "TEXTSEARCH"  => OpResult<object?>.Success((object?)query.TextSearch),
+            "TOTALITEMS"  => OpResult<object?>.Success((object?)query.TotalItems),
+            "ISHIDDEN"    => OpResult<object?>.Success((object?)query.IsHidden),
+            _ => Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken,
+                $"Query has no property '{name}' for EXPECT.", loc,
+                Hint: "Supported: Name, Label, Id, Tag, HasSearched, TextSearch, TotalItems, IsHidden, Metadata.<key>, NavigationHints.<key>, PersistentObject.<prop>, Columns[name].<prop>.")),
+        };
+    }
+
+    private static OpResult<object?> ReadColumnProperty(Vidyano.ViewModel.QueryColumn col, string name, SourceLocation loc)
+    {
+        return name.ToUpperInvariant() switch
+        {
+            "LABEL"  => OpResult<object?>.Success((object?)col.Label),
+            "NAME"   => OpResult<object?>.Success((object?)col.Name),
+            "TYPE"   => OpResult<object?>.Success((object?)col.Type),
+            "OFFSET" => OpResult<object?>.Success((object?)col.Offset),
+            _ => Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken,
+                $"Column has no property '{name}' for EXPECT.", loc,
+                Hint: "Supported: Label, Name, Type, Offset.")),
+        };
+    }
+
+    /// <summary>Case-insensitive lookup against an optional string-keyed metadata bag. Returns
+    /// <c>null</c> when the bag is null or missing the key — that surfaces as
+    /// <c>EXPECT … IS NULL</c> in the script.</summary>
+    private static object? BagLookup(IReadOnlyDictionary<string, string>? bag, string key)
+    {
+        if (bag is null) return null;
+        foreach (var kv in bag)
+            if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase))
+                return kv.Value;
+        return null;
     }
 
     private static OpResult<T> Fail<T>(Diagnostic d) => OpResult<T>.Fail(d);

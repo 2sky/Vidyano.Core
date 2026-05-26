@@ -55,6 +55,9 @@ public enum TokenKind
     Comma,
     /// <summary><c>.</c> — used in <c>Notification.Type</c> and <c>Row[0].Customer</c>.</summary>
     Dot,
+    /// <summary><c>-&gt;</c> — binds a <c>TOOL</c> call's return value to a variable
+    /// (<c>TOOL fetch-user id=42 -&gt; @user</c>).</summary>
+    Arrow,
 }
 
 /// <summary>

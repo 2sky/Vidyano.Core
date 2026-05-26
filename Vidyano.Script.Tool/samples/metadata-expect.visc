@@ -1,0 +1,53 @@
+### EXPECT on attribute / PO / Query metadata
+###
+### Round-tripped service properties (Tag, Metadata, NavigationHints, TypeHints) are
+### populated by the server-side action handlers. The shapes below mirror what a v4 browser
+### session sees, so assertions match what the UI would render.
+###
+### This sample is server-shape-only — exact values depend on the backing service.
+### The default demo at https://demo.vidyano.com does not advertise custom metadata on
+### most types, so most assertions here are commented. Lint-clean as-is.
+
+@app = "https://demo.vidyano.com"
+SIGN-IN admin / vidyano
+
+OPEN MenuItem Vidyano/Customers
+OPEN-ROW 0
+
+### --- Attribute metadata --------------------------------------------------------------
+### Attribute Type — the server-declared type name (String, Date, ReferenceWithDisplay, …).
+# EXPECT Attribute FirstName TYPE = "String"
+### Attribute Tag — any JSON value the server attached.
+# EXPECT Attribute FirstName TAG IS NULL
+### TypeHints — server-attached display/validation hints, keyed by name.
+# EXPECT Attribute FirstName TYPEHINT maxLength = "50"
+# EXPECT Attribute FirstName TYPEHINT inputtype IS NOT NULL
+### Existing flag form still works.
+EXPECT Attribute FirstName IS VISIBLE
+EXPECT Attribute FirstName IS NOT REQUIRED
+
+### --- PO metadata ---------------------------------------------------------------------
+### Scalar properties on the current PO.
+EXPECT PO.Type = "Vidyano.Customer"
+# EXPECT PO.IsNew = false
+# EXPECT PO.Breadcrumb CONTAINS "Customer"
+### Metadata / NavigationHints bags — keyed lookup, IS NULL when missing.
+# EXPECT PO.Metadata.brand = "vidyano"
+# EXPECT PO.NavigationHints.target = "Detail"
+# EXPECT PO.Tag IS NULL
+
+### --- Query metadata ------------------------------------------------------------------
+CANCEL
+EXPECT NavStack.Top.Kind = "Query"
+### Scalar Query properties (the dotted form; the legacy `Query LABEL = …` still works too).
+EXPECT Query.Name = "Customers"
+EXPECT Query.HasSearched = true
+# EXPECT Query.Tag IS NULL
+### The query's owning PO.
+EXPECT Query.PersistentObject.Type = "Vidyano.Customer"
+### Column properties by name.
+EXPECT Query.Columns[FirstName].Type = "String"
+# EXPECT Query.Columns[FirstName].Label = "First name"
+### Metadata / NavigationHints bag lookups on the Query.
+# EXPECT Query.Metadata.scope = "tenant"
+# EXPECT Query.NavigationHints.icon IS NOT NULL

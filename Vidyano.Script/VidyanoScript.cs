@@ -54,7 +54,7 @@ public static class VidyanoScript
                 Hint: "Set @app = http://... in the script, or pass --app on the command line."));
 
         using var session = new VidyanoSession(baseUri!, opts.HttpClient, opts.AcceptAnyServerCertificate);
-        var interpreter = new Interpreter(session, opts.Variables, opts.Mode);
+        var interpreter = new Interpreter(session, opts.Variables, opts.Mode, opts.Tools);
         return await interpreter.RunAsync(script).ConfigureAwait(false);
     }
 

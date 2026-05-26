@@ -23,6 +23,7 @@ public sealed class Parser
         "EDIT", "CANCEL", "SAVE", "REFRESH", "RELOAD",
         "SET", "ACTION", "SEARCH", "SELECT-ROWS",
         "EXPECT", "GOTO",
+        "TOOL",
     };
 
     private static readonly HashSet<string> KnownOpenKinds = new(StringComparer.OrdinalIgnoreCase)
@@ -138,6 +139,7 @@ public sealed class Parser
             "ACTION"      => ParseAction(tok.Location),
             "SEARCH"      => ParseSearch(tok.Location),
             "EXPECT"      => ParseExpect(tok.Location),
+            "TOOL"        => ParseTool(tok.Location),
             _             => UnimplementedVerb(tok),
         };
     }
@@ -445,6 +447,75 @@ public sealed class Parser
         return new SearchStmt(null, text, loc);
     }
 
+    // --- TOOL ---------------------------------------------------------------------------------
+
+    /// <summary><c>TOOL &lt;name&gt; [k=v (, k=v)*] [-&gt; @var]</c>. Args are named-only; positional
+    /// would be order-sensitive and there is no overload concept. The optional <c>-&gt;</c>
+    /// captures the tool's return value into a script variable.</summary>
+    private Statement? ParseTool(SourceLocation loc)
+    {
+        if (Peek().Kind != TokenKind.Identifier)
+        {
+            Error(ErrorKind.ParseExpected, "TOOL needs a name.", Peek().Location, hint: "TOOL seed-db");
+            return null;
+        }
+        var name = Advance().Lexeme;
+
+        var args = new Dictionary<string, Expression>(StringComparer.OrdinalIgnoreCase);
+        // Args run until end-of-line or '->'. Each is `k=v` with literal/var/interp values.
+        while (!IsLineTerminator(Peek()) && Peek().Kind != TokenKind.Arrow)
+        {
+            if (Peek().Kind != TokenKind.Identifier)
+            {
+                Error(ErrorKind.ParseExpected,
+                    "Expected an argument name.",
+                    Peek().Location,
+                    hint: "TOOL accepts named args: TOOL fetch-user id=42, region=\"eu\"");
+                return null;
+            }
+            var argTok = Advance();
+            if (!Match(TokenKind.Equals, out _))
+            {
+                Error(ErrorKind.ParseExpected, $"Expected '=' after argument '{argTok.Lexeme}'.", Peek().Location);
+                return null;
+            }
+            var value = ParseValueExpression();
+            if (value == null) return null;
+            args[argTok.Lexeme] = value;
+
+            // Optional comma between args — accepting both forms keeps the grammar friendly
+            // (`TOOL t a=1 b=2` reads as well as `TOOL t a=1, b=2`).
+            Match(TokenKind.Comma, out _);
+        }
+
+        string? resultVar = null;
+        if (Match(TokenKind.Arrow, out _))
+        {
+            if (Peek().Kind != TokenKind.At)
+            {
+                Error(ErrorKind.ParseExpected, "'->' needs a @variable.", Peek().Location, hint: "TOOL fetch-user id=42 -> @user");
+                return null;
+            }
+            var atTok = Advance();
+            if (atTok.Lexeme.Length == 0)
+            {
+                Error(ErrorKind.ParseExpected, "Expected a name after '@'.", atTok.Location);
+                return null;
+            }
+            if (ReservedScopes.Contains(atTok.Lexeme))
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    $"`@{atTok.Lexeme}` is reserved and can't be bound by TOOL.",
+                    atTok.Location,
+                    hint: $"Pick a different variable name; `@{atTok.Lexeme}` is bound to Client.{ToTitle(atTok.Lexeme)} by the engine.");
+                return null;
+            }
+            resultVar = atTok.Lexeme;
+        }
+
+        return new ToolCallStmt(name, args, resultVar, loc);
+    }
+
     // --- EXPECT -------------------------------------------------------------------------------
 
     private Statement? ParseExpect(SourceLocation loc)
@@ -631,30 +702,69 @@ public sealed class Parser
             }
             var attrName = ParseDottedAttributeName();
             if (attrName == null) return null;
-            // EXPECT Attribute X LABEL = "..."
-            if (Peek().Kind == TokenKind.Identifier &&
-                string.Equals(Peek().Lexeme, "LABEL", StringComparison.OrdinalIgnoreCase))
+            // Trailing modifier keywords: LABEL / TYPE / TAG / TYPEHINT <key>.
+            if (Peek().Kind == TokenKind.Identifier)
             {
-                Advance();
-                return new ExpectSubject(ExpectSubjectKind.AttributeLabel, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
+                if (string.Equals(Peek().Lexeme, "LABEL", StringComparison.OrdinalIgnoreCase))
+                {
+                    Advance();
+                    return new ExpectSubject(ExpectSubjectKind.AttributeLabel, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
+                }
+                if (string.Equals(Peek().Lexeme, "TYPE", StringComparison.OrdinalIgnoreCase))
+                {
+                    Advance();
+                    return new ExpectSubject(ExpectSubjectKind.AttributeType, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
+                }
+                if (string.Equals(Peek().Lexeme, "TAG", StringComparison.OrdinalIgnoreCase))
+                {
+                    Advance();
+                    return new ExpectSubject(ExpectSubjectKind.AttributeTag, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
+                }
+                if (string.Equals(Peek().Lexeme, "TYPEHINT", StringComparison.OrdinalIgnoreCase))
+                {
+                    Advance();
+                    if (Peek().Kind != TokenKind.Identifier && Peek().Kind != TokenKind.String)
+                    {
+                        Error(ErrorKind.ParseExpected,
+                            "Expected a TypeHint key after 'TYPEHINT'.",
+                            Peek().Location,
+                            hint: "EXPECT Attribute Name TYPEHINT maxLength = \"50\"");
+                        return null;
+                    }
+                    var keyTok = Advance();
+                    var keyText = keyTok.Kind == TokenKind.String ? (string)keyTok.Value! : keyTok.Lexeme;
+                    return new ExpectSubject(ExpectSubjectKind.AttributeTypeHint, attrName, AttributeFlagKind.None, tok.Location, Scope: scope, MetadataKey: keyText);
+                }
             }
             return new ExpectSubject(ExpectSubjectKind.AttributeFlag, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
+        }
+
+        if (string.Equals(tok.Lexeme, "PO", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            return ParsePoOrQueryPath(tok, forQuery: false);
         }
 
         if (string.Equals(tok.Lexeme, "Query", StringComparison.OrdinalIgnoreCase))
         {
             Advance();
-            // EXPECT Query LABEL = "..."  — operates on the current Query.
+            // Legacy form: EXPECT Query LABEL = "..."  (kept for backward compat).
             if (Peek().Kind == TokenKind.Identifier &&
                 string.Equals(Peek().Lexeme, "LABEL", StringComparison.OrdinalIgnoreCase))
             {
                 Advance();
                 return new ExpectSubject(ExpectSubjectKind.QueryLabel, null, AttributeFlagKind.None, tok.Location);
             }
+            // Dotted form: EXPECT Query.<prop> | Query.Metadata.<key> | Query.NavigationHints.<key> |
+            // Query.PersistentObject.<prop> | Query.Columns[<name>].<prop>
+            if (Peek().Kind == TokenKind.Dot)
+            {
+                return ParsePoOrQueryPath(tok, forQuery: true);
+            }
             Error(ErrorKind.ParseExpected,
-                "Expected 'LABEL' after 'Query'.",
+                "Expected 'LABEL' or '.<property>' after 'Query'.",
                 Peek().Location,
-                hint: "EXPECT Query LABEL = \"Orders\"");
+                hint: "EXPECT Query LABEL = \"Orders\"  •  EXPECT Query.HasSearched = true");
             return null;
         }
 
@@ -719,6 +829,126 @@ public sealed class Parser
         var bareName = ParseDottedAttributeName();
         if (bareName == null) return null;
         return new ExpectSubject(ExpectSubjectKind.Attribute, bareName, AttributeFlagKind.None, tok.Location);
+    }
+
+    /// <summary>Parses the dotted/indexed remainder after a <c>PO</c> or <c>Query</c> subject:
+    /// <list type="bullet">
+    ///   <item><c>.&lt;Prop&gt;</c> — scalar property lookup (PoProperty / QueryProperty).</item>
+    ///   <item><c>.Metadata.&lt;key&gt;</c> — bag lookup.</item>
+    ///   <item><c>.NavigationHints.&lt;key&gt;</c> — bag lookup.</item>
+    ///   <item><c>.PersistentObject.&lt;Prop&gt;</c> (Query only) — the query's owning PO.</item>
+    ///   <item><c>.Columns[&lt;name&gt;].&lt;Prop&gt;</c> (Query only).</item>
+    /// </list>
+    /// Returns <c>null</c> after emitting a diagnostic on malformed paths.</summary>
+    private ExpectSubject? ParsePoOrQueryPath(Token rootTok, bool forQuery)
+    {
+        if (!Match(TokenKind.Dot, out _))
+        {
+            Error(ErrorKind.ParseExpected,
+                $"Expected '.<property>' after '{rootTok.Lexeme}'.",
+                Peek().Location);
+            return null;
+        }
+        if (Peek().Kind != TokenKind.Identifier)
+        {
+            Error(ErrorKind.ParseExpected,
+                $"Expected a property name after '{rootTok.Lexeme}.'.",
+                Peek().Location);
+            return null;
+        }
+        var head = Advance();
+        var headName = head.Lexeme;
+
+        // Metadata / NavigationHints — these always need a `.key` after the head.
+        var isMetadata = string.Equals(headName, "Metadata", StringComparison.OrdinalIgnoreCase);
+        var isNav     = string.Equals(headName, "NavigationHints", StringComparison.OrdinalIgnoreCase);
+        if (isMetadata || isNav)
+        {
+            if (!Match(TokenKind.Dot, out _))
+            {
+                Error(ErrorKind.ParseExpected,
+                    $"Expected '.<key>' after '{rootTok.Lexeme}.{headName}'.",
+                    Peek().Location,
+                    hint: $"EXPECT {rootTok.Lexeme}.{headName}.someKey = \"value\"");
+                return null;
+            }
+            if (Peek().Kind != TokenKind.Identifier && Peek().Kind != TokenKind.String)
+            {
+                Error(ErrorKind.ParseExpected,
+                    $"Expected a key name after '{rootTok.Lexeme}.{headName}.'.",
+                    Peek().Location);
+                return null;
+            }
+            var keyTok = Advance();
+            var keyText = keyTok.Kind == TokenKind.String ? (string)keyTok.Value! : keyTok.Lexeme;
+            var kind = forQuery
+                ? (isMetadata ? ExpectSubjectKind.QueryMetadata : ExpectSubjectKind.QueryNavigationHints)
+                : (isMetadata ? ExpectSubjectKind.PoMetadata    : ExpectSubjectKind.PoNavigationHints);
+            return new ExpectSubject(kind, null, AttributeFlagKind.None, rootTok.Location, MetadataKey: keyText);
+        }
+
+        // Query-specific shapes: PersistentObject.<prop> and Columns[<name>].<prop>.
+        if (forQuery && string.Equals(headName, "PersistentObject", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Match(TokenKind.Dot, out _))
+            {
+                Error(ErrorKind.ParseExpected,
+                    "Expected '.<property>' after 'Query.PersistentObject'.",
+                    Peek().Location,
+                    hint: "EXPECT Query.PersistentObject.Type = \"Customer\"");
+                return null;
+            }
+            if (Peek().Kind != TokenKind.Identifier)
+            {
+                Error(ErrorKind.ParseExpected, "Expected a property name after 'Query.PersistentObject.'.", Peek().Location);
+                return null;
+            }
+            var propTok = Advance();
+            return new ExpectSubject(ExpectSubjectKind.QueryPoProperty, propTok.Lexeme, AttributeFlagKind.None, rootTok.Location);
+        }
+
+        if (forQuery && string.Equals(headName, "Columns", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Match(TokenKind.LBracket, out _))
+            {
+                Error(ErrorKind.ParseExpected,
+                    "Expected '[<column>]' after 'Query.Columns'.",
+                    Peek().Location,
+                    hint: "EXPECT Query.Columns[Name].Label = \"Customer name\"");
+                return null;
+            }
+            if (Peek().Kind != TokenKind.Identifier && Peek().Kind != TokenKind.String)
+            {
+                Error(ErrorKind.ParseExpected, "Expected a column name inside '[...]'.", Peek().Location);
+                return null;
+            }
+            var colTok = Advance();
+            var colName = colTok.Kind == TokenKind.String ? (string)colTok.Value! : colTok.Lexeme;
+            if (!Match(TokenKind.RBracket, out _))
+            {
+                Error(ErrorKind.ParseExpected, "Expected ']' after column name.", Peek().Location);
+                return null;
+            }
+            if (!Match(TokenKind.Dot, out _))
+            {
+                Error(ErrorKind.ParseExpected,
+                    "Expected '.<property>' after 'Query.Columns[…]'.",
+                    Peek().Location,
+                    hint: "EXPECT Query.Columns[Name].Label = \"Customer name\"");
+                return null;
+            }
+            if (Peek().Kind != TokenKind.Identifier)
+            {
+                Error(ErrorKind.ParseExpected, "Expected a property name after 'Query.Columns[…].'.", Peek().Location);
+                return null;
+            }
+            var propTok = Advance();
+            return new ExpectSubject(ExpectSubjectKind.QueryColumn, colName, AttributeFlagKind.None, rootTok.Location, MetadataKey: propTok.Lexeme);
+        }
+
+        // Scalar property: PO.<prop> or Query.<prop>.
+        var scalarKind = forQuery ? ExpectSubjectKind.QueryProperty : ExpectSubjectKind.PoProperty;
+        return new ExpectSubject(scalarKind, headName, AttributeFlagKind.None, rootTok.Location);
     }
 
     /// <summary>Consumes an <c>@scope</c> prefix used in SET targets, EXPECT subjects, and value

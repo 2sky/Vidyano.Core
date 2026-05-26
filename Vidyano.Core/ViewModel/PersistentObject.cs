@@ -166,6 +166,20 @@ namespace Vidyano.ViewModel
             get { return GetProperty<string>(); }
         }
 
+        /// <summary>Free-form tag round-tripped with this PO. The server can post any JSON value
+        /// (string, number, bool, object, array); callers receive the deserialized payload —
+        /// primitives as their CLR type, objects/arrays as <c>JObject</c>/<c>JArray</c>.</summary>
+        public object Tag => GetProperty<object>();
+
+        /// <summary>Free-form metadata bag round-tripped with this PO. Used by server-side action handlers
+        /// to attach domain-specific markers (e.g. branding hints, workflow keys). May be <c>null</c> when
+        /// the server emits none. Lookups are case-sensitive (string keys preserved exactly).</summary>
+        public IReadOnlyDictionary<string, string> Metadata => GetProperty<Dictionary<string, string>>();
+
+        /// <summary>Navigation hints attached by the server (e.g. preferred target view, breadcrumb behavior).
+        /// May be <c>null</c> when the server emits none.</summary>
+        public IReadOnlyDictionary<string, string> NavigationHints => GetProperty<Dictionary<string, string>>();
+
         public PersistentObjectAttribute[] Attributes { get; }
 
         public IReadOnlyDictionary<string, Query> Queries { get; }

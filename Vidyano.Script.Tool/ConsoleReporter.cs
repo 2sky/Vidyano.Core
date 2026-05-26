@@ -86,6 +86,7 @@ public static class ConsoleReporter
             ActionStmt a               => $"ACTION {Markup.Escape(a.ActionName)}",
             SearchStmt                 => "SEARCH …",
             ExpectStmt e               => $"EXPECT {DescribeSubject(e.Subject)}",
+            ToolCallStmt t             => $"TOOL {Markup.Escape(t.Name)}{(t.ResultVariable is null ? "" : $" -> @{Markup.Escape(t.ResultVariable)}")}",
             UseSessionStmt u           => $"USE @{u.SessionName}",
             SignOutStmt                => "SIGN-OUT",
             _                          => stmt.GetType().Name,
@@ -94,15 +95,26 @@ public static class ConsoleReporter
     private static string DescribeSubject(ExpectSubject s) =>
         s.Kind switch
         {
-            ExpectSubjectKind.Attribute        => Markup.Escape(s.Name ?? "?"),
-            ExpectSubjectKind.Action           => $"Action {Markup.Escape(s.Name ?? "?")}",
-            ExpectSubjectKind.AttributeFlag    => $"Attribute {Markup.Escape(s.Name ?? "?")}",
-            ExpectSubjectKind.Notification     => "Notification",
-            ExpectSubjectKind.NotificationType => "Notification.Type",
-            ExpectSubjectKind.IsDirty          => "IsDirty",
-            ExpectSubjectKind.IsInEdit         => "IsInEdit",
-            ExpectSubjectKind.TotalItems       => "TotalItems",
-            _                                  => "?",
+            ExpectSubjectKind.Attribute            => Markup.Escape(s.Name ?? "?"),
+            ExpectSubjectKind.Action               => $"Action {Markup.Escape(s.Name ?? "?")}",
+            ExpectSubjectKind.AttributeFlag        => $"Attribute {Markup.Escape(s.Name ?? "?")}",
+            ExpectSubjectKind.Notification         => "Notification",
+            ExpectSubjectKind.NotificationType     => "Notification.Type",
+            ExpectSubjectKind.IsDirty              => "IsDirty",
+            ExpectSubjectKind.IsInEdit             => "IsInEdit",
+            ExpectSubjectKind.TotalItems           => "TotalItems",
+            ExpectSubjectKind.AttributeType        => $"Attribute {Markup.Escape(s.Name ?? "?")} TYPE",
+            ExpectSubjectKind.AttributeTag         => $"Attribute {Markup.Escape(s.Name ?? "?")} TAG",
+            ExpectSubjectKind.AttributeTypeHint    => $"Attribute {Markup.Escape(s.Name ?? "?")} TYPEHINT {Markup.Escape(s.MetadataKey ?? "?")}",
+            ExpectSubjectKind.PoProperty           => $"PO.{Markup.Escape(s.Name ?? "?")}",
+            ExpectSubjectKind.PoMetadata           => $"PO.Metadata.{Markup.Escape(s.MetadataKey ?? "?")}",
+            ExpectSubjectKind.PoNavigationHints    => $"PO.NavigationHints.{Markup.Escape(s.MetadataKey ?? "?")}",
+            ExpectSubjectKind.QueryProperty        => $"Query.{Markup.Escape(s.Name ?? "?")}",
+            ExpectSubjectKind.QueryMetadata        => $"Query.Metadata.{Markup.Escape(s.MetadataKey ?? "?")}",
+            ExpectSubjectKind.QueryNavigationHints => $"Query.NavigationHints.{Markup.Escape(s.MetadataKey ?? "?")}",
+            ExpectSubjectKind.QueryPoProperty      => $"Query.PersistentObject.{Markup.Escape(s.Name ?? "?")}",
+            ExpectSubjectKind.QueryColumn          => $"Query.Columns[{Markup.Escape(s.Name ?? "?")}].{Markup.Escape(s.MetadataKey ?? "?")}",
+            _                                      => "?",
         };
 
     private static void RenderSnapshot(Snapshot snap)

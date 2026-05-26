@@ -267,6 +267,10 @@ public sealed class Lexer
         {
             case '=': token = n == '=' ? Make(TokenKind.Equals, 2, "==") : Make(TokenKind.Equals, 1, "="); return true;
             case '!': if (n == '=') { token = Make(TokenKind.NotEquals, 2, "!="); return true; } break;
+            // `->` binds a TOOL call's return into a variable. We special-case `-` here (rather than
+            // adding a general minus operator) so the lexer's negative-number path keeps working
+            // — `-42` still falls through to ReadNumber.
+            case '-': if (n == '>') { token = Make(TokenKind.Arrow, 2, "->"); return true; } break;
             case '<': token = n == '=' ? Make(TokenKind.LessEquals, 2, "<=") : Make(TokenKind.Less, 1, "<"); return true;
             case '>': token = n == '=' ? Make(TokenKind.GreaterEquals, 2, ">=") : Make(TokenKind.Greater, 1, ">"); return true;
             case '/': token = Make(TokenKind.Slash, 1, "/"); return true;

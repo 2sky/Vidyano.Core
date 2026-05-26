@@ -1,0 +1,29 @@
+### TOOL — host-registered external logic
+###
+### Tools are C# delegates registered via VidyanoScriptOptions.Tools so a .visc script can
+### call into external logic (DB lookups, startup/teardown snippets, environment probes)
+### without embedding C# in the script. Args are named (k=v); the return value can be bound
+### with `-> @var` to a script variable.
+###
+### This file is intentionally NOT runnable with the bare CLI — the CLI does not register
+### tools. Host this through `VidyanoScript.RunAsync(body, options)` after seeding
+### `options.Tools["..."]` to exercise it. The file lints cleanly.
+
+@app = "https://demo.vidyano.com"
+
+### No args, no return — typical startup/teardown shape.
+TOOL warmup
+
+### Named args, no return.
+TOOL audit-log action="open-orders", actor="alice"
+
+### Bind a return into a variable for downstream interpolation / EXPECT.
+TOOL fetch-default-region -> @region
+TOOL lookup-customer-id email="alice@example.com" -> @cust
+
+### Argument values can be literals, variables, or @session reads.
+TOOL log-event tenant=@session.TenantId, message="user signed in"
+
+### After binding, the variable participates like any other.
+# SEARCH "Region:{{region}} CustomerId:{{cust}}"
+# EXPECT TotalItems >= 1

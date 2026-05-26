@@ -216,6 +216,19 @@ namespace Vidyano.ViewModel
             set => SetProperty(value);
         }
 
+        /// <summary>Free-form tag round-tripped with this Query. The server can post any JSON value
+        /// (string, number, bool, object, array); callers receive the deserialized payload —
+        /// primitives as their CLR type, objects/arrays as <c>JObject</c>/<c>JArray</c>.</summary>
+        public object Tag => GetProperty<object>();
+
+        /// <summary>Free-form metadata bag round-tripped with this Query. Used by server-side handlers
+        /// to attach domain-specific markers. May be <c>null</c> when the server emits none.</summary>
+        public IReadOnlyDictionary<string, string> Metadata => GetProperty<Dictionary<string, string>>();
+
+        /// <summary>Navigation hints attached by the server (e.g. preferred target view).
+        /// May be <c>null</c> when the server emits none.</summary>
+        public IReadOnlyDictionary<string, string> NavigationHints => GetProperty<Dictionary<string, string>>();
+
         /// <summary>
         /// Gets or sets the column overrides to apply when executing the query.
         /// </summary>

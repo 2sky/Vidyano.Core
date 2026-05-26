@@ -125,7 +125,8 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 | `EDIT` / `CANCEL` / `SAVE` | Standard PO edit lifecycle. SAVE pops + lets owner-driven refresh fire. |
 | `SET <attr> = <value>` | Change an attribute; reference SET resolves through lookup. |
 | `EXECUTE <action>` | Invoke an action by name. |
-| `EXPECT <state>` | Assert on `NavStack.*`, `TotalItems`, `IsInEdit`, `ClientOperation <type>`, attributes, notifications. |
+| `EXPECT <state>` | Assert on `NavStack.*`, `TotalItems`, `IsInEdit`, `ClientOperation <type>`, attributes, notifications. Metadata forms: `Attribute X TYPE/TAG/TYPEHINT <k>`, `PO.<prop>` / `PO.Metadata.<k>` / `PO.NavigationHints.<k>`, `Query.<prop>` / `Query.Metadata.<k>` / `Query.NavigationHints.<k>` / `Query.PersistentObject.<prop>` / `Query.Columns[<name>].<prop>`. |
+| `TOOL <name> [k=v, …] [-> @var]` | Call a host-registered C# delegate (registered on `VidyanoScriptOptions.Tools`). Named args only; throws become `tool-error` diagnostics. CLI does not register tools — host-process only. |
 
 ### Samples and regression scripts
 `Vidyano.Script.Tool/samples/*.visc` — these double as regression tests:
@@ -133,6 +134,8 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 - `client-ops.visc` (17/17) — `ClientOperation` EXPECT shapes against the RavenDB sample.
 - `localization.visc` (17/17) — `SIGN-IN … LANGUAGE` round-trip.
 - `env-web.visc` (4/4) — verifies `environmentVersion=3` unlocks server filter machinery.
+- `tool-call.visc` — `TOOL` grammar (lint-only; host registers handlers, CLI does not).
+- `metadata-expect.visc` — `EXPECT` shapes for `Tag` / `Metadata` / `NavigationHints` / `TypeHints` / column properties (server-shape-dependent assertions commented).
 
 Run a sample (requires the local RavenDB sample at `https://localhost:44353/` for the local-only ones):
 

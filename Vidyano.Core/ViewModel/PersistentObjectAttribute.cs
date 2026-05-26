@@ -134,6 +134,14 @@ namespace Vidyano.ViewModel
             internal set => SetProperty(value);
         }
 
+        /// <summary>
+        /// Free-form per-attribute tag carried through the round-trip. The server can post any JSON
+        /// value (string, number, bool, object, array); callers receive the deserialized payload —
+        /// primitives as their CLR type, objects/arrays as <c>JObject</c>/<c>JArray</c>. <c>null</c>
+        /// when the server emits none.
+        /// </summary>
+        public object Tag => GetProperty<object>();
+
         [EditorBrowsable(EditorBrowsableState.Never)]
         public string ValueDirect
         {

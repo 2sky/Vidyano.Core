@@ -40,6 +40,10 @@ public static class VerbReference
         t.AddRow("EXPECT Attribute … IS","EXPECT Attribute Name IS REQUIRED",   "IS [NOT] VISIBLE | READONLY | REQUIRED.");
         t.AddRow("EXPECT IsDirty",       "EXPECT IsDirty = false",              "Same for IsInEdit.");
         t.AddRow("EXPECT TotalItems",    "EXPECT TotalItems >= 1",              "On the current query.");
+        t.AddRow("EXPECT Attr TYPE",     "EXPECT Attribute X TYPE = \"String\"",  "Or TAG / TYPEHINT key for round-tripped metadata.");
+        t.AddRow("EXPECT PO.<prop>",     "EXPECT PO.Type = \"Customer\"",         "Plus PO.Tag / PO.Metadata.<k> / PO.NavigationHints.<k>.");
+        t.AddRow("EXPECT Query.<prop>",  "EXPECT Query.Columns[Name].Label = …", "Plus Query.Metadata.<k>, Query.PersistentObject.Type, etc.");
+        t.AddRow("TOOL",                 "TOOL fetch-user id=42 -> @user",      "Host-registered handler (VidyanoScriptOptions.Tools).");
 
         AnsiConsole.Write(t);
         AnsiConsole.WriteLine();

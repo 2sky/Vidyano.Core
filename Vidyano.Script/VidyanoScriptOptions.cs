@@ -33,6 +33,16 @@ public sealed class VidyanoScriptOptions
     public Dictionary<string, object?> Variables { get; } = new(System.StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Named tool handlers callable from a script via <c>TOOL &lt;name&gt; [k=v, …] [-&gt; @var]</c>.
+    /// Use these to plug external logic into a .visc script — a startup/teardown snippet, a DB
+    /// lookup, an environment probe — without embedding C# in the script. The handler receives a
+    /// per-call context exposing the live session, the script's variable table, and a cancellation
+    /// token; throwing fails the script with a <c>tool-error</c> diagnostic. Names are
+    /// case-insensitive.
+    /// </summary>
+    public Dictionary<string, ScriptToolHandler> Tools { get; } = new(System.StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Display path used in <see cref="Diagnostics.SourceLocation"/> when the script body is supplied
     /// inline rather than read from disk. Default <c>&lt;inline&gt;</c>.
     /// </summary>

@@ -77,6 +77,49 @@ EXPECT ClientOperation ShowMessageBox CONTAINS "saved"
 EXPECT ClientOperation Refresh IS NULL
 ```
 
+### EXPECT on metadata
+
+`EXPECT` also reaches the round-tripped server metadata — `Tag`, `Metadata`, `NavigationHints`, and `TypeHints` — on attributes, the current PO, the current Query, and individual Query columns:
+
+```visc
+EXPECT Attribute FirstName TYPE = "String"
+EXPECT Attribute FirstName TYPEHINT maxLength = "50"
+EXPECT Attribute FirstName TAG IS NULL
+
+EXPECT PO.Type = "Customer"
+EXPECT PO.Metadata.brand = "vidyano"
+EXPECT PO.NavigationHints.target = "Detail"
+
+EXPECT Query.Name = "Customers"
+EXPECT Query.PersistentObject.Type = "Customer"
+EXPECT Query.Columns[FirstName].Label = "First name"
+```
+
+Missing bag keys produce `null` — assert with `IS NULL` / `IS NOT NULL`. The legacy `EXPECT Query LABEL = "…"` form still works.
+
+### TOOL — host-registered logic
+
+`TOOL <name> [k=v, …] [-> @var]` calls a host-registered C# delegate. Use it for the bits that don't fit the verb grammar — DB lookups, startup/teardown snippets, environment probes — without embedding C# in the script:
+
+```csharp
+options.Tools["lookup-customer"] = async (ctx, args, ct) =>
+{
+    var email = (string?)args["email"];
+    var id    = await myDb.FindCustomerIdAsync(email, ct);
+    ctx.Variables["lookupAt"] = DateTime.UtcNow.ToString("o");
+    return ScriptToolResult.Value(id);
+};
+```
+
+```visc
+TOOL warmup
+TOOL lookup-customer email="alice@example.com" -> @cust
+SEARCH "CustomerId:{{cust}}"
+EXPECT TotalItems >= 1
+```
+
+Argument values participate in the regular expression grammar (literals, `{{vars}}`, `@session.X` reads). A throw becomes a `tool-error` diagnostic with the call site; cancellation flows through the host-supplied `CancellationToken`.
+
 ## Modes
 
 A `@mode` directive (or `VidyanoScriptOptions.Mode`) selects how strictly the engine guards observable state:

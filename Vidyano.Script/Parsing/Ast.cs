@@ -81,6 +81,11 @@ public sealed record SearchStmt(string? Handle, Expression Text, SourceLocation 
 /// <summary><c>EXPECT &lt;subject&gt; &lt;op&gt; &lt;value&gt;</c> or <c>EXPECT &lt;subject&gt; IS [NOT] &lt;flag&gt;</c>.</summary>
 public sealed record ExpectStmt(ExpectSubject Subject, ExpectOp Op, Expression? Value, SourceLocation Location) : Statement(Location);
 
+/// <summary><c>TOOL &lt;name&gt; [k=v, …] [-&gt; @var]</c> — calls a host-registered tool with
+/// named arguments and optionally binds its return value to a script variable.
+/// Tools are registered on <see cref="VidyanoScriptOptions.Tools"/>.</summary>
+public sealed record ToolCallStmt(string Name, IReadOnlyDictionary<string, Expression> Args, string? ResultVariable, SourceLocation Location) : Statement(Location);
+
 // --- EXPECT subject + operator ----------------------------------------------------------------
 
 /// <summary>Categories of things EXPECT can target.</summary>
@@ -126,13 +131,47 @@ public enum ExpectSubjectKind
     /// <summary><c>EXPECT {{expr}} ...</c> — compare an interpolation result (variable or
     /// <c>Messages.X</c> lookup) against a value. Stored expression is on <see cref="ExpectSubject.Lhs"/>.</summary>
     Expression,
+    /// <summary><c>EXPECT Attribute X TYPE = "String"</c>.</summary>
+    AttributeType,
+    /// <summary><c>EXPECT Attribute X TYPEHINT key = "value"</c> — looks up a single TypeHint entry.
+    /// <see cref="ExpectSubject.MetadataKey"/> carries the typehint key.</summary>
+    AttributeTypeHint,
+    /// <summary><c>EXPECT Attribute X TAG = "..."</c>.</summary>
+    AttributeTag,
+    /// <summary><c>EXPECT PO.&lt;prop&gt;</c> for scalar properties on the current PO:
+    /// Type, Tag, Breadcrumb, FullTypeName, IsNew, IsHidden.
+    /// <see cref="ExpectSubject.Name"/> holds the property name.</summary>
+    PoProperty,
+    /// <summary><c>EXPECT PO.Metadata.&lt;key&gt; = "..."</c>. <see cref="ExpectSubject.MetadataKey"/>
+    /// holds the key.</summary>
+    PoMetadata,
+    /// <summary><c>EXPECT PO.NavigationHints.&lt;key&gt; = "..."</c>. <see cref="ExpectSubject.MetadataKey"/>
+    /// holds the key.</summary>
+    PoNavigationHints,
+    /// <summary><c>EXPECT Query.&lt;prop&gt;</c> for scalar properties on the current Query:
+    /// Name, Label, Tag, HasSearched, TextSearch.
+    /// <see cref="ExpectSubject.Name"/> holds the property name.</summary>
+    QueryProperty,
+    /// <summary><c>EXPECT Query.Metadata.&lt;key&gt; = "..."</c>.</summary>
+    QueryMetadata,
+    /// <summary><c>EXPECT Query.NavigationHints.&lt;key&gt; = "..."</c>.</summary>
+    QueryNavigationHints,
+    /// <summary><c>EXPECT Query.PersistentObject.&lt;prop&gt; = "..."</c> — Type / Tag.
+    /// <see cref="ExpectSubject.Name"/> holds the property name.</summary>
+    QueryPoProperty,
+    /// <summary><c>EXPECT Query.Columns[name].&lt;prop&gt; = "..."</c> — Label / Type / Offset.
+    /// <see cref="ExpectSubject.Name"/> holds the column name, <see cref="ExpectSubject.MetadataKey"/> the leaf property name.</summary>
+    QueryColumn,
 }
 
-/// <summary>A parsed <c>EXPECT</c> subject. <see cref="Name"/> is meaningful for Attribute/Action/AttributeFlag;
-/// <see cref="Lhs"/> is set for <see cref="ExpectSubjectKind.Expression"/> (interpolation-as-subject).
-/// <see cref="Scope"/> is the reserved variable scope (<c>"session"</c>) when the subject is
-/// <c>@session.X</c>; <c>null</c> means the top of the navigation stack.</summary>
-public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null);
+/// <summary>A parsed <c>EXPECT</c> subject. <see cref="Name"/> is meaningful for Attribute/Action/AttributeFlag
+/// (and for <see cref="ExpectSubjectKind.PoProperty"/>/<see cref="ExpectSubjectKind.QueryProperty"/>/<see cref="ExpectSubjectKind.QueryColumn"/>
+/// where it holds the property or column name). <see cref="Lhs"/> is set for
+/// <see cref="ExpectSubjectKind.Expression"/> (interpolation-as-subject). <see cref="Scope"/> is the
+/// reserved variable scope (<c>"session"</c>) when the subject is <c>@session.X</c>; <c>null</c>
+/// means the top of the navigation stack. <see cref="MetadataKey"/> carries the bag key for
+/// metadata / navigation-hint / typehint forms, and the leaf-property name for column lookups.</summary>
+public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null);
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.</summary>
 public enum AttributeFlagKind { None, Visible, ReadOnly, Required }

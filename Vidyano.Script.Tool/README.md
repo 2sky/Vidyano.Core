@@ -98,6 +98,25 @@ EXPECT TotalItems = 6
 
 EXPECT supports nav-stack state, notification state, the `ClientOperation` queue, and arbitrary attributes on the current PO. CONTAINS / IS NULL / IS NOT NULL / NOT CONTAINS make negative assertions readable.
 
+EXPECT also reaches round-tripped server metadata — `Tag`, `Metadata`, `NavigationHints`, `TypeHints`:
+
+```visc
+EXPECT Attribute FirstName TYPE = "String"
+EXPECT Attribute FirstName TYPEHINT maxLength = "50"
+EXPECT PO.Metadata.brand = "vidyano"
+EXPECT Query.Columns[FirstName].Label = "First name"
+```
+
+### TOOL — host-registered logic
+
+The `TOOL` verb calls a C# delegate the host has registered on `VidyanoScriptOptions.Tools`, with named arguments and an optional return binding. It is intended for scripts driven from a host process (xUnit fixture, custom CLI) — the bundled `vidyano` CLI does not register tools, so a script with `TOOL` will lint clean but fail at runtime when run from the CLI.
+
+```visc
+TOOL warmup
+TOOL lookup-customer email="alice@example.com" -> @cust
+SEARCH "CustomerId:{{cust}}"
+```
+
 ### Reserved `@session`
 
 `Client.Session` (the built-in Vidyano session PO) is reachable as `@session.<attr>` — write with `SET @session.X = …` (auto-enters edit on the Session PO), read with `SET Y = @session.X` or `EXPECT @session.X = …`, interpolate with `{{@session.X}}`. The names `session`, `user`, and `application` are reserved by the engine — `@session = …` is a parse error.
