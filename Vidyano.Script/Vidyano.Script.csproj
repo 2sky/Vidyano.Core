@@ -9,7 +9,7 @@
     <AssemblyName>Vidyano.Script</AssemblyName>
     <PackageId>Vidyano.Script</PackageId>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-    <Version>5.55.0</Version>
+    <Version>5.56.0</Version>
     <Authors>2sky</Authors>
     <PackageTags>vidyano script visc testing automation agent</PackageTags>
     <PackageProjectUrl>http://www.vidyano.com/</PackageProjectUrl>
