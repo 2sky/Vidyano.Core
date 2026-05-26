@@ -182,7 +182,9 @@ public sealed class Interpreter
         var v = EvaluateExpression(s.Value);
         if (!v.Ok) return Fail(s, v.Error!);
         ReferenceHint? hint = s.Hint is null ? null : new ReferenceHint(s.Hint.Value, AsString(v.Value));
-        var res = _session.SetAttribute(s.Attribute, v.Value, s.Location, hint);
+        var res = s.Scope is null
+            ? _session.SetAttribute(s.Attribute, v.Value, s.Location, hint)
+            : _session.SetScopedAttribute(s.Scope, s.Attribute, v.Value, hint, s.Location);
         return Wrap(s, res);
     }
 
@@ -356,6 +358,8 @@ public sealed class Interpreter
         {
             case ExpectSubjectKind.Attribute:
                 {
+                    if (subj.Scope is not null)
+                        return _session.GetScopedAttributeValue(subj.Scope, subj.Name!, loc);
                     if (po is null)
                         return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT on an attribute needs a current PersistentObject.", loc));
                     var attr = po.GetAttribute(subj.Name!);
@@ -395,13 +399,23 @@ public sealed class Interpreter
                 }
             case ExpectSubjectKind.AttributeFlag:
                 {
-                    if (po is null)
-                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT Attribute needs a current PersistentObject.", loc));
-                    var attr = po.GetAttribute(subj.Name!);
-                    if (attr is null)
-                        return Fail<object?>(new Diagnostic(ErrorKind.ResolveAttribute,
-                            $"Attribute '{subj.Name}' does not exist on {po.Type}.", loc,
-                            Hint: Suggester.Hint(subj.Name!, po.Attributes.Select(a => a.Name))));
+                    PersistentObjectAttribute? attr;
+                    if (subj.Scope is not null)
+                    {
+                        var scoped = _session.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
+                        if (!scoped.Ok) return Fail<object?>(scoped.Error!);
+                        attr = scoped.Value!.Attribute;
+                    }
+                    else
+                    {
+                        if (po is null)
+                            return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT Attribute needs a current PersistentObject.", loc));
+                        attr = po.GetAttribute(subj.Name!);
+                        if (attr is null)
+                            return Fail<object?>(new Diagnostic(ErrorKind.ResolveAttribute,
+                                $"Attribute '{subj.Name}' does not exist on {po.Type}.", loc,
+                                Hint: Suggester.Hint(subj.Name!, po.Attributes.Select(a => a.Name))));
+                    }
                     return subj.Flag switch
                     {
                         AttributeFlagKind.Visible  => OpResult<object?>.Success((object?)attr.IsVisible),
@@ -432,6 +446,12 @@ public sealed class Interpreter
                 return OpResult<object?>.Success((object?)(_session.NavStackTop?.IsDialog ?? false));
             case ExpectSubjectKind.AttributeLabel:
                 {
+                    if (subj.Scope is not null)
+                    {
+                        var scoped = _session.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
+                        if (!scoped.Ok) return Fail<object?>(scoped.Error!);
+                        return OpResult<object?>.Success((object?)scoped.Value!.Attribute.Label);
+                    }
                     if (po is null)
                         return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT Attribute LABEL needs a current PersistentObject.", loc));
                     var attr = po.GetAttribute(subj.Name!);
@@ -491,6 +511,7 @@ public sealed class Interpreter
             case LiteralExpr l: return OpResult<object?>.Success(l.Value);
             case IdentifierExpr i: return OpResult<object?>.Success(i.Name);
             case InterpExpr interp: return EvaluateInterpolation(interp);
+            case VariableAttributeExpr v: return _session.GetScopedAttributeValue(v.Scope, v.AttributeName, v.Location);
         }
         return Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken, "Unhandled expression.", expr.Location));
     }
@@ -503,6 +524,39 @@ public sealed class Interpreter
             var name = inner.Substring(5).Trim();
             var val = Environment.GetEnvironmentVariable(name);
             return OpResult<object?>.Success(val);
+        }
+        // {{@session.Attr}} — read an attribute from a reserved scoped PO. Mirrors the SET shape
+        // so authors don't need to remember a separate interpolation syntax. Scope and attribute
+        // parts are trimmed individually so {{ @session . X }} reads the same as {{@session.X}}.
+        if (inner.Length > 0 && inner[0] == '@')
+        {
+            var dot = inner.IndexOf('.');
+            if (dot < 0)
+            {
+                var bare = inner.Substring(1).Trim();
+                if (bare.Length == 0)
+                    return Fail<object?>(new Diagnostic(
+                        ErrorKind.ResolveVariable,
+                        "Empty scope in interpolation — use `{{@session.<attr>}}`.",
+                        interp.Location));
+                return Fail<object?>(new Diagnostic(
+                    ErrorKind.ResolveVariable,
+                    $"`@{bare}` is a PO reference, not a value — use `@{bare}.<attr>`.",
+                    interp.Location));
+            }
+            var scope = inner.Substring(1, dot - 1).Trim();
+            var attr = inner.Substring(dot + 1).Trim();
+            if (scope.Length == 0)
+                return Fail<object?>(new Diagnostic(
+                    ErrorKind.ResolveVariable,
+                    "Empty scope in interpolation — use `{{@session.<attr>}}`.",
+                    interp.Location));
+            if (attr.Length == 0)
+                return Fail<object?>(new Diagnostic(
+                    ErrorKind.ResolveVariable,
+                    $"`@{scope}` is a PO reference, not a value — use `@{scope}.<attr>`.",
+                    interp.Location));
+            return _session.GetScopedAttributeValue(scope, attr, interp.Location);
         }
         // {{Messages.Saved}} — look up the server-localized client message by key. Surfaces the
         // same strings the UI uses, so assertions can compare against "what the user would read"

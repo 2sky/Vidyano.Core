@@ -1,0 +1,44 @@
+### Reserved @session variable — read, write, interpolate, and the reserved-name grammar.
+#
+# `@session` binds to Client.Session, the built-in Vidyano session PO that auto-roundtrips
+# with every request. SET on @session lasts for the rest of the script without leaving the
+# current nav frame.
+#
+# NOTE: the local Raven sample at https://localhost:44353/ may not expose a Session PO.
+# When it doesn't, the SET/EXPECT @session.* lines below produce
+#   state-no-session: "No Session PO on this app — `@session` is unbound."
+# Uncomment the WRITE/READ blocks once the sample app wires up a Session.
+
+@app = "https://localhost:44353/"
+SIGN-IN admin / anything
+
+### Reserved-name parse error — lint-only demo.
+# Each of these would emit "`@session` is reserved — bound to Client.Session by the engine."
+# at parse time. They are commented so the executable portion lints clean.
+# @session = 42
+# @user = "alice"
+# @application = "demo"
+#
+# @session in value position without a `.attr` is a parse error:
+#   "`@session` is a PO reference, not a value — use `@session.<attr>`."
+# SET Year = @session
+#
+# Unknown scope under @… in SET position:
+#   parse-unexpected-token: "Unknown variable scope '@notarealscope'."
+# SET @notarealscope.X = 1
+
+### WRITE / READ / EXPECT / INTERPOLATE (blocked until the sample exposes a Session).
+# SET @session.CurrentYear = 2026
+# EXPECT @session.CurrentYear = 2026
+#
+# OPEN PersistentObject "SomeType" "some-id"
+# EDIT
+# SET Year = @session.CurrentYear
+# EXPECT Year = 2026
+#
+# EXPECT @session.Personen_Patient IS NULL
+# EXPECT @session.Personen_Patient CONTAINS "Reymen"
+# EXPECT Attribute @session.Personen_Patient IS NOT REQUIRED
+#
+# OPEN Query Patients
+# SEARCH "Id:{{@session.Personen_Patient}}"

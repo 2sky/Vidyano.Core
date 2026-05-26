@@ -10,7 +10,8 @@ public sealed record Snapshot(
     SessionSnapshot? Session,
     PoSnapshot? Po,
     QuerySnapshot? Query,
-    IReadOnlyDictionary<string, string>? Handles);
+    IReadOnlyDictionary<string, string>? Handles,
+    PoSnapshot? SessionPo = null);
 
 /// <summary>Identifying information about the active sign-in.</summary>
 public sealed record SessionSnapshot(string? User, string? Uri);
