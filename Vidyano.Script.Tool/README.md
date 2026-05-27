@@ -120,7 +120,7 @@ EDIT
 SET Name = "Acme {{@uuid}}"              ## {{...}} resolves inside "..." too
 EXPECT Name MATCHES "^Acme [0-9a-fA-F-]{36}$"
 CLEANUP                                  ## runs even if the body was skipped
-EXECUTE Delete
+ACTION Delete
 ```
 
 - `REQUIRES <assertion>` / `REQUIRES TOOL <name>` — precondition gates; an unmet gate skips the rest of the body (`state-requires-unmet`) rather than failing.

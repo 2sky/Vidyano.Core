@@ -125,7 +125,7 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 | `SEARCH <text>` | Text-search the current Query in place (no stack change). |
 | `EDIT` / `CANCEL` / `SAVE` | Standard PO edit lifecycle. SAVE pops + lets owner-driven refresh fire. |
 | `SET <attr> = <value>` | Change an attribute; reference SET resolves through lookup. |
-| `EXECUTE <action>` | Invoke an action by name. |
+| `ACTION <action>` | Invoke an action by name. |
 | `EXPECT <state>` | Assert on `NavStack.*`, `TotalItems`, `IsInEdit`, `ClientOperation <type>`, attributes, notifications. Metadata forms: `Attribute X TYPE/TAG/TYPEHINT <k>`, `PO.<prop>` / `PO.Metadata.<k>` / `PO.NavigationHints.<k>`, `Query.<prop>` / `Query.Metadata.<k>` / `Query.NavigationHints.<k>` / `Query.PersistentObject.<prop>` / `Query.Columns[<name>].<prop>`. |
 | `TOOL <name> [k=v, …] [-> @var]` | Call a registered C# delegate. Named args only; throws become `tool-error` diagnostics. In-process: register on `VidyanoScriptOptions.Tools`. From the CLI: implement `IVidyanoScriptToolPack` in a DLL and pass `--tools <path.dll>`. |
 | `EXPECT <lhs> MATCHES "<regex>"` | Regex assertion on the subject's string form (1s ReDoS-guard timeout; null never matches). |

@@ -52,7 +52,7 @@ A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with *
 - `SEARCH <text>` — text-search the current query.
 - `EDIT` / `CANCEL` / `SAVE` — standard PO edit lifecycle.
 - `SET <attribute> = <value>` — change an attribute (incl. reference SET semantics).
-- `EXECUTE <action>` — invoke an action by name.
+- `ACTION <action>` — invoke an action by name.
 
 ### Reserved `@session` variable
 
@@ -139,7 +139,7 @@ REQUIRES TotalItems >= 1
 REQUIRES TOOL seed-db
 
 CLEANUP                                  ## statements below always run, even after a skip
-EXECUTE Delete
+ACTION Delete
 ```
 
 - **`REQUIRES <assertion>`** — reuses the full `EXPECT` grammar. Holds → continue; unmet or unevaluable → skip the rest of the body with a `state-requires-unmet` diagnostic (a skip, **not** a failure). **`REQUIRES TOOL <name>`** gates on a registered tool.
