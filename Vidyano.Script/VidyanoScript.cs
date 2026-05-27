@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Vidyano.Script.Diagnostics;
 using Vidyano.Script.Parsing;
@@ -45,17 +46,62 @@ public static class VidyanoScript
         if (parseDiags.Any())
             return new ScriptResult(opts.SourcePath, false, Array.Empty<StepResult>(), parseDiags);
 
-        var baseUri = opts.RemoteUri ?? PeekAppVar(script);
-        if (string.IsNullOrEmpty(baseUri))
-            return MakeParseOnlyResult(opts.SourcePath, new Diagnostic(
-                ErrorKind.StateNotConnected,
-                "No base URI for the Vidyano service.",
-                script.Location,
-                Hint: "Set @app = http://... in the script, or pass --app on the command line."));
+        IBackendAdapter adapter;
+        bool runnerOwnsAdapter;
+        if (opts.Backend is not null)
+        {
+            adapter = opts.Backend;
+            runnerOwnsAdapter = false;
+        }
+        else
+        {
+            var baseUri = opts.RemoteUri ?? PeekAppVar(script);
+            if (string.IsNullOrEmpty(baseUri))
+                return MakeParseOnlyResult(opts.SourcePath, new Diagnostic(
+                    ErrorKind.StateNotConnected,
+                    "No base URI for the Vidyano service.",
+                    script.Location,
+                    Hint: "Set @app = http://... in the script, or pass --app on the command line."));
 
-        using var session = new VidyanoSession(baseUri!, opts.HttpClient, opts.AcceptAnyServerCertificate);
-        var interpreter = new Interpreter(session, opts.Variables, opts.Mode, opts.Tools, now: opts.Now, seed: opts.Seed);
-        return await interpreter.RunAsync(script).ConfigureAwait(false);
+            adapter = new RemoteBackendAdapter(baseUri!, opts.HttpClient, opts.AcceptAnyServerCertificate);
+            runnerOwnsAdapter = true;
+        }
+
+        try
+        {
+            var conn = await adapter.StartAsync().ConfigureAwait(false);
+            using var session = new VidyanoSession(conn.BaseUri, conn.HttpClient, opts.AcceptAnyServerCertificate);
+            var interpreter = new Interpreter(session, opts.Variables, opts.Mode, opts.Tools, now: opts.Now, seed: opts.Seed);
+            return await interpreter.RunAsync(script).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (runnerOwnsAdapter)
+                await adapter.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Runs a .visc file against an already-connected backend. The HttpClient's BaseAddress
+    /// supplies the base URI (override via <paramref name="options"/>.RemoteUri). The caller owns the client.</summary>
+    public static Task<ScriptResult> RunFileAsync(string path, HttpClient backend, VidyanoScriptOptions? options = null)
+    {
+        return RunFileAsync(path, WithBackendClient(options, backend));
+    }
+
+    /// <summary>Runs a .visc body against an already-connected backend. See the file overload.</summary>
+    public static Task<ScriptResult> RunAsync(string body, HttpClient backend, VidyanoScriptOptions? options = null)
+    {
+        return RunAsync(body, WithBackendClient(options, backend));
+    }
+
+    /// <summary>Copies <paramref name="options"/> (or makes a fresh one) and binds <paramref name="backend"/>
+    /// as the transport, so the convenience overloads never mutate the caller's instance.</summary>
+    private static VidyanoScriptOptions WithBackendClient(VidyanoScriptOptions? options, HttpClient backend)
+    {
+        var opts = options is null ? new VidyanoScriptOptions() : new VidyanoScriptOptions(options);
+        opts.HttpClient = backend;
+        opts.RemoteUri ??= backend.BaseAddress?.ToString();
+        return opts;
     }
 
     /// <summary>Lints only — returns parse diagnostics without executing.</summary>

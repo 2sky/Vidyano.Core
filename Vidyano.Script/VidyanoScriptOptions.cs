@@ -12,6 +12,27 @@ namespace Vidyano.Script;
 /// </summary>
 public sealed class VidyanoScriptOptions
 {
+    public VidyanoScriptOptions()
+    {
+    }
+
+    /// <summary>Shallow copy. The <c>HttpClient</c> convenience overloads of <see cref="VidyanoScript"/>
+    /// use this to inject the client without mutating the caller's instance. Keep in sync when adding
+    /// properties.</summary>
+    internal VidyanoScriptOptions(VidyanoScriptOptions source)
+    {
+        RemoteUri = source.RemoteUri;
+        HttpClient = source.HttpClient;
+        Backend = source.Backend;
+        Mode = source.Mode;
+        SourcePath = source.SourcePath;
+        AcceptAnyServerCertificate = source.AcceptAnyServerCertificate;
+        Now = source.Now;
+        Seed = source.Seed;
+        foreach (var kv in source.Variables) Variables[kv.Key] = kv.Value;
+        foreach (var kv in source.Tools) Tools[kv.Key] = kv.Value;
+    }
+
     /// <summary>
     /// Base URI of the remote Vidyano service. When set, takes precedence over the <c>@app</c> variable
     /// declared in the script. When unset, the script must declare <c>@app</c>.
@@ -22,6 +43,17 @@ public sealed class VidyanoScriptOptions
     /// Reused HttpClient. Pass <c>TestServer.CreateClient()</c> for in-process execution.
     /// </summary>
     public HttpClient? HttpClient { get; set; }
+
+    /// <summary>
+    /// A backend adapter that supplies the session's transport and owns its lifecycle. Set this to run a
+    /// script against an in-process backend (the app under test) instead of a remote URL: the host
+    /// implements <see cref="Vidyano.Script.Runtime.IBackendAdapter"/>, starts whatever it needs in
+    /// <c>StartAsync</c>, and tears it down in <c>DisposeAsync</c>. Takes precedence over
+    /// <see cref="HttpClient"/> / <see cref="RemoteUri"/>. The runner does NOT dispose an adapter supplied
+    /// here — the caller owns what the caller creates (it disposes only adapters it synthesizes from
+    /// <see cref="RemoteUri"/> / <c>@app</c>).
+    /// </summary>
+    public IBackendAdapter? Backend { get; set; }
 
     /// <summary>Initial guard mode. May be overridden by a <c>@mode = ...</c> directive in the script.</summary>
     public GuardMode Mode { get; set; } = GuardMode.Navigation;
