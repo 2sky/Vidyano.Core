@@ -347,6 +347,32 @@ public sealed class Parser
 
     private Statement? ParseOpenRow(SourceLocation loc)
     {
+        // Contextual keyword: `WHERE` right after OPEN-ROW selects the by-value form. Anything else
+        // is parsed as the positional index expression, exactly as before.
+        if (Peek().Kind == TokenKind.Identifier &&
+            string.Equals(Peek().Lexeme, "WHERE", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            var column = ParseDottedAttributeName();
+            if (column == null) return null;
+
+            // Operator is modelled with ExpectOp so a future operator is a whitelist change here, not a
+            // redesign. Only '=' is accepted in this build.
+            if (!Match(TokenKind.Equals, out _))
+            {
+                Error(ErrorKind.ParseExpected,
+                    "OPEN-ROW WHERE currently supports only '='.",
+                    Peek().Location,
+                    hint: "OPEN-ROW WHERE Name = \"Acme\"");
+                return null;
+            }
+
+            var value = ParseValueExpression();
+            if (value == null) return null;
+            var whereHandle = ParseOptionalAs();
+            return new OpenRowStmt(null, whereHandle, loc, MatchColumn: column, MatchOp: ExpectOp.Eq, MatchValue: value);
+        }
+
         var index = ParseValueExpression();
         if (index == null) return null;
         var asHandle = ParseOptionalAs();

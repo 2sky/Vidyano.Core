@@ -124,6 +124,70 @@ public sealed class LintTests
         AssertClean($"EXPECT {{{{{name}}}}} IS NOT NULL");
     }
 
+    // --- OPEN-ROW WHERE (by-value row selector) -----------------------------------------------
+
+    [Fact]
+    public void OpenRowWhere_StringValue_Parses()
+    {
+        AssertClean("OPEN-ROW WHERE Name = \"Acme\"");
+    }
+
+    [Fact]
+    public void OpenRowWhere_WithAsHandle_Parses()
+    {
+        AssertClean("OPEN-ROW WHERE Name = \"Acme\" AS @acme");
+    }
+
+    [Fact]
+    public void OpenRowWhere_InterpolatedValue_Parses()
+    {
+        AssertClean("OPEN-ROW WHERE Name = \"{{@uuid}}\"");
+    }
+
+    [Fact]
+    public void OpenRowWhere_DottedColumn_Parses()
+    {
+        AssertClean("OPEN-ROW WHERE Customer.Name = \"Acme\"");
+    }
+
+    [Fact]
+    public void OpenRowWhere_CaseInsensitiveKeyword_Parses()
+    {
+        AssertClean("OPEN-ROW where Name = \"Acme\"");
+    }
+
+    [Fact]
+    public void OpenRow_Positional_StillParses()
+    {
+        AssertClean("OPEN-ROW 0");
+    }
+
+    [Fact]
+    public void OpenRow_PositionalWithAsHandle_StillParses()
+    {
+        AssertClean("OPEN-ROW 0 AS @h");
+    }
+
+    [Theory]
+    [InlineData("OPEN-ROW WHERE Name CONTAINS \"Acme\"")]
+    [InlineData("OPEN-ROW WHERE Age >= 5")]
+    public void OpenRowWhere_NonEqualsOperator_Diagnoses(string body)
+    {
+        AssertHasDiagnostic(body);
+    }
+
+    [Fact]
+    public void OpenRowWhere_MissingValue_Diagnoses()
+    {
+        AssertHasDiagnostic("OPEN-ROW WHERE Name =");
+    }
+
+    [Fact]
+    public void OpenRowWhere_MissingColumn_Diagnoses()
+    {
+        AssertHasDiagnostic("OPEN-ROW WHERE = \"Acme\"");
+    }
+
     // --- The shipped sample lints cleanly -----------------------------------------------------
 
     [Fact]

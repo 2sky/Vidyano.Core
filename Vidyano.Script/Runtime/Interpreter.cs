@@ -257,7 +257,15 @@ public sealed class Interpreter
 
     private async Task<StatementResult> DoOpenRow(OpenRowStmt or)
     {
-        var v = EvaluateExpression(or.Index);
+        if (or.MatchColumn != null)
+        {
+            var mv = EvaluateExpression(or.MatchValue!);
+            if (!mv.Ok) return Fail(or, mv.Error!);
+            var whereRes = await _session.OpenRowWhereAsync(or.MatchColumn, mv.Value, or.AsHandle, or.Location).ConfigureAwait(false);
+            return Wrap(or, whereRes);
+        }
+
+        var v = EvaluateExpression(or.Index!);
         if (!v.Ok) return Fail(or, v.Error!);
         if (!TryCoerceInt(v.Value, out var index))
             return Fail(or, new Diagnostic(ErrorKind.ParseInvalidValue, "OPEN-ROW needs an integer index.", or.Location));

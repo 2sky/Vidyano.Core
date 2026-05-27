@@ -25,7 +25,8 @@ public static class VerbReference
         t.AddRow("OPEN PersistentObject","OPEN PersistentObject \"Customer\" \"42\" AS @c","Opens a PO directly. In navigation mode requires reachability.");
         t.AddRow("OPEN Query",           "OPEN Query Customers AS @customers",  "Opens a query by id.");
         t.AddRow("OPEN MenuItem",        "OPEN MenuItem Sales/Customers",       "Walks the user's menu (Application.Queries[[ProgramUnits]]).");
-        t.AddRow("OPEN-ROW",             "OPEN-ROW 0 AS @row",                  "Opens the PO behind a row of the current query.");
+        t.AddRow("OPEN-ROW",             "OPEN-ROW 0 AS @row",                  "Opens the PO behind a row of the current query, by index.");
+        t.AddRow("OPEN-ROW WHERE",       "OPEN-ROW WHERE Name = \"Acme\"",       "Opens the PO behind the single row whose column equals the value. Strict: 0 or >1 matches fail. Value is service-string form, like SET.");
         t.AddRow("SEARCH",               "SEARCH \"Acme\"",                      "Searches the current query.");
         t.AddRow("EDIT",                 "EDIT",                                "Enters edit mode on the current PO. SET auto-enters.");
         t.AddRow("SET",                  "SET Name = \"Acme Corp\"",             "For reference attrs the runner auto-picks via Options/Lookup.");

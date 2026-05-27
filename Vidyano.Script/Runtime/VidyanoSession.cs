@@ -420,17 +420,80 @@ public sealed class VidyanoSession : IDisposable
             var row = items.FirstOrDefault();
             if (row is null)
                 return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Could not load row {index}.", loc));
-            var po = await row.Load().ConfigureAwait(false);
-            if (po is null)
-                return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Row {index} did not load a PersistentObject.", loc));
-            _navStack.Add(new PoEntry(po, IsDialog(po)));
-            if (asHandle != null) _handles[asHandle] = po;
-            return OpResult.Success;
+            return await OpenRowItemAsync(row, $"Row {index}", asHandle, loc).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
         }
+    }
+
+    /// <summary><c>OPEN-ROW WHERE &lt;column&gt; = &lt;value&gt; [AS @handle]</c> — open the PO behind the
+    /// single query row whose <paramref name="column"/> cell equals <paramref name="value"/>. The match is
+    /// strict: zero matches or more than one match are assertion failures (no first-wins), so a row picked
+    /// this way is unambiguous. The full result set is loaded and filtered exactly client-side; the
+    /// underlying Query's search state is left untouched.</summary>
+    public async Task<OpResult> OpenRowWhereAsync(string column, object? value, string? asHandle, SourceLocation loc)
+    {
+        if (CurrentQuery is null)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery, "OPEN-ROW needs a current Query.", loc));
+
+        var columnNames = CurrentQuery.Columns.Select(c => c.Name).ToArray();
+        var matchedColumn = columnNames.FirstOrDefault(n => string.Equals(n, column, StringComparison.OrdinalIgnoreCase));
+        if (matchedColumn is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveAttribute,
+                $"Column '{column}' does not exist on Query '{CurrentQuery.Name}'.",
+                loc,
+                Hint: Suggester.Hint(column, columnNames)));
+
+        // The value is matched against the cell's service-string form, so it must be written in
+        // service-string format — the same convention SET uses for writing values. A string literal
+        // passes through unchanged; a non-string input is rendered the same way the cell side is.
+        // Representation-tolerant matching via FromServiceString(value, column.Type) is a future upgrade.
+        var target = value as string ?? Vidyano.Client.ToServiceString(value);
+
+        try
+        {
+            // top==0 = all rows from skip — load the whole set and filter exactly client-side. We do
+            // NOT SearchTextAsync to narrow: that mutates the underlying Query's search state, which
+            // would linger after this row's PO frame pops (CurrentQuery returns the same instance).
+            var items = await CurrentQuery.GetItemsAsync(0, 0).ConfigureAwait(false);
+            var matches = items
+                .Where(r => r != null &&
+                            string.Equals(Vidyano.Client.ToServiceString(r[matchedColumn]), target, StringComparison.Ordinal))
+                .ToList();
+
+            if (matches.Count == 0)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"No row where {matchedColumn} = \"{target}\" (Query '{CurrentQuery.Name}' has {CurrentQuery.TotalItems} items).",
+                    loc));
+            if (matches.Count > 1)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"Row match for {matchedColumn} = \"{target}\" is ambiguous ({matches.Count} rows). Tighten the value, or use OPEN-ROW <index>.",
+                    loc));
+
+            return await OpenRowItemAsync(matches[0], $"Row where {matchedColumn} = \"{target}\"", asHandle, loc).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    /// <summary>Shared tail for both OPEN-ROW forms: loads the PO behind <paramref name="row"/>, pushes a
+    /// nav-stack frame, and binds the optional handle. <paramref name="rowLabel"/> describes the row in
+    /// load-failure diagnostics. Kept private so the positional and by-value paths can't drift.</summary>
+    private async Task<OpResult> OpenRowItemAsync(QueryResultItem row, string rowLabel, string? asHandle, SourceLocation loc)
+    {
+        var po = await row.Load().ConfigureAwait(false);
+        if (po is null)
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"{rowLabel} did not load a PersistentObject.", loc));
+        _navStack.Add(new PoEntry(po, IsDialog(po)));
+        if (asHandle != null) _handles[asHandle] = po;
+        return OpResult.Success;
     }
 
     // --- edit / save / cancel / refresh -------------------------------------------------------

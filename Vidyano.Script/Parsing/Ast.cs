@@ -48,8 +48,14 @@ public sealed record OpenQueryStmt(Expression Id, string? AsHandle, SourceLocati
 /// <summary><c>OPEN MenuItem Sales/Customers [AS @handle]</c>. Path is <c>/</c>-separated.</summary>
 public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, string? AsHandle, SourceLocation Location) : Statement(Location);
 
-/// <summary><c>OPEN-ROW 0 [AS @handle]</c> — open the PO behind a row of the current query.</summary>
-public sealed record OpenRowStmt(Expression Index, string? AsHandle, SourceLocation Location) : Statement(Location);
+/// <summary><c>OPEN-ROW 0 [AS @handle]</c> or <c>OPEN-ROW WHERE &lt;column&gt; = &lt;value&gt; [AS @handle]</c> —
+/// open the PO behind a row of the current query, selected either positionally or by a column value.
+/// Exactly one mode is populated: the positional form sets <see cref="Index"/> (with the by-value
+/// fields null); the by-value form sets <see cref="MatchColumn"/> + <see cref="MatchOp"/> +
+/// <see cref="MatchValue"/> (with <see cref="Index"/> null). <see cref="MatchOp"/> is modelled with the
+/// EXPECT operator enum so a future operator is a parser whitelist change; only <see cref="ExpectOp.Eq"/>
+/// is accepted in this build.</summary>
+public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null) : Statement(Location);
 
 /// <summary><c>EDIT</c> — enter edit mode on the current PO.</summary>
 public sealed record EditStmt(string? Handle, SourceLocation Location) : Statement(Location);

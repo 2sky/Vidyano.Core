@@ -47,7 +47,8 @@ A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with *
 
 - `SIGN-IN <user> / <password>` — authenticate.
 - `OPEN MenuItem <path>` — navigate to a query.
-- `OPEN-ROW <index>` — drill into a row.
+- `OPEN-ROW <index>` — drill into a row by position.
+- `OPEN-ROW WHERE <column> = <value>` — drill into the single row matched by a column value (strict — 0 or >1 matches fail; value in service-string form, like `SET`). Addresses a fixture by reference instead of a brittle row index.
 - `SEARCH <text>` — text-search the current query.
 - `EDIT` / `CANCEL` / `SAVE` — standard PO edit lifecycle.
 - `SET <attribute> = <value>` — change an attribute (incl. reference SET semantics).

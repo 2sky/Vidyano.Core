@@ -44,6 +44,31 @@ public sealed class DeterminismRuntimeTests
     private static List<StatementResult> Statements(ScriptResult result) =>
         result.Steps.SelectMany(s => s.Statements).ToList();
 
+    // --- OPEN-ROW WHERE AST shape (parse only; runtime needs a live Query) --------------------
+
+    [Fact]
+    public void OpenRowWhere_ParsesToByValueShape()
+    {
+        var ast = Parse("OPEN-ROW WHERE Name = \"Acme\" AS @acme");
+        var or = ast.Steps.SelectMany(s => s.Statements).OfType<OpenRowStmt>().Single();
+        Assert.Null(or.Index);
+        Assert.Equal("Name", or.MatchColumn);
+        Assert.Equal(ExpectOp.Eq, or.MatchOp);
+        Assert.NotNull(or.MatchValue);
+        Assert.Equal("acme", or.AsHandle);
+    }
+
+    [Fact]
+    public void OpenRowPositional_ParsesToIndexShape()
+    {
+        var ast = Parse("OPEN-ROW 0");
+        var or = ast.Steps.SelectMany(s => s.Statements).OfType<OpenRowStmt>().Single();
+        Assert.NotNull(or.Index);
+        Assert.Null(or.MatchColumn);
+        Assert.Null(or.MatchOp);
+        Assert.Null(or.MatchValue);
+    }
+
     // --- built-in var determinism -------------------------------------------------------------
 
     [Fact]

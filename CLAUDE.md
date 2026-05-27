@@ -120,7 +120,8 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 |---|---|
 | `SIGN-IN <user> / <pwd>` | Authenticate (optionally `LANGUAGE xx-XX`). |
 | `OPEN MenuItem <path>` | Push a Query frame on the nav stack. |
-| `OPEN-ROW <i>` | Push a PO frame from row `i` of the top Query. |
+| `OPEN-ROW <i>` | Push a PO frame from row `i` of the top Query (by index). |
+| `OPEN-ROW WHERE <col> = <value>` | Push a PO frame from the single row whose `<col>` equals `<value>` — addresses a fixture by reference, not index. Strict: 0 or >1 matches fail. Value is service-string form (same convention as `SET`); only `=` is supported. |
 | `SEARCH <text>` | Text-search the current Query in place (no stack change). |
 | `EDIT` / `CANCEL` / `SAVE` | Standard PO edit lifecycle. SAVE pops + lets owner-driven refresh fire. |
 | `SET <attr> = <value>` | Change an attribute; reference SET resolves through lookup. |
