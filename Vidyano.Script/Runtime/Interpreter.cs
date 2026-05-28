@@ -298,7 +298,24 @@ public sealed class Interpreter
                 parameters[k] = AsString(v.Value);
             }
         }
-        var res = await _session.ExecuteActionAsync(a.ActionName, parameters, a.Location).ConfigureAwait(false);
+        object? option = null;
+        if (a.Option != null)
+        {
+            var ov = EvaluateExpression(a.Option);
+            if (!ov.Ok) return Fail(a, ov.Error!);
+            option = ov.Value;
+            // ACTION X = null and ACTION X = ID null are footguns: the option clause was written
+            // (so the author meant *something*), but a null value silently degrades to bare ACTION X.
+            // Catch it here while we still know `a.Option != null` — the session-level overload only
+            // sees the post-evaluation value and can't tell "no clause" from "null-valued clause".
+            if (option is null)
+                return Fail(a, new Diagnostic(
+                    ErrorKind.ParseInvalidValue,
+                    $"ACTION {a.ActionName} = null is not a valid option.",
+                    a.Location,
+                    Hint: "Omit the `= …` clause to invoke without an option, or pass a label string / `ID <index>`."));
+        }
+        var res = await _session.ExecuteActionAsync(a.ActionName, parameters, option, a.OptionHint, a.Location).ConfigureAwait(false);
         return Wrap(a, res);
     }
 
@@ -574,6 +591,31 @@ public sealed class Interpreter
         var po = _session.CurrentPo;
         var query = _session.CurrentQuery;
 
+        // EXPECT Detail "<name>" IS [NOT] AVAILABLE | VISIBLE — flag check against PO.Queries.
+        // Handled before the DetailName-as-query-redirect path because IS AVAILABLE specifically
+        // means "does the detail exist?" so a missing detail must not surface as a resolve error.
+        if (subj.Kind == ExpectSubjectKind.DetailQueryFlag)
+        {
+            if (po is null)
+                return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo,
+                    "EXPECT Detail needs a current PersistentObject.", loc));
+            var present = po.Queries.TryGetValue(subj.DetailName!, out var dq);
+            return subj.Flag switch
+            {
+                // IS [NOT] AVAILABLE — presence in PO.Queries.
+                AttributeFlagKind.Available => OpResult<object?>.Success((object?)present),
+                // IS [NOT] VISIBLE — !IsHidden when present; missing detail surfaces a diagnostic
+                // with a suggester hint over the available detail names.
+                AttributeFlagKind.Visible   => present
+                    ? OpResult<object?>.Success((object?)!dq!.IsHidden)
+                    : Fail<object?>(new Diagnostic(ErrorKind.ResolveQuery,
+                        $"PersistentObject '{po.Type}' has no detail query '{subj.DetailName}'.", loc,
+                        Hint: Suggester.Hint(subj.DetailName!, po.Queries.Keys))),
+                _ => Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken,
+                        "EXPECT Detail flag must be AVAILABLE or VISIBLE.", loc)),
+            };
+        }
+
         // EXPECT Detail "<name>" <query-subject>: reroute all query-family subjects to the named detail
         // query on the current PO. Read whatever the detail Query has in memory (no forced search) —
         // identical to the current-query EXPECT TotalItems contract.
@@ -647,14 +689,13 @@ public sealed class Interpreter
                         return Fail<object?>(new Diagnostic(ErrorKind.ResolveAction,
                             $"Action '{subj.Name}' does not exist here.", loc,
                             Hint: Suggester.Hint(subj.Name!, candidates)));
-                    // Flag is set by the parser to None on Action subjects until IS X is parsed.
-                    // The interpreter receives Flag=None and operator=Is/IsNot. Treat "IS AVAILABLE"
-                    // as CanExecute, "IS VISIBLE" as IsVisible. We encode that via subj.Flag if set;
-                    // otherwise default to CanExecute (the AVAILABLE alias).
+                    // IS VISIBLE → IsVisible; IS AVAILABLE → CanExecute. None (no flag yet) defaults
+                    // to CanExecute — preserves the bare `EXPECT Action X` historical sense.
                     return subj.Flag switch
                     {
-                        AttributeFlagKind.Visible => OpResult<object?>.Success((object?)action.IsVisible),
-                        _                         => OpResult<object?>.Success((object?)action.CanExecute),
+                        AttributeFlagKind.Visible   => OpResult<object?>.Success((object?)action.IsVisible),
+                        AttributeFlagKind.Available => OpResult<object?>.Success((object?)action.CanExecute),
+                        _                           => OpResult<object?>.Success((object?)action.CanExecute),
                     };
                 }
             case ExpectSubjectKind.AttributeFlag:
@@ -678,10 +719,12 @@ public sealed class Interpreter
                     }
                     return subj.Flag switch
                     {
-                        AttributeFlagKind.Visible  => OpResult<object?>.Success((object?)attr.IsVisible),
-                        AttributeFlagKind.ReadOnly => OpResult<object?>.Success((object?)attr.IsReadOnly),
-                        AttributeFlagKind.Required => OpResult<object?>.Success((object?)attr.IsRequired),
-                        _                          => OpResult<object?>.Success((object?)attr.IsVisible),
+                        AttributeFlagKind.Visible   => OpResult<object?>.Success((object?)attr.IsVisible),
+                        AttributeFlagKind.ReadOnly  => OpResult<object?>.Success((object?)attr.IsReadOnly),
+                        AttributeFlagKind.Required  => OpResult<object?>.Success((object?)attr.IsRequired),
+                        // IS AVAILABLE mirrors SetAttributeOn's guard: settable means visible AND not read-only.
+                        AttributeFlagKind.Available => OpResult<object?>.Success((object?)(attr.IsVisible && !attr.IsReadOnly)),
+                        _                           => OpResult<object?>.Success((object?)attr.IsVisible),
                     };
                 }
             case ExpectSubjectKind.Notification:

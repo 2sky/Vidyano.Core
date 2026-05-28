@@ -88,8 +88,19 @@ public sealed record RefreshStmt(string? Handle, SourceLocation Location) : Stat
 /// <c>@session.X</c>); <c>null</c> means the top of the navigation stack.</param>
 public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location, string? Scope = null) : Statement(Location);
 
-/// <summary><c>ACTION Approve [(Param=Value, ...)]</c>.</summary>
-public sealed record ActionStmt(string? Handle, string ActionName, IReadOnlyDictionary<string, Expression>? Parameters, SourceLocation Location) : Statement(Location);
+/// <summary><c>ACTION Approve [(Param=Value, ...)]</c> or <c>ACTION Delete = "Yes, delete"</c> /
+/// <c>ACTION Delete = ID 0</c>. The <c>= &lt;option&gt;</c> form picks an entry from
+/// <see cref="ActionBase.Options"/> — <see cref="OptionHint"/>=<see cref="ReferenceHintKind.RawId"/>
+/// treats the value as an int index, otherwise the value is matched against the option label.
+/// The <c>=</c> and <c>(…)</c> forms are mutually exclusive — Core's <c>Execute(option)</c> does
+/// not accept named parameters.</summary>
+public sealed record ActionStmt(
+    string? Handle,
+    string ActionName,
+    IReadOnlyDictionary<string, Expression>? Parameters,
+    SourceLocation Location,
+    Expression? Option = null,
+    ReferenceHintKind? OptionHint = null) : Statement(Location);
 
 /// <summary><c>SEARCH "text"</c> on the current query.</summary>
 public sealed record SearchStmt(string? Handle, Expression Text, SourceLocation Location) : Statement(Location);
@@ -193,6 +204,12 @@ public enum ExpectSubjectKind
     /// <summary><c>EXPECT Query.Columns[name].&lt;prop&gt; = "..."</c> — Label / Type / Offset.
     /// <see cref="ExpectSubject.Name"/> holds the column name, <see cref="ExpectSubject.MetadataKey"/> the leaf property name.</summary>
     QueryColumn,
+    /// <summary><c>EXPECT Detail "X" IS [NOT] AVAILABLE | VISIBLE</c> — flag check against a detail
+    /// query on the current PO. <see cref="ExpectSubject.DetailName"/> carries the detail name and
+    /// <see cref="ExpectSubject.Flag"/> picks AVAILABLE (= present in <see cref="PersistentObject.Queries"/>)
+    /// or VISIBLE (= <c>!IsHidden</c>). Distinct from the <c>Detail … &lt;query-subject&gt;</c> form
+    /// (which redirects to a query-family subject) because the flag check itself is the assertion.</summary>
+    DetailQueryFlag,
     /// <summary><c>EXPECT @initial IS NULL</c> — the reserved scope PO itself (no attribute).
     /// Used to assert presence/absence of the scoped PO (<see cref="Vidyano.Client.Initial"/>
     /// for <c>@initial</c>, <see cref="Vidyano.Client.Session"/> for <c>@session</c>) without
@@ -212,8 +229,10 @@ public enum ExpectSubjectKind
 /// current-query walk.</summary>
 public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null, string? DetailName = null);
 
-/// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.</summary>
-public enum AttributeFlagKind { None, Visible, ReadOnly, Required }
+/// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.
+/// <see cref="Available"/> is <c>IsVisible &amp;&amp; !IsReadOnly</c> — the same guard
+/// <see cref="VidyanoSession.SetAttribute"/> uses to decide whether a SET would succeed.</summary>
+public enum AttributeFlagKind { None, Visible, ReadOnly, Required, Available }
 
 /// <summary>EXPECT comparison operators. <see cref="Is"/>/<see cref="IsNot"/> drive boolean assertions like IS AVAILABLE.
 /// <see cref="Contains"/>/<see cref="NotContains"/> do case-insensitive substring matching against the subject's string form.</summary>

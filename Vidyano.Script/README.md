@@ -59,9 +59,9 @@ A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with *
 `Client.Session` is reachable as `@session.<attr>` in any position — SET target, value, `EXPECT`, `{{…}}` interpolation — without leaving the current nav frame:
 
 ```visc
-SET @session.Patient = LOOKUP "Naam:Smith"
+SET @session.Customer = LOOKUP "Name:Smith"
 SET Year = @session.CurrentYear
-EXPECT @session.Patient CONTAINS "Smith"
+EXPECT @session.Customer CONTAINS "Smith"
 ```
 
 The names `session`, `user`, `application` are reserved; `@session = …` is a parse error. `@user` / `@application` parse but produce a runtime diagnostic until wired up.

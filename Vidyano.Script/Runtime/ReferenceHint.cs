@@ -5,7 +5,7 @@ public enum ReferenceHintKind
 {
     /// <summary>Treat the value as the literal raw ID (<c>SelectedReferenceValue</c>). Bypasses the lookup.</summary>
     RawId,
-    /// <summary>Treat the value as a lookup search expression (e.g. <c>"Naam:Reymen AND Voornaam:Wim"</c>).</summary>
+    /// <summary>Treat the value as a lookup search expression (e.g. <c>"Name:Smith AND City:Springfield"</c>).</summary>
     Lookup,
 }
 

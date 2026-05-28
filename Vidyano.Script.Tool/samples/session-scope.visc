@@ -36,9 +36,9 @@ SIGN-IN admin / anything
 # SET Year = @session.CurrentYear
 # EXPECT Year = 2026
 #
-# EXPECT @session.Personen_Patient IS NULL
-# EXPECT @session.Personen_Patient CONTAINS "Reymen"
-# EXPECT Attribute @session.Personen_Patient IS NOT REQUIRED
+# EXPECT @session.CurrentCustomer IS NULL
+# EXPECT @session.CurrentCustomer CONTAINS "Smith"
+# EXPECT Attribute @session.CurrentCustomer IS NOT REQUIRED
 #
-# OPEN Query Patients
-# SEARCH "Id:{{@session.Personen_Patient}}"
+# OPEN Query Customers
+# SEARCH "Id:{{@session.CurrentCustomer}}"
