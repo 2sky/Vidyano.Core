@@ -405,18 +405,44 @@ public sealed class VidyanoSession : IDisposable
         }
     }
 
-    public async Task<OpResult> OpenRowAsync(int index, string? asHandle, SourceLocation loc)
+    /// <summary>Resolves a detail query by name on the current PO (<see cref="PersistentObject.Queries"/>).
+    /// Surfaces a suggester hint on a missing name.</summary>
+    public OpResult<Query> ResolveDetail(string name, SourceLocation loc)
     {
+        if (CurrentPo is null)
+            return OpResult<Query>.Fail(new Diagnostic(ErrorKind.StateNoCurrentPo,
+                "Detail needs a current PersistentObject.", loc));
+        if (!CurrentPo.Queries.TryGetValue(name, out var q))
+            return OpResult<Query>.Fail(new Diagnostic(ErrorKind.ResolveQuery,
+                $"PersistentObject '{CurrentPo.Type}' has no detail query '{name}'.", loc,
+                Hint: Suggester.Hint(name, CurrentPo.Queries.Keys)));
+        return OpResult<Query>.Success(q);
+    }
+
+    /// <summary>Resolves the Query an OPEN-ROW targets: the named detail query on the current PO when
+    /// <paramref name="detailName"/> is set, otherwise the current Query. Keeps both OPEN-ROW bodies
+    /// agnostic to which query they're scanning.</summary>
+    private OpResult<Query> ResolveRowQuery(string? detailName, SourceLocation loc)
+    {
+        if (detailName is not null) return ResolveDetail(detailName, loc);
         if (CurrentQuery is null)
-            return OpResult.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery, "OPEN-ROW needs a current Query.", loc));
-        if (index < 0 || index >= CurrentQuery.TotalItems)
+            return OpResult<Query>.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery, "OPEN-ROW needs a current Query.", loc));
+        return OpResult<Query>.Success(CurrentQuery);
+    }
+
+    public async Task<OpResult> OpenRowAsync(int index, string? asHandle, SourceLocation loc, string? detailName = null)
+    {
+        var qt = ResolveRowQuery(detailName, loc);
+        if (!qt.Ok) return OpResult.Fail(qt.Error!);
+        var query = qt.Value!;
+        if (index < 0 || index >= query.TotalItems)
             return OpResult.Fail(new Diagnostic(
                 ErrorKind.AssertFailed,
-                $"Row index {index} is out of range (Query has {CurrentQuery.TotalItems} items).",
+                $"Row index {index} is out of range (Query has {query.TotalItems} items).",
                 loc));
         try
         {
-            var items = await CurrentQuery.GetItemsAsync(index, 1).ConfigureAwait(false);
+            var items = await query.GetItemsAsync(index, 1).ConfigureAwait(false);
             var row = items.FirstOrDefault();
             if (row is null)
                 return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Could not load row {index}.", loc));
@@ -433,17 +459,18 @@ public sealed class VidyanoSession : IDisposable
     /// strict: zero matches or more than one match are assertion failures (no first-wins), so a row picked
     /// this way is unambiguous. The full result set is loaded and filtered exactly client-side; the
     /// underlying Query's search state is left untouched.</summary>
-    public async Task<OpResult> OpenRowWhereAsync(string column, object? value, string? asHandle, SourceLocation loc)
+    public async Task<OpResult> OpenRowWhereAsync(string column, object? value, string? asHandle, SourceLocation loc, string? detailName = null)
     {
-        if (CurrentQuery is null)
-            return OpResult.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery, "OPEN-ROW needs a current Query.", loc));
+        var qt = ResolveRowQuery(detailName, loc);
+        if (!qt.Ok) return OpResult.Fail(qt.Error!);
+        var query = qt.Value!;
 
-        var columnNames = CurrentQuery.Columns.Select(c => c.Name).ToArray();
+        var columnNames = query.Columns.Select(c => c.Name).ToArray();
         var matchedColumn = columnNames.FirstOrDefault(n => string.Equals(n, column, StringComparison.OrdinalIgnoreCase));
         if (matchedColumn is null)
             return OpResult.Fail(new Diagnostic(
                 ErrorKind.ResolveAttribute,
-                $"Column '{column}' does not exist on Query '{CurrentQuery.Name}'.",
+                $"Column '{column}' does not exist on Query '{query.Name}'.",
                 loc,
                 Hint: Suggester.Hint(column, columnNames)));
 
@@ -456,9 +483,10 @@ public sealed class VidyanoSession : IDisposable
         try
         {
             // top==0 = all rows from skip — load the whole set and filter exactly client-side. We do
-            // NOT SearchTextAsync to narrow: that mutates the underlying Query's search state, which
-            // would linger after this row's PO frame pops (CurrentQuery returns the same instance).
-            var items = await CurrentQuery.GetItemsAsync(0, 0).ConfigureAwait(false);
+            // NOT SearchTextAsync to narrow: that mutates the resolved Query's search state, which
+            // would linger after this row's PO frame pops. The resolved instance is retained either on
+            // the nav stack (CurrentQuery path) or on the parent PO's Queries dictionary (Detail path).
+            var items = await query.GetItemsAsync(0, 0).ConfigureAwait(false);
             var matches = items
                 .Where(r => r != null &&
                             string.Equals(Vidyano.Client.ToServiceString(r[matchedColumn]), target, StringComparison.Ordinal))
@@ -467,7 +495,7 @@ public sealed class VidyanoSession : IDisposable
             if (matches.Count == 0)
                 return OpResult.Fail(new Diagnostic(
                     ErrorKind.AssertFailed,
-                    $"No row where {matchedColumn} = \"{target}\" (Query '{CurrentQuery.Name}' has {CurrentQuery.TotalItems} items).",
+                    $"No row where {matchedColumn} = \"{target}\" (Query '{query.Name}' has {query.TotalItems} items).",
                     loc));
             if (matches.Count > 1)
                 return OpResult.Fail(new Diagnostic(
@@ -502,6 +530,18 @@ public sealed class VidyanoSession : IDisposable
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
         CurrentPo.Edit();
+        return OpResult.Success;
+    }
+
+    public OpResult GoBack(SourceLocation loc)
+    {
+        if (_navStack.Count < 2)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNavStackAtRoot,
+                "GO-BACK has nowhere to go — already at the root frame.", loc));
+        if (_navStack[^1] is PoEntry { Po.IsInEdit: true })
+            return OpResult.Fail(new Diagnostic(ErrorKind.GuardInEdit,
+                "GO-BACK can't leave a PO with unsaved edits — SAVE or CANCEL first.", loc));
+        _navStack.RemoveAt(_navStack.Count - 1);
         return OpResult.Success;
     }
 

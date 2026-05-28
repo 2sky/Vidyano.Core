@@ -42,6 +42,7 @@ public static class ErrorKind
     public const string GuardRequiredMissing     = "guard-required-missing";
     public const string GuardEditModeRequired    = "guard-edit-mode-required";
     public const string GuardNotInEdit           = "guard-not-in-edit";
+    public const string GuardInEdit              = "guard-in-edit";
 
     // Tier-2 guard — reachability (used in `navigation` mode)
     public const string GuardNotReachable        = "guard-not-reachable";
@@ -55,6 +56,7 @@ public static class ErrorKind
     public const string StateScopeNotImplemented = "state-scope-not-implemented";
     public const string StateInitialPending      = "state-initial-pending";
     public const string StateHandleStale         = "state-handle-stale";
+    public const string StateNavStackAtRoot      = "state-nav-stack-at-root";
     /// <summary>Informational: a <c>REQUIRES</c> precondition was not met (or could not be
     /// evaluated), so the rest of the body is skipped. Not a failure.</summary>
     public const string StateRequiresUnmet       = "state-requires-unmet";
