@@ -1131,13 +1131,17 @@ public sealed class VidyanoSession : IDisposable
     }
 
     /// <summary>Coerces a script value into an int. Accepts <see cref="int"/>, <see cref="long"/>,
-    /// and numeric strings (<c>"0"</c>, <c>"12"</c>). Used by the option-by-index form on ACTION.</summary>
+    /// <see cref="decimal"/>, and numeric strings (<c>"0"</c>, <c>"12"</c>). Used by the
+    /// option-by-index form on ACTION. Mirrors <c>Interpreter.TryCoerceInt</c> so the two coercion
+    /// paths stay in sync — Vidyano expressions can produce decimals (e.g. from sums), so accepting
+    /// them here avoids gratuitous rejections.</summary>
     private static bool TryAsInt(object value, out int result)
     {
         switch (value)
         {
             case int i:                                                                                              result = i;      return true;
             case long l when l is >= int.MinValue and <= int.MaxValue:                                               result = (int)l; return true;
+            case decimal d when d is >= int.MinValue and <= int.MaxValue:                                            result = (int)d; return true;
             case string s when int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p):       result = p;      return true;
             default:                                                                                                 result = 0;      return false;
         }
