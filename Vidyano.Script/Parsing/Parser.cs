@@ -464,6 +464,33 @@ public sealed class Parser
             return null;
         }
         var name = Advance().Lexeme;
+
+        // ACTION X = "label"     → Execute(label)  (Core builds MenuOption/MenuLabel itself)
+        // ACTION X = ID 0        → Execute(Options[0])
+        // The `=` and `(…)` forms are mutually exclusive — Core's Execute(option) overload doesn't
+        // accept named parameters, so we reject that combo at parse time with a clear hint.
+        if (Match(TokenKind.Equals, out _))
+        {
+            ReferenceHintKind? optionHint = null;
+            if (Peek().Kind == TokenKind.Identifier &&
+                string.Equals(Peek().Lexeme, "ID", StringComparison.OrdinalIgnoreCase))
+            {
+                Advance();
+                optionHint = ReferenceHintKind.RawId;
+            }
+            var optionExpr = ParseValueExpression();
+            if (optionExpr == null) return null;
+            if (Peek().Kind == TokenKind.LParen)
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "ACTION X = <option> doesn't accept named parameters.",
+                    Peek().Location,
+                    hint: "Use either ACTION X = \"label\" or ACTION X (Param=…), not both.");
+                return null;
+            }
+            return new ActionStmt(null, name, null, loc, optionExpr, optionHint);
+        }
+
         Dictionary<string, Expression>? parameters = null;
         if (Match(TokenKind.LParen, out _))
         {
@@ -489,6 +516,19 @@ public sealed class Parser
             }
             if (!Match(TokenKind.RParen, out _))
                 Error(ErrorKind.ParseExpected, "Expected ')' to close ACTION parameters.", Peek().Location);
+
+            // Symmetric to the forward-direction check above: ACTION X (P=…) = "label" is the same
+            // illegal combo as ACTION X = "label" (P=…) — Core's Execute(option) overload doesn't
+            // accept named params either way. Without this guard, SkipToEndOfLine would silently
+            // discard the trailing `= "label"` and ship a script with the option dropped.
+            if (Peek().Kind == TokenKind.Equals)
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "ACTION X (…) doesn't accept a trailing option.",
+                    Peek().Location,
+                    hint: "Use either ACTION X = \"label\" or ACTION X (Param=…), not both.");
+                return null;
+            }
         }
         return new ActionStmt(null, name, parameters, loc);
     }
@@ -667,39 +707,26 @@ public sealed class Parser
             if (string.Equals(word.Lexeme, "null", StringComparison.OrdinalIgnoreCase))
                 return (subject, negate ? ExpectOp.IsNotNull : ExpectOp.IsNull, null);
 
-            // IS [NOT] <FLAG>  — only valid for Action / AttributeFlag subjects
+            // IS [NOT] <FLAG>  — only valid for Action / AttributeFlag / DetailQueryFlag subjects.
+            // Each subject has its own allow-list, but the shape is identical — IsFlagAllowed
+            // captures the per-subject rules so the dispatch reads as one decision.
             var op = negate ? ExpectOp.IsNot : ExpectOp.Is;
-            if (subject.Kind == ExpectSubjectKind.Action)
+            if (subject.Kind is ExpectSubjectKind.Action or ExpectSubjectKind.AttributeFlag or ExpectSubjectKind.DetailQueryFlag)
             {
-                // Allowed flags: AVAILABLE, VISIBLE
-                if (!string.Equals(word.Lexeme, "AVAILABLE", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(word.Lexeme, "VISIBLE", StringComparison.OrdinalIgnoreCase))
+                var flag = ToFlag(word.Lexeme);
+                if (!IsFlagAllowed(subject.Kind, flag))
                 {
                     Error(ErrorKind.ParseUnexpectedToken,
-                        $"'{word.Lexeme}' isn't valid for an Action EXPECT.",
+                        $"'{word.Lexeme}' isn't valid for {SubjectLabel(subject.Kind)} EXPECT.",
                         word.Location,
-                        hint: "Use EXPECT Action Name IS [NOT] AVAILABLE or IS [NOT] VISIBLE.");
+                        hint: FlagHint(subject.Kind));
                     return null;
                 }
-                return (subject with { Flag = ToFlag(word.Lexeme) }, op, null);
-            }
-            if (subject.Kind == ExpectSubjectKind.AttributeFlag)
-            {
-                if (!string.Equals(word.Lexeme, "VISIBLE",  StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(word.Lexeme, "READONLY", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(word.Lexeme, "REQUIRED", StringComparison.OrdinalIgnoreCase))
-                {
-                    Error(ErrorKind.ParseUnexpectedToken,
-                        $"'{word.Lexeme}' isn't valid for an Attribute EXPECT.",
-                        word.Location,
-                        hint: "Use EXPECT Attribute Name IS [NOT] VISIBLE | READONLY | REQUIRED.");
-                    return null;
-                }
-                return (subject with { Flag = ToFlag(word.Lexeme) }, op, null);
+                return (subject with { Flag = flag }, op, null);
             }
 
             Error(ErrorKind.ParseUnexpectedToken,
-                "IS <flag> can only be used after Action or Attribute subjects (use a comparison operator otherwise).",
+                "IS <flag> can only be used after Action, Attribute, or Detail subjects (use a comparison operator otherwise).",
                 word.Location);
             return null;
         }
@@ -726,13 +753,19 @@ public sealed class Parser
     {
         var tok = Peek();
 
-        // EXPECT Detail "<name>" <query-subject> — redirect query-family subjects to a detail query
-        // on the current PO. Recurses to parse the inner subject and stamps the detail name onto it.
+        // EXPECT Detail "<name>" <query-subject>     → redirect query-family subjects to the detail query
+        // EXPECT Detail "<name>" IS [NOT] AVAILABLE|VISIBLE → flag check on the detail itself
         if (tok.Kind == TokenKind.Identifier && string.Equals(tok.Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
         {
             Advance();
             var detailName = ParseDetailName();
             if (detailName == null) return null;
+
+            // IS-flag form is handled by the shared IS branch in ParseAssertion — return a
+            // DetailQueryFlag subject so the assertion machinery can stamp the flag onto it.
+            if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "IS", StringComparison.OrdinalIgnoreCase))
+                return new ExpectSubject(ExpectSubjectKind.DetailQueryFlag, null, AttributeFlagKind.None, tok.Location, DetailName: detailName);
+
             var inner = ParseExpectSubject();
             if (inner == null) return null;
             if (inner.DetailName != null)
@@ -743,8 +776,8 @@ public sealed class Parser
             if (!IsQueryFamilySubject(inner.Kind))
             {
                 Error(ErrorKind.ParseUnexpectedToken,
-                    "EXPECT Detail can only target query subjects (TotalItems or Query.*).", tok.Location,
-                    hint: "EXPECT Detail \"OrderLines\" TotalItems = 3");
+                    "EXPECT Detail can only target query subjects (TotalItems / Query.*) or IS [NOT] AVAILABLE | VISIBLE.", tok.Location,
+                    hint: "EXPECT Detail \"OrderLines\" TotalItems = 3  •  EXPECT Detail \"OrderLines\" IS AVAILABLE");
                 return null;
             }
             return inner with { DetailName = detailName };
@@ -1139,9 +1172,41 @@ public sealed class Parser
             "VISIBLE"   => AttributeFlagKind.Visible,
             "READONLY"  => AttributeFlagKind.ReadOnly,
             "REQUIRED"  => AttributeFlagKind.Required,
-            "AVAILABLE" => AttributeFlagKind.None, // captured separately by Op; flag is meaningful only for AttributeFlag
+            "AVAILABLE" => AttributeFlagKind.Available,
             _           => AttributeFlagKind.None,
         };
+
+    /// <summary>Per-subject flag allow-list for <c>EXPECT … IS [NOT] &lt;FLAG&gt;</c>. One place to
+    /// reason about which flags make sense where. Action keeps AVAILABLE+VISIBLE (its historical
+    /// pair, mapped to CanExecute / IsVisible at eval time). Attribute adds AVAILABLE to the
+    /// existing VISIBLE/READONLY/REQUIRED trio. DetailQueryFlag accepts AVAILABLE+VISIBLE.</summary>
+    private static bool IsFlagAllowed(ExpectSubjectKind kind, AttributeFlagKind flag) => kind switch
+    {
+        ExpectSubjectKind.Action           => flag is AttributeFlagKind.Available or AttributeFlagKind.Visible,
+        ExpectSubjectKind.AttributeFlag    => flag is AttributeFlagKind.Visible or AttributeFlagKind.ReadOnly or AttributeFlagKind.Required or AttributeFlagKind.Available,
+        ExpectSubjectKind.DetailQueryFlag  => flag is AttributeFlagKind.Available or AttributeFlagKind.Visible,
+        _                                  => false,
+    };
+
+    // SubjectLabel / FlagHint are only called from the IS-flag branch above, gated by the same
+    // three-kind check as IsFlagAllowed. The default arms are therefore unreachable — they throw
+    // rather than emit a meaningless "this" fallback if a future subject kind ever slips through
+    // the gate without an entry here.
+    private static string SubjectLabel(ExpectSubjectKind kind) => kind switch
+    {
+        ExpectSubjectKind.Action          => "an Action",
+        ExpectSubjectKind.AttributeFlag   => "an Attribute",
+        ExpectSubjectKind.DetailQueryFlag => "a Detail",
+        _                                 => throw new InvalidOperationException($"SubjectLabel called for unsupported kind {kind}."),
+    };
+
+    private static string FlagHint(ExpectSubjectKind kind) => kind switch
+    {
+        ExpectSubjectKind.Action          => "Use EXPECT Action Name IS [NOT] AVAILABLE or IS [NOT] VISIBLE.",
+        ExpectSubjectKind.AttributeFlag   => "Use EXPECT Attribute Name IS [NOT] VISIBLE | READONLY | REQUIRED | AVAILABLE.",
+        ExpectSubjectKind.DetailQueryFlag => "Use EXPECT Detail \"Name\" IS [NOT] AVAILABLE | VISIBLE.",
+        _                                 => throw new InvalidOperationException($"FlagHint called for unsupported kind {kind}."),
+    };
 
     private bool TryParseCompareOp(out ExpectOp op)
     {

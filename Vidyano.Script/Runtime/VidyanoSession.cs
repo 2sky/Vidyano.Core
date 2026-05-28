@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -703,7 +704,7 @@ public sealed class VidyanoSession : IDisposable
     /// what a UI user does without making the script branch on <c>SelectInPlace</c>:
     /// <list type="bullet">
     ///   <item>Set-in-place attributes: the value is matched against <c>Options</c>' DisplayValue, then Key,
-    ///   so writing <c>SET Patient = "Reymen Wim"</c> picks the matching dropdown entry.</item>
+    ///   so writing <c>SET Customer = "Smith"</c> picks the matching dropdown entry.</item>
     ///   <item>Non-set-in-place attributes: the value is fed to <c>Lookup.SearchTextAsync</c> and the first
     ///   result is selected via <c>ChangeReference</c>. Pass a <see cref="ReferenceHint.Lookup"/> hint to
     ///   override the search text, or <see cref="ReferenceHint.RawId"/> to bypass the lookup entirely.</item>
@@ -754,8 +755,57 @@ public sealed class VidyanoSession : IDisposable
         if (attr is PersistentObjectAttributeWithReference refAttr)
             return SetReferenceAttribute(refAttr, value, loc, hint);
 
+        // Non-reference Options-bearing attrs (KeyValueList / Dropdown / ComboBox) accept the same
+        // LOOKUP/ID hints — resolve the value against Options[] and assign the matching Key. A bare
+        // `SET X = "y"` (hint == null) keeps the literal-write behaviour for back-compat.
+        if (hint is not null && attr.Options is { Length: > 0 } options)
+        {
+            var text = value as string ?? value?.ToString() ?? "";
+            var resolved = ResolveOption(options, text, hint.Kind, loc, attr.Name);
+            if (!resolved.Ok) return OpResult.Fail(resolved.Error!);
+            attr.Value = resolved.Value;
+            return OpResult.Success;
+        }
+
         attr.Value = value;
         return OpResult.Success;
+    }
+
+    /// <summary>Resolves a user-supplied option text against an <c>Options[]</c> array, returning
+    /// the key to assign to <c>attr.Value</c>. The <paramref name="hint"/> picks the matching policy:
+    /// <list type="bullet">
+    ///   <item><see cref="ReferenceHintKind.RawId"/> — exact match on <c>Key</c>.</item>
+    ///   <item><see cref="ReferenceHintKind.Lookup"/> or <c>null</c> — match on <c>DisplayValue</c>
+    ///         first (what the user reads), then fall back to <c>Key</c>.</item>
+    /// </list>
+    /// A miss returns a diagnostic with a <see cref="Suggester.Hint"/> built from the available
+    /// labels, plus the full option set in <c>Details</c>.</summary>
+    private static OpResult<string> ResolveOption(
+        IReadOnlyList<PersistentObjectAttribute.Option> options,
+        string text,
+        ReferenceHintKind? hint,
+        SourceLocation loc,
+        string attrName)
+    {
+        PersistentObjectAttribute.Option? match = hint == ReferenceHintKind.RawId
+            ? options.FirstOrDefault(o => string.Equals(o.Key, text, StringComparison.Ordinal))
+            : options.FirstOrDefault(o => string.Equals(o.DisplayValue, text, StringComparison.Ordinal))
+                  ?? options.FirstOrDefault(o => string.Equals(o.Key, text, StringComparison.Ordinal));
+
+        if (match is not null)
+            return OpResult<string>.Success(match.Key);
+
+        var candidates = options.Where(o => o.DisplayValue != null).Select(o => o.DisplayValue!);
+        return OpResult<string>.Fail(new Diagnostic(
+            ErrorKind.AssertFailed,
+            $"'{text}' is not one of the options for '{attrName}'.",
+            loc,
+            Hint: Suggester.Hint(text, candidates),
+            Details: new Dictionary<string, object?>
+            {
+                ["attribute"] = attrName,
+                ["available"] = options.Select(o => new { o.Key, o.DisplayValue }).ToArray(),
+            }));
     }
 
     private OpResult SetReferenceAttribute(PersistentObjectAttributeWithReference attr, object? value, SourceLocation loc, ReferenceHint? hint)
@@ -783,27 +833,11 @@ public sealed class VidyanoSession : IDisposable
 
         if (attr.SelectInPlace)
         {
-            // Match by DisplayValue first (what a user reading the dropdown sees), then by Key
-            // (so a script can still pass a key when convenient).
-            var match =
-                attr.Options.FirstOrDefault(o => string.Equals(o.DisplayValue, text, StringComparison.Ordinal)) ??
-                attr.Options.FirstOrDefault(o => string.Equals(o.Key, text, StringComparison.Ordinal));
-            if (match is null)
-            {
-                var candidates = attr.Options.Where(o => o.DisplayValue != null).Select(o => o.DisplayValue!);
-                return OpResult.Fail(new Diagnostic(
-                    ErrorKind.AssertFailed,
-                    $"'{text}' is not one of the options for '{attr.Name}'.",
-                    loc,
-                    Hint: Suggester.Hint(text, candidates),
-                    Details: new Dictionary<string, object?>
-                    {
-                        ["attribute"] = attr.Name,
-                        ["selectInPlace"] = true,
-                        ["available"] = attr.Options.Select(o => new { o.Key, o.DisplayValue }).ToArray(),
-                    }));
-            }
-            attr.SelectedReferenceValue = match.Key;
+            // Set-in-place reference: pick a key from Options[] using the same matching policy as
+            // non-reference Options attrs (see ResolveOption).
+            var resolved = ResolveOption(attr.Options, text, hint?.Kind, loc, attr.Name);
+            if (!resolved.Ok) return OpResult.Fail(resolved.Error!);
+            attr.SelectedReferenceValue = resolved.Value;
             return OpResult.Success;
         }
 
@@ -949,7 +983,24 @@ public sealed class VidyanoSession : IDisposable
     /// Executes an action by name. Distinguishes: not found (typo → suggest), found but hidden,
     /// found and visible but <c>CanExecute=false</c>, transport/server error.
     /// </summary>
-    public async Task<OpResult> ExecuteActionAsync(string name, IReadOnlyDictionary<string, string>? parameters, SourceLocation loc)
+    public Task<OpResult> ExecuteActionAsync(string name, IReadOnlyDictionary<string, string>? parameters, SourceLocation loc) =>
+        ExecuteActionAsync(name, parameters, option: null, optionHint: null, loc);
+
+    /// <summary>Overload supporting the <c>ACTION X = "label"</c> / <c>ACTION X = ID 0</c> form.
+    /// When <paramref name="option"/> is non-null, the value is matched against
+    /// <see cref="ActionBase.Options"/> (Core's <see cref="ActionBase.Execute(object)"/> overload then
+    /// builds the MenuOption / MenuLabel parameters itself, so we just hand it the resolved label):
+    /// <list type="bullet">
+    ///   <item><paramref name="optionHint"/> = <see cref="ReferenceHintKind.RawId"/> — treat the value
+    ///         as an int index into <c>Options</c>.</item>
+    ///   <item>Otherwise — treat the value as a label and match it against the entries directly.</item>
+    /// </list>
+    /// <paramref name="option"/> and <paramref name="parameters"/> are mutually exclusive (Core's
+    /// option-form <c>Execute</c> doesn't take named params). Label matching is case-sensitive
+    /// (<see cref="StringComparison.Ordinal"/>) — same convention as the SET SIP path uses against
+    /// <see cref="PersistentObjectAttribute.Option.DisplayValue"/>; the diagnostic's
+    /// <see cref="Suggester.Hint"/> catches close-but-not-exact typos.</summary>
+    public async Task<OpResult> ExecuteActionAsync(string name, IReadOnlyDictionary<string, string>? parameters, object? option, ReferenceHintKind? optionHint, SourceLocation loc)
     {
         if (CurrentPo is null && CurrentQuery is null)
             return OpResult.Fail(new Diagnostic(
@@ -991,11 +1042,71 @@ public sealed class VidyanoSession : IDisposable
                 loc,
                 Hint: "Often this means a selection or required state isn't met. Check the SelectionRule or PO state."));
 
+        // Resolve the optional `= "label"` / `= ID <index>` form to the label Core expects on its
+        // Execute(option) overload. Done up-front so the bad-option diagnostic fires before any
+        // server call.
+        string? optionLabel = null;
+        if (option is not null)
+        {
+            if (parameters is { Count: > 0 })
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.ParseUnexpectedToken,
+                    $"Action '{name}' was invoked with both an option value and named parameters.",
+                    loc,
+                    Hint: "Core's Execute(option) overload doesn't accept parameters — use ACTION X = \"label\" or ACTION X (P=…), not both."));
+
+            var actionOptions = action.Options;
+            if (actionOptions.Length == 0)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"Action '{name}' has no Options[] — the `= …` form requires server-defined options.",
+                    loc));
+
+            if (optionHint == ReferenceHintKind.RawId)
+            {
+                if (!TryAsInt(option, out var idx))
+                    return OpResult.Fail(new Diagnostic(
+                        ErrorKind.ParseInvalidValue,
+                        $"ACTION {name} = ID <index> needs an integer.",
+                        loc));
+                if (idx < 0 || idx >= actionOptions.Length)
+                    return OpResult.Fail(new Diagnostic(
+                        ErrorKind.AssertFailed,
+                        $"Option index {idx} is out of range for action '{name}' (Options.Length = {actionOptions.Length}).",
+                        loc,
+                        Hint: $"Valid indices: 0..{actionOptions.Length - 1}. Labels: {string.Join(", ", actionOptions.Select(o => $"\"{o}\""))}."));
+                optionLabel = actionOptions[idx];
+            }
+            else
+            {
+                var label = option as string ?? option.ToString() ?? "";
+                var hit = actionOptions.FirstOrDefault(o => string.Equals(o, label, StringComparison.Ordinal));
+                if (hit is null)
+                    return OpResult.Fail(new Diagnostic(
+                        ErrorKind.AssertFailed,
+                        $"'{label}' is not one of the options for action '{name}'.",
+                        loc,
+                        Hint: Suggester.Hint(label, actionOptions),
+                        Details: new Dictionary<string, object?> { ["available"] = actionOptions }));
+                optionLabel = hit;
+            }
+        }
+
         try
         {
-            var dict = parameters?.ToDictionary(kv => kv.Key, kv => kv.Value);
-            var prefix = action is QueryAction ? "Query." : "PersistentObject.";
-            var result = await Client.ExecuteActionAsync(prefix + name, CurrentPo, CurrentQuery, null, dict).ConfigureAwait(false);
+            PersistentObject? result;
+            if (optionLabel is not null)
+            {
+                // Defer to Core's Execute(option) — it builds MenuOption/MenuLabel and routes the
+                // result through the existing post-execute machinery (notifications, refresh, etc.).
+                result = await action.Execute(optionLabel).ConfigureAwait(false);
+            }
+            else
+            {
+                var dict = parameters?.ToDictionary(kv => kv.Key, kv => kv.Value);
+                var prefix = action is QueryAction ? "Query." : "PersistentObject.";
+                result = await Client.ExecuteActionAsync(prefix + name, CurrentPo, CurrentQuery, null, dict).ConfigureAwait(false);
+            }
             // ExecuteActionAsync sets notification on the parent on error and returns null.
             if (result is null && CurrentPo != null && CurrentPo.HasNotification && CurrentPo.NotificationType == NotificationType.Error)
                 return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, CurrentPo.Notification, loc));
@@ -1016,6 +1127,23 @@ public sealed class VidyanoSession : IDisposable
         catch (Exception ex)
         {
             return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    /// <summary>Coerces a script value into an int. Accepts <see cref="int"/>, <see cref="long"/>,
+    /// <see cref="decimal"/>, and numeric strings (<c>"0"</c>, <c>"12"</c>). Used by the
+    /// option-by-index form on ACTION. Mirrors <c>Interpreter.TryCoerceInt</c> so the two coercion
+    /// paths stay in sync — Vidyano expressions can produce decimals (e.g. from sums), so accepting
+    /// them here avoids gratuitous rejections.</summary>
+    private static bool TryAsInt(object value, out int result)
+    {
+        switch (value)
+        {
+            case int i:                                                                                              result = i;      return true;
+            case long l when l is >= int.MinValue and <= int.MaxValue:                                               result = (int)l; return true;
+            case decimal d when d is >= int.MinValue and <= int.MaxValue:                                            result = (int)d; return true;
+            case string s when int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p):       result = p;      return true;
+            default:                                                                                                 result = 0;      return false;
         }
     }
 
