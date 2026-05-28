@@ -122,12 +122,15 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 | `OPEN MenuItem <path>` | Push a Query frame on the nav stack. |
 | `OPEN-ROW <i>` | Push a PO frame from row `i` of the top Query (by index). |
 | `OPEN-ROW WHERE <col> = <value>` | Push a PO frame from the single row whose `<col>` equals `<value>` — addresses a fixture by reference, not index. Strict: 0 or >1 matches fail. Value is service-string form (same convention as `SET`); only `=` is supported. |
+| `OPEN-ROW Detail "<name>" <index\|WHERE …>` | Select the row from the named detail query on the current PO (`PersistentObject.Queries`) instead of the current Query. The `Detail` clause is orthogonal to the positional/`WHERE` choice. |
+| `GO-BACK` | Pop the top navigation frame, revealing the one beneath (the browser back button). Refuses when the top is a PO in edit (SAVE or CANCEL first) and when already at the root frame. |
 | `SEARCH <text>` | Text-search the current Query in place (no stack change). |
 | `EDIT` / `CANCEL` / `SAVE` | Standard PO edit lifecycle. SAVE pops + lets owner-driven refresh fire. |
 | `SET <attr> = <value>` | Change an attribute; reference SET resolves through lookup. |
 | `ACTION <action>` | Invoke an action by name. |
 | `EXPECT <state>` | Assert on `NavStack.*`, `TotalItems`, `IsInEdit`, `ClientOperation <type>`, attributes, notifications. Metadata forms: `Attribute X TYPE/TAG/TYPEHINT <k>`, `PO.<prop>` / `PO.Metadata.<k>` / `PO.NavigationHints.<k>`, `Query.<prop>` / `Query.Metadata.<k>` / `Query.NavigationHints.<k>` / `Query.PersistentObject.<prop>` / `Query.Columns[<name>].<prop>`. |
 | `TOOL <name> [k=v, …] [-> @var]` | Call a registered C# delegate. Named args only; throws become `tool-error` diagnostics. In-process: register on `VidyanoScriptOptions.Tools`. From the CLI: implement `IVidyanoScriptToolPack` in a DLL and pass `--tools <path.dll>`. |
+| `EXPECT Detail "<name>" <query-subject>` | Target a detail query on the current PO for query-family subjects (`TotalItems` / `Query.*`). Reads what the detail Query holds in memory (no forced search). |
 | `EXPECT <lhs> MATCHES "<regex>"` | Regex assertion on the subject's string form (1s ReDoS-guard timeout; null never matches). |
 | `REQUIRES <expect-subject> <op> <value>` | Precondition gate reusing the full EXPECT grammar. Holds → pass + continue. Unmet/unevaluable → skip the rest of the body (`state-requires-unmet`, not a failure). |
 | `REQUIRES TOOL <name>` | Capability gate; skips the body unless a tool of that name is registered. |

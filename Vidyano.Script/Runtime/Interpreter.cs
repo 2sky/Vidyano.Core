@@ -161,6 +161,7 @@ public sealed class Interpreter
             case OpenQueryStmt oq:             return await DoOpenQuery(oq).ConfigureAwait(false);
             case OpenMenuItemStmt om:          return await DoOpenMenu(om).ConfigureAwait(false);
             case OpenRowStmt or:               return await DoOpenRow(or).ConfigureAwait(false);
+            case GoBackStmt gb:                return Wrap(stmt, _session.GoBack(gb.Location));
             case EditStmt e:                   return Wrap(stmt, _session.Edit(e.Location));
             case CancelStmt c:                 return Wrap(stmt, _session.Cancel(c.Location));
             case SaveStmt sv:
@@ -261,7 +262,7 @@ public sealed class Interpreter
         {
             var mv = EvaluateExpression(or.MatchValue!);
             if (!mv.Ok) return Fail(or, mv.Error!);
-            var whereRes = await _session.OpenRowWhereAsync(or.MatchColumn, mv.Value, or.AsHandle, or.Location).ConfigureAwait(false);
+            var whereRes = await _session.OpenRowWhereAsync(or.MatchColumn, mv.Value, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
             return Wrap(or, whereRes);
         }
 
@@ -269,7 +270,7 @@ public sealed class Interpreter
         if (!v.Ok) return Fail(or, v.Error!);
         if (!TryCoerceInt(v.Value, out var index))
             return Fail(or, new Diagnostic(ErrorKind.ParseInvalidValue, "OPEN-ROW needs an integer index.", or.Location));
-        var res = await _session.OpenRowAsync(index, or.AsHandle, or.Location).ConfigureAwait(false);
+        var res = await _session.OpenRowAsync(index, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
         return Wrap(or, res);
     }
 
@@ -572,6 +573,16 @@ public sealed class Interpreter
     {
         var po = _session.CurrentPo;
         var query = _session.CurrentQuery;
+
+        // EXPECT Detail "<name>" <query-subject>: reroute all query-family subjects to the named detail
+        // query on the current PO. Read whatever the detail Query has in memory (no forced search) —
+        // identical to the current-query EXPECT TotalItems contract.
+        if (subj.DetailName is not null)
+        {
+            var detail = _session.ResolveDetail(subj.DetailName, loc);
+            if (!detail.Ok) return Fail<object?>(detail.Error!);
+            query = detail.Value;
+        }
 
         switch (subj.Kind)
         {

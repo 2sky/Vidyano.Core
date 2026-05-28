@@ -19,7 +19,7 @@ public sealed class Parser
 
     private static readonly HashSet<string> KnownVerbs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "SIGN-IN", "SIGN-OUT", "USE", "OPEN", "OPEN-ROW", "FOLLOW", "OPEN-DETAIL",
+        "SIGN-IN", "SIGN-OUT", "USE", "OPEN", "OPEN-ROW", "GO-BACK", "FOLLOW", "OPEN-DETAIL",
         "EDIT", "CANCEL", "SAVE", "REFRESH", "RELOAD",
         "SET", "ACTION", "SEARCH", "SELECT-ROWS",
         "EXPECT", "GOTO",
@@ -133,6 +133,7 @@ public sealed class Parser
             "USE"         => ParseUse(tok.Location),
             "OPEN"        => ParseOpen(tok.Location),
             "OPEN-ROW"    => ParseOpenRow(tok.Location),
+            "GO-BACK"     => new GoBackStmt(tok.Location),
             "EDIT"        => new EditStmt(null, tok.Location),
             "CANCEL"      => new CancelStmt(null, tok.Location),
             "SAVE"        => ParseSave(tok.Location),
@@ -347,6 +348,16 @@ public sealed class Parser
 
     private Statement? ParseOpenRow(SourceLocation loc)
     {
+        // Optional leading `Detail "<name>"` clause: selects the row from the named detail query on the
+        // current PO instead of the current Query. Orthogonal to the WHERE/positional choice below.
+        string? detailName = null;
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            detailName = ParseDetailName();
+            if (detailName == null) return null;
+        }
+
         // Contextual keyword: `WHERE` right after OPEN-ROW selects the by-value form. Anything else
         // is parsed as the positional index expression, exactly as before.
         if (Peek().Kind == TokenKind.Identifier &&
@@ -370,13 +381,25 @@ public sealed class Parser
             var value = ParseValueExpression();
             if (value == null) return null;
             var whereHandle = ParseOptionalAs();
-            return new OpenRowStmt(null, whereHandle, loc, MatchColumn: column, MatchOp: ExpectOp.Eq, MatchValue: value);
+            return new OpenRowStmt(null, whereHandle, loc, MatchColumn: column, MatchOp: ExpectOp.Eq, MatchValue: value, DetailName: detailName);
         }
 
         var index = ParseValueExpression();
         if (index == null) return null;
         var asHandle = ParseOptionalAs();
-        return new OpenRowStmt(index, asHandle, loc);
+        return new OpenRowStmt(index, asHandle, loc, DetailName: detailName);
+    }
+
+    /// <summary>Parses a detail-query name after the <c>Detail</c> keyword: a string literal or a bare
+    /// identifier. Names are static schema identifiers, so (unlike values) they are not expressions.</summary>
+    private string? ParseDetailName()
+    {
+        var t = Peek();
+        if (t.Kind == TokenKind.String) { Advance(); return t.Value as string ?? t.Lexeme; }
+        if (t.Kind == TokenKind.Identifier) { Advance(); return t.Lexeme; }
+        Error(ErrorKind.ParseExpected, "Expected a detail-query name after 'Detail'.", t.Location,
+            hint: "OPEN-ROW Detail \"OrderLines\" 0");
+        return null;
     }
 
     // --- SET / ACTION / SEARCH ----------------------------------------------------------------
@@ -694,9 +717,38 @@ public sealed class Parser
         return (subject, cmp, rhs);
     }
 
+    private static bool IsQueryFamilySubject(ExpectSubjectKind k) => k is
+        ExpectSubjectKind.TotalItems or ExpectSubjectKind.QueryProperty or ExpectSubjectKind.QueryLabel or
+        ExpectSubjectKind.QueryMetadata or ExpectSubjectKind.QueryNavigationHints or
+        ExpectSubjectKind.QueryPoProperty or ExpectSubjectKind.QueryColumn;
+
     private ExpectSubject? ParseExpectSubject()
     {
         var tok = Peek();
+
+        // EXPECT Detail "<name>" <query-subject> — redirect query-family subjects to a detail query
+        // on the current PO. Recurses to parse the inner subject and stamps the detail name onto it.
+        if (tok.Kind == TokenKind.Identifier && string.Equals(tok.Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            var detailName = ParseDetailName();
+            if (detailName == null) return null;
+            var inner = ParseExpectSubject();
+            if (inner == null) return null;
+            if (inner.DetailName != null)
+            {
+                Error(ErrorKind.ParseUnexpectedToken, "Nested 'Detail' is not allowed.", tok.Location);
+                return null;
+            }
+            if (!IsQueryFamilySubject(inner.Kind))
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "EXPECT Detail can only target query subjects (TotalItems or Query.*).", tok.Location,
+                    hint: "EXPECT Detail \"OrderLines\" TotalItems = 3");
+                return null;
+            }
+            return inner with { DetailName = detailName };
+        }
 
         // EXPECT {{expr}} ... — variable or {{Messages.X}} lookup on the LHS.
         if (tok.Kind == TokenKind.Interp)

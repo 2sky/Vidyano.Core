@@ -54,8 +54,16 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// fields null); the by-value form sets <see cref="MatchColumn"/> + <see cref="MatchOp"/> +
 /// <see cref="MatchValue"/> (with <see cref="Index"/> null). <see cref="MatchOp"/> is modelled with the
 /// EXPECT operator enum so a future operator is a parser whitelist change; only <see cref="ExpectOp.Eq"/>
-/// is accepted in this build.</summary>
-public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null) : Statement(Location);
+/// is accepted in this build.
+/// <para><see cref="DetailName"/> (the optional <c>Detail "&lt;name&gt;"</c> clause) is orthogonal to the
+/// positional-vs-WHERE choice: when set, the row is selected from the named detail query on the current
+/// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query.</para></summary>
+public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null) : Statement(Location);
+
+/// <summary><c>GO-BACK</c> — pop the top navigation frame, revealing the one beneath (the
+/// browser back button). Refuses when the top is a PO in edit (SAVE or CANCEL first) and when
+/// already at the root frame.</summary>
+public sealed record GoBackStmt(SourceLocation Location) : Statement(Location);
 
 /// <summary><c>EDIT</c> — enter edit mode on the current PO.</summary>
 public sealed record EditStmt(string? Handle, SourceLocation Location) : Statement(Location);
@@ -198,8 +206,11 @@ public enum ExpectSubjectKind
 /// <see cref="ExpectSubjectKind.Expression"/> (interpolation-as-subject). <see cref="Scope"/> is the
 /// reserved variable scope (<c>"session"</c>) when the subject is <c>@session.X</c>; <c>null</c>
 /// means the top of the navigation stack. <see cref="MetadataKey"/> carries the bag key for
-/// metadata / navigation-hint / typehint forms, and the leaf-property name for column lookups.</summary>
-public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null);
+/// metadata / navigation-hint / typehint forms, and the leaf-property name for column lookups.
+/// <see cref="DetailName"/> is set by the <c>EXPECT Detail "&lt;name&gt;" &lt;query-subject&gt;</c> form: when
+/// non-null, query-family subjects resolve against <c>CurrentPo.Queries[DetailName]</c> instead of the
+/// current-query walk.</summary>
+public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null, string? DetailName = null);
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.</summary>
 public enum AttributeFlagKind { None, Visible, ReadOnly, Required }

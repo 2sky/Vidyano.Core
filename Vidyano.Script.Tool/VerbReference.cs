@@ -27,6 +27,8 @@ public static class VerbReference
         t.AddRow("OPEN MenuItem",        "OPEN MenuItem Sales/Customers",       "Walks the user's menu (Application.Queries[[ProgramUnits]]).");
         t.AddRow("OPEN-ROW",             "OPEN-ROW 0 AS @row",                  "Opens the PO behind a row of the current query, by index.");
         t.AddRow("OPEN-ROW WHERE",       "OPEN-ROW WHERE Name = \"Acme\"",       "Opens the PO behind the single row whose column equals the value. Strict: 0 or >1 matches fail. Value is service-string form, like SET.");
+        t.AddRow("OPEN-ROW Detail",      "OPEN-ROW Detail \"OrderLines\" 0",     "Selects the row from a detail query (PO.Queries[[name]]) instead of the current query. Works with the index or WHERE form.");
+        t.AddRow("GO-BACK",              "GO-BACK",                             "Pops the top nav frame (browser back). Refuses on a PO in edit, or at the root frame.");
         t.AddRow("SEARCH",               "SEARCH \"Acme\"",                      "Searches the current query.");
         t.AddRow("EDIT",                 "EDIT",                                "Enters edit mode on the current PO. SET auto-enters.");
         t.AddRow("SET",                  "SET Name = \"Acme Corp\"",             "For reference attrs the runner auto-picks via Options/Lookup.");
@@ -45,6 +47,7 @@ public static class VerbReference
         t.AddRow("EXPECT Attr TYPE",     "EXPECT Attribute X TYPE = \"String\"",  "Or TAG / TYPEHINT key for round-tripped metadata.");
         t.AddRow("EXPECT PO.<prop>",     "EXPECT PO.Type = \"Customer\"",         "Plus PO.Tag / PO.Metadata.<k> / PO.NavigationHints.<k>.");
         t.AddRow("EXPECT Query.<prop>",  "EXPECT Query.Columns[[Name]].Label = …", "Plus Query.Metadata.<k>, Query.PersistentObject.Type, etc.");
+        t.AddRow("EXPECT Detail …",      "EXPECT Detail \"OrderLines\" TotalItems = 3", "Targets a detail query on the current PO. Only query subjects (TotalItems / Query.*).");
         t.AddRow("TOOL",                 "TOOL fetch-user id=42 -> @user",      "Registered handler. CLI: load via --tools <pack.dll> (IVidyanoScriptToolPack).");
         t.AddRow("EXPECT … MATCHES",     "EXPECT Code MATCHES \"^[[A-Z]]{2}\\\\d+$\"", "Regex assertion (1s ReDoS-guard timeout). Null never matches.");
         t.AddRow("REQUIRES",             "REQUIRES TotalItems >= 1",            "Precondition gate (reuses EXPECT grammar). Unmet → skip rest of body.");
