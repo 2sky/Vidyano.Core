@@ -102,8 +102,11 @@ public sealed record CancelStmt(string? Handle, SourceLocation Location) : State
 
 /// <summary><c>SAVE</c> on the current PO (top of nav stack) or <c>SAVE @initial</c> on the
 /// gate PO surfaced by <see cref="Vidyano.Client.Initial"/>. <see cref="Scope"/> is <c>"initial"</c>
-/// for the gate variant; <c>null</c> targets the current PO.</summary>
-public sealed record SaveStmt(string? Handle, SourceLocation Location, string? Scope = null) : Statement(Location);
+/// for the gate variant; <c>null</c> targets the current PO. <see cref="ExpectError"/> is set by the
+/// trailing <c>EXPECTING ERROR</c> suffix: the SAVE is then asserting the negative path — it passes
+/// iff the server returns an error notification, and fails if the save unexpectedly succeeds. The
+/// notification stays on the PO so a following <c>EXPECT Notification …</c> can pin the message.</summary>
+public sealed record SaveStmt(string? Handle, SourceLocation Location, string? Scope = null, bool ExpectError = false) : Statement(Location);
 
 /// <summary><c>REFRESH</c> — refresh attributes (calls <c>PersistentObject.Refresh</c>).</summary>
 public sealed record RefreshStmt(string? Handle, SourceLocation Location) : Statement(Location);
@@ -127,7 +130,11 @@ public sealed record SetStmt(string? Handle, string Attribute, Expression Value,
 /// named detail query on the current PO instead of the navigation-stack query, mirroring
 /// <c>SELECT-ROWS</c>/<c>EXPECT</c>/<c>OPEN-ROW</c>. The action resolves from — and executes against —
 /// that detail query, so a selection set with <c>SELECT-ROWS Detail "…"</c> is what a selection-gated
-/// action operates on.</para></summary>
+/// action operates on.</para>
+/// <para><see cref="ExpectError"/> is set by the trailing <c>EXPECTING ERROR</c> suffix: the action
+/// is then asserting the negative path — it passes iff it surfaces a server error notification, and
+/// fails if it unexpectedly succeeds. The notification stays on the PO for a following
+/// <c>EXPECT Notification …</c>.</para></summary>
 public sealed record ActionStmt(
     string? Handle,
     string ActionName,
@@ -135,7 +142,8 @@ public sealed record ActionStmt(
     SourceLocation Location,
     Expression? Option = null,
     ReferenceHintKind? OptionHint = null,
-    string? DetailName = null) : Statement(Location);
+    string? DetailName = null,
+    bool ExpectError = false) : Statement(Location);
 
 /// <summary><c>SEARCH "text"</c> on the current query.</summary>
 public sealed record SearchStmt(string? Handle, Expression Text, SourceLocation Location) : Statement(Location);

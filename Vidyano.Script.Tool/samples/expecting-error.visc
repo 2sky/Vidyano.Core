@@ -1,0 +1,33 @@
+### EXPECTING ERROR — asserting the negative path on SAVE and ACTION
+###
+### This file lints cleanly with no backend. It demonstrates the `EXPECTING ERROR` suffix.
+###
+### A bare SAVE / ACTION fails the run if the server returns an error notification — the right
+### default. But some tests *want* the rejection: "saving a duplicate plate must be refused",
+### "deleting a referenced row must be blocked". Append `EXPECTING ERROR` to flip the polarity:
+###
+###   • the verb PASSES iff the server returns an error notification, and
+###   • FAILS if the verb unexpectedly succeeds (the asserted rejection never happened).
+###
+### The notification stays on the current PO, so a following `EXPECT Notification …` pins the
+### exact message. A client-side guard (e.g. a missing required attribute) or a transport fault is
+### still a real failure — EXPECTING ERROR only absorbs the server's error notification.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+### A SAVE that the server is expected to reject. The run stays green because the rejection fired;
+### the following EXPECT pins the message the server sent back.
+OPEN MenuItem Customers
+OPEN-ROW 0
+EDIT
+SET Name = ""
+SAVE EXPECTING ERROR
+EXPECT NotificationType = "Error"
+EXPECT Notification MATCHES ".+"
+
+### Actions take the suffix too — a selection-gated or business-rule action expected to be blocked.
+### `ACTION Delete EXPECTING ERROR` passes only when Delete surfaces an error notification.
+CANCEL
+ACTION Delete EXPECTING ERROR

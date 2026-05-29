@@ -588,7 +588,9 @@ public sealed class Parser
                     hint: "Use either ACTION X = \"label\" or ACTION X (Param=…), not both.");
                 return null;
             }
-            return new ActionStmt(null, name, null, loc, optionExpr, optionHint, detailName);
+            var optExpectError = TryConsumeExpectingError(out var optMalformed);
+            if (optMalformed) return null;
+            return new ActionStmt(null, name, null, loc, optionExpr, optionHint, detailName, optExpectError);
         }
 
         Dictionary<string, Expression>? parameters = null;
@@ -630,7 +632,9 @@ public sealed class Parser
                 return null;
             }
         }
-        return new ActionStmt(null, name, parameters, loc, DetailName: detailName);
+        var expectError = TryConsumeExpectingError(out var malformed);
+        if (malformed) return null;
+        return new ActionStmt(null, name, parameters, loc, DetailName: detailName, ExpectError: expectError);
     }
 
     private Statement? ParseSearch(SourceLocation loc)
@@ -646,29 +650,33 @@ public sealed class Parser
     /// (and would mislead authors into thinking they need it).</summary>
     private Statement? ParseSave(SourceLocation loc)
     {
-        if (Peek().Kind != TokenKind.At)
-            return new SaveStmt(null, loc);
-
-        var scope = TryConsumeScopePrefix(requireDot: false);
-        if (scope == null) return null;
-
-        if (string.Equals(scope, "session", StringComparison.OrdinalIgnoreCase))
+        string? scope = null;
+        if (Peek().Kind == TokenKind.At)
         {
-            Error(ErrorKind.ParseExpected,
-                "`@session` cannot be SAVEd — it auto-roundtrips on every server call.",
-                loc,
-                hint: "Drop the `@session` — bare SAVE acts on the current PO; @session is mutated via SET @session.<attr> and persists implicitly.");
-            return null;
+            scope = TryConsumeScopePrefix(requireDot: false);
+            if (scope == null) return null;
+
+            if (string.Equals(scope, "session", StringComparison.OrdinalIgnoreCase))
+            {
+                Error(ErrorKind.ParseExpected,
+                    "`@session` cannot be SAVEd — it auto-roundtrips on every server call.",
+                    loc,
+                    hint: "Drop the `@session` — bare SAVE acts on the current PO; @session is mutated via SET @session.<attr> and persists implicitly.");
+                return null;
+            }
+            if (!string.Equals(scope, "initial", StringComparison.OrdinalIgnoreCase))
+            {
+                Error(ErrorKind.ParseExpected,
+                    $"SAVE @{scope} is not yet implemented.",
+                    loc,
+                    hint: "Only `SAVE` (current PO) and `SAVE @initial` are supported in this build.");
+                return null;
+            }
         }
-        if (!string.Equals(scope, "initial", StringComparison.OrdinalIgnoreCase))
-        {
-            Error(ErrorKind.ParseExpected,
-                $"SAVE @{scope} is not yet implemented.",
-                loc,
-                hint: "Only `SAVE` (current PO) and `SAVE @initial` are supported in this build.");
-            return null;
-        }
-        return new SaveStmt(null, loc, Scope: scope);
+
+        var expectError = TryConsumeExpectingError(out var malformed);
+        if (malformed) return null;
+        return new SaveStmt(null, loc, Scope: scope, ExpectError: expectError);
     }
 
     // --- TOOL ---------------------------------------------------------------------------------
@@ -1294,6 +1302,34 @@ public sealed class Parser
             return null;
         }
         return atTok.Lexeme;
+    }
+
+    /// <summary>Consumes an optional trailing <c>EXPECTING ERROR</c> suffix on a fallible verb
+    /// (SAVE / ACTION) and returns whether it was present. The suffix asserts the negative path:
+    /// the verb passes iff it surfaces a server error notification. A bare <c>EXPECTING</c> not
+    /// followed by <c>ERROR</c> is a parse error; <paramref name="malformed"/> is then set so the
+    /// caller bails out (returns <c>null</c>) instead of shipping a half-parsed statement.</summary>
+    private bool TryConsumeExpectingError(out bool malformed)
+    {
+        malformed = false;
+        if (Peek().Kind != TokenKind.Identifier ||
+            !string.Equals(Peek().Lexeme, "EXPECTING", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var kw = Advance(); // EXPECTING
+        if (Peek().Kind == TokenKind.Identifier &&
+            string.Equals(Peek().Lexeme, "ERROR", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance(); // ERROR
+            return true;
+        }
+
+        Error(ErrorKind.ParseExpected,
+            "EXPECTING must be followed by ERROR.",
+            kw.Location,
+            hint: "Write `SAVE EXPECTING ERROR` / `ACTION X EXPECTING ERROR` to assert the verb surfaces an error notification.");
+        malformed = true;
+        return false;
     }
 
     private static AttributeFlagKind ToFlag(string lexeme) =>

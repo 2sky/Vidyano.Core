@@ -194,7 +194,7 @@ public sealed class Interpreter
                     var saveRes = string.Equals(sv.Scope, "initial", StringComparison.OrdinalIgnoreCase)
                         ? await _session.SaveInitialAsync(sv.Location).ConfigureAwait(false)
                         : await _session.SaveAsync(sv.Location).ConfigureAwait(false);
-                    return Wrap(stmt, saveRes);
+                    return sv.ExpectError ? WrapExpectingError(stmt, saveRes) : Wrap(stmt, saveRes);
                 }
             case RefreshStmt rf:               return Wrap(stmt, await _session.RefreshAsync(rf.Location).ConfigureAwait(false));
             case SetStmt s:                    return await DoSet(s).ConfigureAwait(false);
@@ -392,7 +392,7 @@ public sealed class Interpreter
                     Hint: "Omit the `= …` clause to invoke without an option, or pass a label string / `ID <index>`."));
         }
         var res = await _session.ExecuteActionAsync(a.ActionName, parameters, option, a.OptionHint, a.Location, a.DetailName).ConfigureAwait(false);
-        return Wrap(a, res);
+        return a.ExpectError ? WrapExpectingError(a, res) : Wrap(a, res);
     }
 
     private async Task<StatementResult> DoSearch(SearchStmt q)
@@ -1399,6 +1399,28 @@ public sealed class Interpreter
 
     private StatementResult Wrap(Statement stmt, OpResult res) =>
         res.Ok ? Ok(stmt) : Fail(stmt, res.Error!);
+
+    /// <summary>Inverts <see cref="Wrap"/>'s polarity for a verb carrying the <c>EXPECTING ERROR</c>
+    /// suffix. The verb passes iff the server returned an error notification
+    /// (<see cref="ErrorKind.AssertNotificationError"/>) — and because the session leaves that
+    /// notification on the current PO, a following <c>EXPECT Notification …</c> can still pin the
+    /// message. A verb that unexpectedly *succeeded* fails the run (the asserted negative path never
+    /// fired). Any other failure kind is surfaced as-is: a client-side guard (e.g. missing required
+    /// attribute) or transport fault means the negative path was never reached — that's a real
+    /// authoring/infra fault, not the error we were asserting.</summary>
+    private StatementResult WrapExpectingError(Statement stmt, OpResult res)
+    {
+        if (res.Ok)
+            return Fail(stmt, new Diagnostic(
+                ErrorKind.AssertExpectedError,
+                "Expected a server error notification, but the operation succeeded.",
+                stmt.Location,
+                Hint: "Drop EXPECTING ERROR if this verb is supposed to succeed."));
+
+        return string.Equals(res.Error!.Kind, ErrorKind.AssertNotificationError, StringComparison.Ordinal)
+            ? Ok(stmt)
+            : Fail(stmt, res.Error!);
+    }
 
     private StatementResult Ok(Statement stmt) =>
         new(stmt, true, _session.TakeSnapshot(), Array.Empty<Diagnostic>());

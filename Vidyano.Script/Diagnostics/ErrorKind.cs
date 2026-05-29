@@ -66,6 +66,9 @@ public static class ErrorKind
     public const string AssertFailed             = "assert-failed";
     public const string AssertNotificationError  = "assert-notification-error";
     public const string AssertValidationError    = "assert-validation-error";
+    /// <summary>A verb carrying the <c>EXPECTING ERROR</c> suffix completed successfully when a
+    /// server error notification was the asserted outcome — the negative path didn't fire.</summary>
+    public const string AssertExpectedError      = "assert-expected-error";
 
     // Transport / server
     public const string TransportError           = "transport-error";

@@ -34,9 +34,10 @@ var script = """
 
 var result = await VidyanoScript.RunAsync(script);
 
-Console.WriteLine($"{(result.Success ? "PASS" : "FAIL")}: " +
-                  $"{result.Steps.Count} step(s), " +
-                  $"{result.Diagnostics.Count} diagnostic(s)");
+// `result.Ok` is the pass/fail bit. `result.Describe()` renders a plain-text report — the source,
+// a pass/fail/skip tally, and each failed statement's diagnostic — ready for a log or an assertion
+// message, e.g. `Assert.That(result.Ok, Is.True, result.Describe())`.
+Console.WriteLine(result.Ok ? "PASS" : result.Describe());
 ```
 
 `RunFileAsync(path)` is the file-based equivalent. `Lint(body)` parses without executing and returns diagnostics only.
@@ -54,6 +55,7 @@ A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with *
 - `EDIT` / `CANCEL` / `SAVE` — standard PO edit lifecycle.
 - `SET <attribute> = <value>` — change an attribute (incl. reference SET semantics).
 - `ACTION <action>` — invoke an action by name. An optional leading `Detail "<name>"` clause targets a detail query on the current PO (`PersistentObject.Queries`) instead of the nav-stack query: the action resolves from — and posts against — that detail query (parent stays the master PO), so a `SELECT-ROWS Detail "<name>"` selection has a verb to act on.
+- `SAVE EXPECTING ERROR` / `ACTION <action> EXPECTING ERROR` — assert the **negative path**: the verb passes only if the server returns an error notification, and **fails if it unexpectedly succeeds**. A client-side guard or transport fault still fails normally — the suffix only absorbs the server's error notification. The notification stays on the current PO, so a following `EXPECT Notification …` pins the exact message.
 
 ### Reserved `@session` variable
 
@@ -77,6 +79,14 @@ EXPECT IsInEdit = true
 EXPECT ClientOperation ShowMessageBox
 EXPECT ClientOperation ShowMessageBox CONTAINS "saved"
 EXPECT ClientOperation Refresh IS NULL
+```
+
+Asserting a rejection — `EXPECTING ERROR` flips the verb's polarity, then `EXPECT Notification` pins the message:
+
+```visc
+SAVE EXPECTING ERROR
+EXPECT NotificationType = "Error"
+EXPECT Notification MATCHES "already exists"
 ```
 
 ### EXPECT on metadata
