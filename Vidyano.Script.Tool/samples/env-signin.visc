@@ -1,0 +1,48 @@
+### Env-backed value sourcing — keep credentials and other values out of the script and off the
+### command line. Three complementary layers, all explicit (nothing is read implicitly):
+###
+###   1. {{env:NAME}}            — inline, works in ANY value position (SIGN-IN, SET, params, EXPECT).
+###                                Loud-fails when unset (closes the empty-credential footgun the
+###                                deprecated silent {{$env NAME}} alias left open).
+###   2. {{env:NAME ?? "x"}}     — optional, with a literal fallback when NAME is unset.
+###   3. SIGN-IN FROM ENV        — zero-ceremony: reads VIDYANO_USER / VIDYANO_PASSWORD, loud if missing.
+###
+### --env-prefix bulk-binds matching process env vars into the variable table with the prefix
+### stripped (IConfiguration convention), so {{REGION}} resolves from VIDYANO_REGION. An explicit
+### --var (or a script @assignment) always wins over an env-bound value:
+###   vidyano run env-signin.visc --env-prefix VIDYANO_ --insecure
+### with VIDYANO_USER / VIDYANO_PASSWORD / VIDYANO_REGION / SVC_PW / OWNER set in the shell.
+###
+### This file is written to lint cleanly (vidyano lint) with no environment and no backend: the
+### env forms below parse at lint time (they're ordinary interpolation holes / a SIGN-IN arm) and
+### are only *resolved* at run time. The verbs that actually contact the server (authentication,
+### OPEN, SAVE) are commented — uncomment them, set the env vars, and run:
+###   vidyano run env-signin.visc --env-prefix VIDYANO_ --insecure
+
+@app = "https://localhost:44353/"
+
+### Layer 3 — paste-nothing credentials. VIDYANO_USER / VIDYANO_PASSWORD from the environment.
+### Commented because it authenticates; the parser arm itself is covered by the LANGUAGE form below.
+# SIGN-IN FROM ENV
+
+### Layer 3 also accepts the optional LANGUAGE clause. Lints as a parse-only check of the
+### `SIGN-IN FROM ENV [LANGUAGE …]` grammar (no network until uncommented + env is set).
+# SIGN-IN FROM ENV LANGUAGE nl-NL
+
+### Layer 1 — inline env in any value position. Loud-fails at run time if either var is unset.
+# SIGN-IN {{env:VIDYANO_USER}} / {{env:SVC_PW}}
+
+### Layer 2 — optional-with-fallback. {{REGION}} comes from --env-prefix VIDYANO_ (or --var); OWNER
+### falls back to the literal "unassigned" when unset, so the SET never posts an empty value.
+# OPEN MenuItem Home/Orders
+# OPEN-ROW 0
+# EDIT
+# SET Region = {{REGION}}
+# SET Owner = {{env:OWNER ?? "unassigned"}}
+# SAVE
+
+### Fallbacks compose inside string literals too — both {{...}} forms resolve the same way.
+### (Use a bare-token fallback inside a string hole; a quoted fallback would need its quotes
+### escaped, since a literal " closes the surrounding string.)
+# OPEN MenuItem Home/Orders
+# SEARCH "term-{{env:SEARCH_SUFFIX ?? none}}"

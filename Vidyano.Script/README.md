@@ -123,6 +123,44 @@ Argument values participate in the regular expression grammar (literals, `{{vars
 
 For CLI-driven runs, implement `IVidyanoScriptToolPack` and load the DLL with `vidyano run … --tools <path.dll>` — see the [Vidyano.Script.Tool README](https://www.nuget.org/packages/Vidyano.Script.Tool/) for the plugin contract.
 
+### Capturing run artifacts for verification
+
+A `.visc` run drives a live session; an in-process host often wants to grab a specific `PersistentObject` or `Query` *as it existed mid-run* and assert on it afterward (a separate "verify" step). The `TOOL` context exposes the live session, so a registered tool can hand the instance straight back to your host through a closure:
+
+```csharp
+PersistentObject? captured = null;
+
+var options = new VidyanoScriptOptions
+{
+    Tools =
+    {
+        ["capture"] = (ctx, args, ct) =>
+        {
+            captured = ctx.Session.CurrentPo;        // or ctx.Session.CurrentQuery
+            return Task.FromResult(ScriptToolResult.Ok);
+        },
+    },
+};
+
+await VidyanoScript.RunFileAsync("flow.visc", options);
+// `captured` is the live PO from the run — assert on it here.
+```
+
+```visc
+OPEN MenuItem Home/Customers
+OPEN-ROW 0
+TOOL capture            ## stash the current PO into the host
+```
+
+`ctx.Session.CurrentPo` / `CurrentQuery` are the same instances the verbs operate on. To pass a value *into the script* instead of the host, return `ScriptToolResult.Value(obj)` and bind it with `TOOL capture -> @snapshot`; the variable table holds arbitrary objects, so a later tool in the same run can read `ctx.Variables["snapshot"]`.
+
+Two limits worth knowing:
+
+- **`ScriptResult` does not expose the variable table** — the tool closure above is how you hand an object to the host; you cannot read script `@vars` off the result.
+- **A live `PersistentObject` cannot cross into a separate process/run** — it is an object graph bound to this session's `Client`. For a cross-run verify, capture its `Id` and re-open it by reference there (`OPEN-ROW WHERE Id = {{customerId}}`).
+
+If your host drives `Vidyano.Core` directly (outside this engine — e.g. a test driver that owns the `Client`), a `Hooks` subclass is another capture point: override the hook that fires for the objects you care about and record them, the same way the engine's own hooks buffer client operations.
+
 ## Deterministic regression scripts
 
 A script you check in has to pass on a teammate's machine with different data. These features let one `.visc` gate itself, pin its own randomness, and assert with patterns instead of exact values:

@@ -21,6 +21,7 @@ public static class VerbReference
         t.AddRow("@session.<attr>",      "SET @session.CurrentYear = 2026",     "Read/write Client.Session. Also: EXPECT @session.X = … and {{@session.X}}.");
         t.AddRow("@initial.<prop>",      "EXPECT @initial.FullTypeName = \"…\"",  "Read Client.Initial (PO scalar or attribute). SAVE @initial clears the gate.");
         t.AddRow("SIGN-IN",              "SIGN-IN admin / admin",               "Or: SIGN-IN @admin = user / pwd  (named session).");
+        t.AddRow("SIGN-IN FROM ENV",     "SIGN-IN FROM ENV",                    "Reads VIDYANO_USER / VIDYANO_PASSWORD from the environment; loud-fails if either is unset. Optional LANGUAGE xx-XX.");
         t.AddRow("USE",                  "USE @admin",                          "Switch to a named session (multi-session not yet implemented).");
         t.AddRow("OPEN PersistentObject","OPEN PersistentObject \"Customer\" \"42\" AS @c","Opens a PO directly. In navigation mode requires reachability.");
         t.AddRow("OPEN Query",           "OPEN Query Customers AS @customers",  "Opens a query by id.");
@@ -28,6 +29,7 @@ public static class VerbReference
         t.AddRow("OPEN-ROW",             "OPEN-ROW 0 AS @row",                  "Opens the PO behind a row of the current query, by index.");
         t.AddRow("OPEN-ROW WHERE",       "OPEN-ROW WHERE Name = \"Acme\"",       "Opens the PO behind the single row whose column equals the value. Strict: 0 or >1 matches fail. Value is service-string form, like SET.");
         t.AddRow("OPEN-ROW Detail",      "OPEN-ROW Detail \"OrderLines\" 0",     "Selects the row from a detail query (PO.Queries[[name]]) instead of the current query. Works with the index or WHERE form.");
+        t.AddRow("SELECT-ROWS",          "SELECT-ROWS ALL",                     "Populates Query.SelectedItems for a selection-gated ACTION (e.g. Delete). ALL | NONE | <index> | WHERE <col> = <val> (non-strict) | Detail \"X\" <target>. Replaces, never accumulates.");
         t.AddRow("GO-BACK",              "GO-BACK",                             "Pops the top nav frame (browser back). Refuses on a PO in edit, or at the root frame.");
         t.AddRow("SEARCH",               "SEARCH \"Acme\"",                      "Searches the current query.");
         t.AddRow("EDIT",                 "EDIT",                                "Enters edit mode on the current PO. SET auto-enters.");
@@ -45,6 +47,7 @@ public static class VerbReference
         t.AddRow("EXPECT Attribute … IS","EXPECT Attribute Name IS REQUIRED",   "IS [[NOT]] VISIBLE | READONLY | REQUIRED | AVAILABLE (= IsVisible && !IsReadOnly).");
         t.AddRow("EXPECT IsDirty",       "EXPECT IsDirty = false",              "Same for IsInEdit.");
         t.AddRow("EXPECT TotalItems",    "EXPECT TotalItems >= 1",              "On the current query.");
+        t.AddRow("EXPECT Selection.Count","EXPECT Selection.Count = 3",         "Number of selected rows on the current query (Detail-redirectable, like TotalItems).");
         t.AddRow("EXPECT Attr TYPE",     "EXPECT Attribute X TYPE = \"String\"",  "Or TAG / TYPEHINT key for round-tripped metadata.");
         t.AddRow("EXPECT PO.<prop>",     "EXPECT PO.Type = \"Customer\"",         "Plus PO.Tag / PO.Metadata.<k> / PO.NavigationHints.<k>.");
         t.AddRow("EXPECT Query.<prop>",  "EXPECT Query.Columns[[Name]].Label = …", "Plus Query.Metadata.<k>, Query.PersistentObject.Type, etc.");
@@ -61,5 +64,6 @@ public static class VerbReference
         AnsiConsole.MarkupLine("[grey]Comments start with # — they're ignored, but `### label` starts a new step.[/]");
         AnsiConsole.MarkupLine("[grey]Strings: \"...\" with \\\" \\n \\t escapes; {{...}} interpolates inside strings (escape a literal brace as \\{).[/]");
         AnsiConsole.MarkupLine("[grey]Built-in vars: {{@today}} {{@now}} {{@uuid}} {{@random}} — evaluated per reference (capture into a var to freeze); --seed fixes the @uuid/@random sequence, --now anchors the clock.[/]");
+        AnsiConsole.MarkupLine("[grey]Env values: {{env:NAME}} loud-fails when unset; {{env:NAME ?? \"fallback\"}} supplies a default. --env-prefix bulk-binds matching env vars (--var wins).[/]");
     }
 }

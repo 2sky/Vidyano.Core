@@ -30,8 +30,11 @@ public sealed record ModeDirective(GuardMode Mode, SourceLocation Location) : St
 
 /// <summary><c>SIGN-IN user / password [LANGUAGE xx-XX]</c>. <see cref="Language"/> is sent as
 /// <c>data["requestedLanguage"]</c> via <see cref="Hooks.OnCreateData"/> so subsequent server-rendered
-/// labels, messages, and notifications come back localized.</summary>
-public sealed record SignInStmt(string? SessionName, Expression UserName, Expression? Password, Expression? Language, SourceLocation Location) : Statement(Location);
+/// labels, messages, and notifications come back localized.
+/// <para><c>SIGN-IN FROM ENV [LANGUAGE xx-XX]</c> sets <see cref="FromEnv"/> — the interpreter reads
+/// <c>VIDYANO_USER</c> / <c>VIDYANO_PASSWORD</c> from the environment and loud-fails either when unset.
+/// In that form <see cref="UserName"/> and <see cref="Password"/> are <c>null</c>.</para></summary>
+public sealed record SignInStmt(string? SessionName, Expression? UserName, Expression? Password, Expression? Language, SourceLocation Location, bool FromEnv = false) : Statement(Location);
 
 /// <summary><c>SIGN-OUT</c> (current session) or <c>SIGN-OUT @name</c>.</summary>
 public sealed record SignOutStmt(string? SessionName, SourceLocation Location) : Statement(Location);
@@ -59,6 +62,22 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// positional-vs-WHERE choice: when set, the row is selected from the named detail query on the current
 /// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query.</para></summary>
 public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null) : Statement(Location);
+
+/// <summary><c>SELECT-ROWS &lt;target&gt;</c> — populate <see cref="Query.SelectedItems"/> so a
+/// selection-gated action (e.g. Delete) can run. Always replaces the current selection; never pushes a
+/// navigation frame. Exactly one target mode is set:
+/// <list type="bullet">
+///   <item><see cref="All"/> — <c>SELECT-ROWS ALL</c>, every currently loaded row.</item>
+///   <item><see cref="None"/> — <c>SELECT-ROWS NONE</c>, clears the selection.</item>
+///   <item><see cref="Index"/> — <c>SELECT-ROWS &lt;index&gt;</c>, one row by position (bounds-checked).</item>
+///   <item><see cref="MatchColumn"/> + <see cref="MatchOp"/> + <see cref="MatchValue"/> —
+///     <c>SELECT-ROWS WHERE &lt;col&gt; = &lt;value&gt;</c>, every row whose cell equals the value
+///     (non-strict: zero or many matches are both fine).</item>
+/// </list>
+/// <para><see cref="DetailName"/> (the optional leading <c>Detail "&lt;name&gt;"</c> clause) is orthogonal:
+/// when set, the rows come from the named detail query on the current PO instead of the current Query —
+/// mirroring <see cref="OpenRowStmt"/>.</para></summary>
+public sealed record SelectRowsStmt(bool All, bool None, Expression? Index, string? MatchColumn, ExpectOp? MatchOp, Expression? MatchValue, string? DetailName, SourceLocation Location) : Statement(Location);
 
 /// <summary><c>GO-BACK</c> — pop the top navigation frame, revealing the one beneath (the
 /// browser back button). Refuses when the top is a PO in edit (SAVE or CANCEL first) and when
@@ -149,6 +168,9 @@ public enum ExpectSubjectKind
     IsInEdit,
     /// <summary><c>EXPECT TotalItems ...</c> on the current query.</summary>
     TotalItems,
+    /// <summary><c>EXPECT Selection.Count ...</c> — number of selected rows on the current query
+    /// (<c>Query.SelectedItems.Count</c>). Detail-redirectable, mirroring <see cref="TotalItems"/>.</summary>
+    SelectionCount,
     /// <summary><c>EXPECT ClientOperation Refresh "X"</c> — check operations from the previous verb's response.
     /// <see cref="ExpectSubject.Name"/> holds the operation type (Refresh / ShowNotification / Navigate / …).</summary>
     ClientOperation,

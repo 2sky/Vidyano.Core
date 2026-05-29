@@ -20,6 +20,7 @@ public sealed class Interpreter
 {
     private readonly VidyanoSession _session;
     private readonly Dictionary<string, object?> _vars;
+    private readonly Func<string, string?> _envLookup;
     private readonly IReadOnlyDictionary<string, ScriptToolHandler> _tools;
     private readonly CancellationToken _cancellationToken;
     private readonly DateTimeOffset? _now;
@@ -44,18 +45,41 @@ public sealed class Interpreter
         IReadOnlyDictionary<string, ScriptToolHandler>? tools = null,
         CancellationToken cancellationToken = default,
         DateTimeOffset? now = null,
-        int? seed = null)
+        int? seed = null,
+        Func<string, string?>? envLookup = null,
+        string? envPrefix = null)
     {
         _session = session;
         _vars = initialVars is null
             ? new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, object?>(initialVars, StringComparer.OrdinalIgnoreCase);
+        // Default to the process environment. Hosts that need hermetic runs (NUnit / VidyanoTestDriver)
+        // inject a closure here; --env-prefix bulk-binding below uses the *process* env directly.
+        _envLookup = envLookup ?? Environment.GetEnvironmentVariable;
         _mode = mode;
         _tools = tools ?? new Dictionary<string, ScriptToolHandler>(StringComparer.OrdinalIgnoreCase);
         _cancellationToken = cancellationToken;
         _now = now;
         _seed = seed;
+        BindEnvPrefix(envPrefix);
         ResetRunState();
+    }
+
+    /// <summary>Bulk-binds process environment variables whose names start with <paramref name="envPrefix"/>
+    /// into the variable table, stripping the prefix (IConfiguration convention: <c>VIDYANO_REGION</c> →
+    /// <c>{{REGION}}</c>). An explicit <c>--var</c> / <c>initialVars</c> binding always wins — entries
+    /// already present are left untouched.</summary>
+    private void BindEnvPrefix(string? envPrefix)
+    {
+        if (string.IsNullOrEmpty(envPrefix)) return;
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is not string key) continue;
+            if (!key.StartsWith(envPrefix, StringComparison.Ordinal)) continue;
+            var stripped = key.Substring(envPrefix!.Length);
+            if (stripped.Length == 0 || _vars.ContainsKey(stripped)) continue;
+            _vars[stripped] = entry.Value as string;
+        }
     }
 
     /// <summary>Effective guard mode after any <c>@mode</c> directives have been processed.</summary>
@@ -161,6 +185,7 @@ public sealed class Interpreter
             case OpenQueryStmt oq:             return await DoOpenQuery(oq).ConfigureAwait(false);
             case OpenMenuItemStmt om:          return await DoOpenMenu(om).ConfigureAwait(false);
             case OpenRowStmt or:               return await DoOpenRow(or).ConfigureAwait(false);
+            case SelectRowsStmt sr:            return await DoSelectRows(sr).ConfigureAwait(false);
             case GoBackStmt gb:                return Wrap(stmt, _session.GoBack(gb.Location));
             case EditStmt e:                   return Wrap(stmt, _session.Edit(e.Location));
             case CancelStmt c:                 return Wrap(stmt, _session.Cancel(c.Location));
@@ -205,10 +230,30 @@ public sealed class Interpreter
 
     private async Task<StatementResult> DoSignIn(SignInStmt si)
     {
-        var user = EvaluateExpression(si.UserName);
-        if (!user.Ok) return Fail(si, user.Error!);
-        var pwd = si.Password is null ? OpResult<object?>.Success(null) : EvaluateExpression(si.Password);
-        if (!pwd.Ok) return Fail(si, pwd.Error!);
+        string userName;
+        string? password;
+        if (si.FromEnv)
+        {
+            // SIGN-IN FROM ENV — credentials from the environment, loud-fail when unset (an empty
+            // credential posted to the server is the footgun this form exists to close).
+            var u = _envLookup("VIDYANO_USER");
+            if (string.IsNullOrEmpty(u))
+                return Fail(si, EnvMissing("VIDYANO_USER", si.Location));
+            var p = _envLookup("VIDYANO_PASSWORD");
+            if (string.IsNullOrEmpty(p))
+                return Fail(si, EnvMissing("VIDYANO_PASSWORD", si.Location));
+            userName = u!;
+            password = p;
+        }
+        else
+        {
+            var user = EvaluateExpression(si.UserName!);
+            if (!user.Ok) return Fail(si, user.Error!);
+            var pwd = si.Password is null ? OpResult<object?>.Success(null) : EvaluateExpression(si.Password);
+            if (!pwd.Ok) return Fail(si, pwd.Error!);
+            userName = AsString(user.Value);
+            password = pwd.Value as string;
+        }
         string? language = null;
         if (si.Language is not null)
         {
@@ -216,9 +261,15 @@ public sealed class Interpreter
             if (!lang.Ok) return Fail(si, lang.Error!);
             language = AsString(lang.Value);
         }
-        var res = await _session.SignInAsync(AsString(user.Value), pwd.Value as string, language, si.Location).ConfigureAwait(false);
+        var res = await _session.SignInAsync(userName, password, language, si.Location).ConfigureAwait(false);
         return Wrap(si, res);
     }
+
+    private static Diagnostic EnvMissing(string name, SourceLocation loc) =>
+        new(ErrorKind.ResolveEnv,
+            $"Environment variable '{name}' is not set.",
+            loc,
+            Hint: "Set it in the shell, pass --var, or add a ?? fallback.");
 
     private async Task<StatementResult> DoOpenPo(OpenPersistentObjectStmt op)
     {
@@ -272,6 +323,30 @@ public sealed class Interpreter
             return Fail(or, new Diagnostic(ErrorKind.ParseInvalidValue, "OPEN-ROW needs an integer index.", or.Location));
         var res = await _session.OpenRowAsync(index, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
         return Wrap(or, res);
+    }
+
+    private async Task<StatementResult> DoSelectRows(SelectRowsStmt sr)
+    {
+        int? index = null;
+        object? matchValue = null;
+        if (sr.MatchColumn != null)
+        {
+            var mv = EvaluateExpression(sr.MatchValue!);
+            if (!mv.Ok) return Fail(sr, mv.Error!);
+            matchValue = mv.Value;
+        }
+        else if (!sr.All && !sr.None)
+        {
+            // Coerce the positional index in the interpreter layer (mirrors DoOpenRow) so the
+            // "needs an integer index" diagnostic comes from the same place for both verbs.
+            var v = EvaluateExpression(sr.Index!);
+            if (!v.Ok) return Fail(sr, v.Error!);
+            if (!TryCoerceInt(v.Value, out var idx))
+                return Fail(sr, new Diagnostic(ErrorKind.ParseInvalidValue, "SELECT-ROWS needs an integer index.", sr.Location));
+            index = idx;
+        }
+        var res = await _session.SelectRowsAsync(sr.All, sr.None, index, sr.MatchColumn, matchValue, sr.DetailName, sr.Location).ConfigureAwait(false);
+        return Wrap(sr, res);
     }
 
     private async Task<StatementResult> DoSet(SetStmt s)
@@ -739,6 +814,10 @@ public sealed class Interpreter
                 if (query is null)
                     return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT TotalItems needs a current Query.", loc));
                 return OpResult<object?>.Success((object?)query.TotalItems);
+            case ExpectSubjectKind.SelectionCount:
+                if (query is null)
+                    return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Selection.Count needs a current Query.", loc));
+                return OpResult<object?>.Success((object?)query.SelectedItems.Count);
             case ExpectSubjectKind.NavStackDepth:
                 return OpResult<object?>.Success((object?)_session.NavStackDepth);
             case ExpectSubjectKind.NavStackTopKind:
@@ -1101,6 +1180,34 @@ public sealed class Interpreter
                 interp.Location,
                 Hint: Suggester.Hint(key, _session.Client.Messages.Keys)));
         }
+        // {{env:NAME}} — loud-on-missing environment lookup (closes the empty-credential footgun the
+        // deprecated silent {{$env NAME}} left open). Optional `?? <fallback>` makes a value optional:
+        // a quoted string or bare token used verbatim as a literal string when NAME is unset.
+        if (inner.StartsWith("env:", StringComparison.Ordinal))
+        {
+            var spec = inner.Substring("env:".Length);
+            string? fallback = null;
+            var fbIdx = spec.IndexOf("??", StringComparison.Ordinal);
+            if (fbIdx >= 0)
+            {
+                fallback = StripQuotes(spec.Substring(fbIdx + 2).Trim());
+                spec = spec.Substring(0, fbIdx);
+            }
+            var name = spec.Trim();
+            if (name.Length == 0)
+                return Fail<object?>(new Diagnostic(ErrorKind.ResolveEnv,
+                    "Empty environment-variable name.", interp.Location,
+                    Hint: "Use {{env:NAME}} — e.g. {{env:VIDYANO_USER}}."));
+            var envVal = _envLookup(name);
+            // Treat empty as missing (matches SIGN-IN FROM ENV) so an env var set to "" still falls
+            // through to the ?? fallback or the loud failure — closing the empty-credential footgun.
+            if (!string.IsNullOrEmpty(envVal)) return OpResult<object?>.Success((object?)envVal);
+            if (fallback is not null) return OpResult<object?>.Success((object?)fallback);
+            return Fail<object?>(new Diagnostic(ErrorKind.ResolveEnv,
+                $"Environment variable '{name}' is not set.",
+                interp.Location,
+                Hint: "Set it in the shell, pass --var, or add a ?? fallback."));
+        }
         if (_vars.TryGetValue(inner, out var v))
             return OpResult<object?>.Success(v);
         return Fail<object?>(new Diagnostic(
@@ -1277,6 +1384,16 @@ public sealed class Interpreter
         };
 
     private static string AsString(object? v) => v switch { null => "", string s => s, IFormattable f => f.ToString(null, CultureInfo.InvariantCulture), _ => v.ToString() ?? "" };
+
+    /// <summary>Strips one matching pair of surrounding double or single quotes from a <c>??</c> fallback
+    /// token, so <c>?? "x"</c> and <c>?? x</c> both yield the literal <c>x</c>. Unbalanced or absent quotes
+    /// pass through unchanged.</summary>
+    private static string StripQuotes(string s)
+    {
+        if (s.Length >= 2 && ((s[0] == '"' && s[^1] == '"') || (s[0] == '\'' && s[^1] == '\'')))
+            return s.Substring(1, s.Length - 2);
+        return s;
+    }
 
     // --- statement result wrappers ------------------------------------------------------------
 

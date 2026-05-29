@@ -52,7 +52,7 @@ public static class ReplCommand
         }
 
         using var session = new VidyanoSession(a.AppUri, acceptAnyServerCertificate: a.Insecure);
-        var interpreter = new Interpreter(session, options.Variables, a.Mode ?? GuardMode.Navigation, options.Tools, now: options.Now, seed: options.Seed);
+        var interpreter = new Interpreter(session, options.Variables, a.Mode ?? GuardMode.Navigation, options.Tools, now: options.Now, seed: options.Seed, envLookup: options.EnvLookup, envPrefix: options.EnvironmentPrefix);
 
         AnsiConsole.MarkupLine($"[bold]vidyano repl[/] — connected to [green]{Markup.Escape(a.AppUri)}[/]");
         AnsiConsole.MarkupLine("[grey]Type a .visc line at the prompt. ':help' lists commands. ':save <path>' to write history. Ctrl-C exits.[/]");

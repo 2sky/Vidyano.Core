@@ -119,16 +119,18 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 | Verb | Effect |
 |---|---|
 | `SIGN-IN <user> / <pwd>` | Authenticate (optionally `LANGUAGE xx-XX`). |
+| `SIGN-IN FROM ENV` | Authenticate using `VIDYANO_USER` / `VIDYANO_PASSWORD` from the environment (loud-fails when either is unset). Optional `LANGUAGE xx-XX`. |
 | `OPEN MenuItem <path>` | Push a Query frame on the nav stack. |
 | `OPEN-ROW <i>` | Push a PO frame from row `i` of the top Query (by index). |
 | `OPEN-ROW WHERE <col> = <value>` | Push a PO frame from the single row whose `<col>` equals `<value>` — addresses a fixture by reference, not index. Strict: 0 or >1 matches fail. Value is service-string form (same convention as `SET`); only `=` is supported. |
 | `OPEN-ROW Detail "<name>" <index\|WHERE …>` | Select the row from the named detail query on the current PO (`PersistentObject.Queries`) instead of the current Query. The `Detail` clause is orthogonal to the positional/`WHERE` choice. |
+| `SELECT-ROWS <ALL\|NONE\|<i>\|WHERE <col> = <value>>` | Populate `Query.SelectedItems` so a selection-gated `ACTION` (e.g. `Delete`) can run. Replaces the selection (never accumulates), never pushes a nav frame; `CanExecute` flips automatically. `WHERE` is non-strict (0-or-many matches OK). Optional leading `Detail "<name>"` targets a detail query, orthogonal to the target. |
 | `GO-BACK` | Pop the top navigation frame, revealing the one beneath (the browser back button). Refuses when the top is a PO in edit (SAVE or CANCEL first) and when already at the root frame. |
 | `SEARCH <text>` | Text-search the current Query in place (no stack change). |
 | `EDIT` / `CANCEL` / `SAVE` | Standard PO edit lifecycle. SAVE pops + lets owner-driven refresh fire. |
 | `SET <attr> = <value>` | Change an attribute; reference SET resolves through lookup. |
 | `ACTION <action>` | Invoke an action by name. |
-| `EXPECT <state>` | Assert on `NavStack.*`, `TotalItems`, `IsInEdit`, `ClientOperation <type>`, attributes, notifications. Metadata forms: `Attribute X TYPE/TAG/TYPEHINT <k>`, `PO.<prop>` / `PO.Metadata.<k>` / `PO.NavigationHints.<k>`, `Query.<prop>` / `Query.Metadata.<k>` / `Query.NavigationHints.<k>` / `Query.PersistentObject.<prop>` / `Query.Columns[<name>].<prop>`. |
+| `EXPECT <state>` | Assert on `NavStack.*`, `TotalItems`, `Selection.Count`, `IsInEdit`, `ClientOperation <type>`, attributes, notifications. Metadata forms: `Attribute X TYPE/TAG/TYPEHINT <k>`, `PO.<prop>` / `PO.Metadata.<k>` / `PO.NavigationHints.<k>`, `Query.<prop>` / `Query.Metadata.<k>` / `Query.NavigationHints.<k>` / `Query.PersistentObject.<prop>` / `Query.Columns[<name>].<prop>`. `Selection.Count` (and `TotalItems` / `Query.*`) are `Detail "<name>"`-redirectable. |
 | `TOOL <name> [k=v, …] [-> @var]` | Call a registered C# delegate. Named args only; throws become `tool-error` diagnostics. In-process: register on `VidyanoScriptOptions.Tools`. From the CLI: implement `IVidyanoScriptToolPack` in a DLL and pass `--tools <path.dll>`. |
 | `EXPECT Detail "<name>" <query-subject>` | Target a detail query on the current PO for query-family subjects (`TotalItems` / `Query.*`). Reads what the detail Query holds in memory (no forced search). |
 | `EXPECT <lhs> MATCHES "<regex>"` | Regex assertion on the subject's string form (1s ReDoS-guard timeout; null never matches). |
@@ -137,6 +139,7 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 | `CLEANUP` | Marker; statements after it always run, even when the body was skipped by an unmet `REQUIRES`. |
 | Built-in vars `{{@today}} {{@now}} {{@uuid}} {{@random}}` | Evaluated on each reference (like `DateTime.Now` / `rng.Next()` in C#) — capture into a var to freeze (`@id = {{@uuid}}`). `--seed <int>` / `.Seed` fixes the `@uuid`/`@random` sequence (independent streams, next value per reference); `--now <iso>` / `.Now` anchors the clock, which then flows by real elapsed time (so `@now` is anchored but not bit-reproducible). |
 | `"... {{x}} ..."` (in-string interpolation) | `{{...}}` holes resolve inside string literals (same forms as a standalone `{{...}}`), so values compose: `SET Name = "Acme {{@uuid}}"`. Escape a literal brace as `\{`. Hole-free strings are unchanged. |
+| Env values `{{env:NAME}}` / `{{env:NAME ?? "fallback"}}` | Source a value from the environment in any value position. `{{env:NAME}}` is loud-on-missing (`resolve-env`); `?? <fallback>` (quoted string or bare token) supplies a default when unset. The deprecated `{{$env NAME}}` stays as a silent alias. `--env-prefix <prefix>` / `.EnvironmentPrefix` bulk-binds matching process env vars into the variable table with the prefix stripped (`VIDYANO_REGION` → `{{REGION}}`); an explicit `--var` / `.Variables` binding wins. Hosts inject `.EnvLookup` for hermetic test runs. |
 
 ### Samples and regression scripts
 `Vidyano.Script.Tool/samples/*.visc` — these double as regression tests:

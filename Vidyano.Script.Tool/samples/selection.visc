@@ -1,0 +1,61 @@
+### SELECT-ROWS — populate Query.SelectedItems for selection-gated actions, and observe the
+### selection with EXPECT Selection.Count.
+###
+### Row-addressing is identical to OPEN-ROW (positional index, WHERE <col> = <value>, a leading
+### Detail "<name>" clause), plus the two keywords ALL and NONE. SELECT-ROWS *replaces* the
+### current selection — it never accumulates; express a subset with a WHERE predicate.
+###
+### Selection lives on the Query frame: it persists across ACTION, and is cleared by
+### SEARCH / refresh / a frame pop (Query.SelectedItems_CollectionChanged → QueryAction.Invalidate
+### → CanExecute). A zero-match WHERE is NOT an error — selection simply becomes empty.
+###
+### This file is written to lint cleanly (vidyano lint) with no backend. The execution-only
+### assertions (anything that needs live rows / a real action result) are gated behind comments;
+### uncomment them when running against the local Raven sample:
+###   vidyano run selection.visc --insecure
+
+@app = "https://localhost:44353/"
+SIGN-IN admin / anything
+
+OPEN MenuItem Home/Orders
+
+### Select every currently *loaded* row (not a server-side all-matching flag — Core's
+### SelectedItems is an item collection, so ALL means the rows in memory).
+SELECT-ROWS ALL
+# EXPECT Selection.Count = 6        # equals TotalItems once the page is fully loaded (live only)
+# EXPECT Selection.Count >= 1       # ordering operators work on the count, like TotalItems
+
+### Replace (not accumulate) — a single positional row.
+SELECT-ROWS 0
+# EXPECT Selection.Count = 1
+
+### Replace with a predicate. WHERE is non-strict: it may match many rows (unlike OPEN-ROW WHERE,
+### which is strict). Value is service-string form, same convention as SET.
+SELECT-ROWS WHERE Status = "Open"
+# EXPECT Selection.Count >= 1
+
+### A zero-match WHERE leaves the selection empty — tolerated, not a failure. Tolerant cleanup
+### uses the existing primitives (REQUIRES + CLEANUP) rather than a new error policy.
+SELECT-ROWS WHERE Status = "NoSuchStatusValue"
+# EXPECT Selection.Count = 0
+
+### The Detail clause is orthogonal to the ALL/NONE/index/WHERE choice — it redirects selection
+### (and EXPECT Selection.Count) onto a named detail query on the current PO, mirroring OPEN-ROW.
+OPEN-ROW 0
+SELECT-ROWS Detail "OrderLines" ALL
+# EXPECT Detail "OrderLines" Selection.Count >= 1
+SELECT-ROWS Detail "OrderLines" WHERE Product = "Widget"
+SELECT-ROWS Detail "OrderLines" 0
+GO-BACK
+
+### Clear the selection — NONE is a keyword on SELECT-ROWS, not a separate verb.
+SELECT-ROWS NONE
+# EXPECT Selection.Count = 0
+
+### Selection-gated ACTION. Delete carries a SelectionRule (>=1), so CanExecute is false until rows
+### are selected; SELECT-ROWS flips it, and the parameter path now forwards the selection (the
+### former hard-coded selectedItems: null is fixed). Commented — destructive + needs a live server.
+SELECT-ROWS WHERE Status = "Open"
+# REQUIRES Selection.Count >= 1
+# ACTION Delete
+# EXPECT ClientOperation Refresh IS NOT NULL

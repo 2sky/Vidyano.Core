@@ -18,6 +18,7 @@ public sealed class Args
     public List<string> ToolPaths { get; } = new();
     public int? Seed { get; set; }
     public DateTimeOffset? Now { get; set; }
+    public string? EnvironmentPrefix { get; set; }
     public List<string> Unknown { get; } = new();
 
     /// <summary>Parses positional + flag arguments. Unknown flags are collected; callers decide whether to error.</summary>
@@ -66,6 +67,9 @@ public sealed class Args
                         break;
                     }
                     result.Now = now; break;
+                case "--env-prefix":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--env-prefix requires a prefix"); break; }
+                    result.EnvironmentPrefix = args[++i]; break;
                 case "--json":     result.Json = true; break;
                 case "--verbose":  result.Verbose = true; break;
                 case "--insecure": result.Insecure = true; break;
@@ -88,6 +92,7 @@ public sealed class Args
             AcceptAnyServerCertificate = Insecure,
             Seed = Seed,
             Now = Now,
+            EnvironmentPrefix = EnvironmentPrefix,
         };
         if (Mode is { } m) opts.Mode = m;
         foreach (var kv in Vars) opts.Variables[kv.Key] = kv.Value;

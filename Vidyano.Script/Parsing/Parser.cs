@@ -133,6 +133,7 @@ public sealed class Parser
             "USE"         => ParseUse(tok.Location),
             "OPEN"        => ParseOpen(tok.Location),
             "OPEN-ROW"    => ParseOpenRow(tok.Location),
+            "SELECT-ROWS" => ParseSelectRows(tok.Location),
             "GO-BACK"     => new GoBackStmt(tok.Location),
             "EDIT"        => new EditStmt(null, tok.Location),
             "CANCEL"      => new CancelStmt(null, tok.Location),
@@ -232,14 +233,30 @@ public sealed class Parser
             }
         }
 
-        var user = ParseValueExpression();
-        if (user == null) return null;
+        // `SIGN-IN FROM ENV` — read VIDYANO_USER / VIDYANO_PASSWORD from the environment instead of
+        // spelling credentials inline. `FROM` and `ENV` are contextual keywords (not reserved verbs),
+        // so peek both before committing — a user named literally "FROM" still works via {{...}}.
+        var fromEnv = Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "FROM", StringComparison.OrdinalIgnoreCase)
+                      && _pos + 1 < _tokens.Count && _tokens[_pos + 1].Kind == TokenKind.Identifier
+                      && string.Equals(_tokens[_pos + 1].Lexeme, "ENV", StringComparison.OrdinalIgnoreCase);
 
+        Expression? user = null;
         Expression? password = null;
-        if (Match(TokenKind.Slash, out _))
+        if (fromEnv)
         {
-            password = ParseValueExpression();
-            if (password == null) return null;
+            Advance(); // FROM
+            Advance(); // ENV
+        }
+        else
+        {
+            user = ParseValueExpression();
+            if (user == null) return null;
+
+            if (Match(TokenKind.Slash, out _))
+            {
+                password = ParseValueExpression();
+                if (password == null) return null;
+            }
         }
 
         // Optional `LANGUAGE xx-XX` — sent to the server so labels/messages come back localized.
@@ -252,7 +269,7 @@ public sealed class Parser
             if (language == null) return null;
         }
 
-        return new SignInStmt(sessionName, user, password, language, loc);
+        return new SignInStmt(sessionName, user, password, language, loc, fromEnv);
     }
 
     private Statement? ParseSignOut(SourceLocation loc)
@@ -348,8 +365,66 @@ public sealed class Parser
 
     private Statement? ParseOpenRow(SourceLocation loc)
     {
-        // Optional leading `Detail "<name>"` clause: selects the row from the named detail query on the
-        // current PO instead of the current Query. Orthogonal to the WHERE/positional choice below.
+        if (!ParseRowTarget("OPEN-ROW", out var index, out var column, out var matchOp, out var value, out var detailName))
+            return null;
+        var asHandle = ParseOptionalAs();
+        return column != null
+            ? new OpenRowStmt(null, asHandle, loc, MatchColumn: column, MatchOp: matchOp, MatchValue: value, DetailName: detailName)
+            : new OpenRowStmt(index, asHandle, loc, DetailName: detailName);
+    }
+
+    /// <summary>Parses the row-addressing clause shared by <c>OPEN-ROW</c> and <c>SELECT-ROWS</c>:
+    /// an optional leading <c>Detail "&lt;name&gt;"</c> clause, then either <c>WHERE &lt;col&gt; = &lt;value&gt;</c>
+    /// (sets <paramref name="column"/>/<paramref name="op"/>/<paramref name="value"/>) or a positional index
+    /// expression (sets <paramref name="index"/>). Exactly one of the two modes is populated; the other side
+    /// is left null. The trailing <c>AS @handle</c> is NOT consumed here — only OPEN-ROW takes a handle, so
+    /// each caller decides. Returns <c>false</c> after emitting a diagnostic on a malformed clause.</summary>
+    private bool ParseRowTarget(string verb, out Expression? index, out string? column, out ExpectOp? op, out Expression? value, out string? detailName)
+    {
+        index = null; column = null; op = null; value = null; detailName = null;
+
+        // Optional leading `Detail "<name>"` clause: targets the named detail query on the current PO
+        // instead of the current Query. Orthogonal to the WHERE/positional choice below.
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            detailName = ParseDetailName();
+            if (detailName == null) return false;
+        }
+
+        // Contextual keyword: `WHERE` selects the by-value form. Anything else is the positional index.
+        if (Peek().Kind == TokenKind.Identifier &&
+            string.Equals(Peek().Lexeme, "WHERE", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            column = ParseDottedAttributeName();
+            if (column == null) return false;
+
+            // Operator is modelled with ExpectOp so a future operator is a whitelist change here, not a
+            // redesign. Only '=' is accepted in this build.
+            if (!Match(TokenKind.Equals, out _))
+            {
+                Error(ErrorKind.ParseExpected,
+                    $"{verb} WHERE currently supports only '='.",
+                    Peek().Location,
+                    hint: $"{verb} WHERE Name = \"Acme\"");
+                return false;
+            }
+
+            value = ParseValueExpression();
+            if (value == null) return false;
+            op = ExpectOp.Eq;
+            return true;
+        }
+
+        index = ParseValueExpression();
+        return index != null;
+    }
+
+    private Statement? ParseSelectRows(SourceLocation loc)
+    {
+        // Optional leading `Detail "<name>"` precedes the ALL/NONE keywords too, mirroring the WHERE/index
+        // form — peek for it here so `SELECT-ROWS Detail "X" ALL` parses.
         string? detailName = null;
         if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
         {
@@ -358,36 +433,27 @@ public sealed class Parser
             if (detailName == null) return null;
         }
 
-        // Contextual keyword: `WHERE` right after OPEN-ROW selects the by-value form. Anything else
-        // is parsed as the positional index expression, exactly as before.
-        if (Peek().Kind == TokenKind.Identifier &&
-            string.Equals(Peek().Lexeme, "WHERE", StringComparison.OrdinalIgnoreCase))
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "ALL", StringComparison.OrdinalIgnoreCase))
         {
             Advance();
-            var column = ParseDottedAttributeName();
-            if (column == null) return null;
-
-            // Operator is modelled with ExpectOp so a future operator is a whitelist change here, not a
-            // redesign. Only '=' is accepted in this build.
-            if (!Match(TokenKind.Equals, out _))
-            {
-                Error(ErrorKind.ParseExpected,
-                    "OPEN-ROW WHERE currently supports only '='.",
-                    Peek().Location,
-                    hint: "OPEN-ROW WHERE Name = \"Acme\"");
-                return null;
-            }
-
-            var value = ParseValueExpression();
-            if (value == null) return null;
-            var whereHandle = ParseOptionalAs();
-            return new OpenRowStmt(null, whereHandle, loc, MatchColumn: column, MatchOp: ExpectOp.Eq, MatchValue: value, DetailName: detailName);
+            return new SelectRowsStmt(All: true, None: false, Index: null, MatchColumn: null, MatchOp: null, MatchValue: null, DetailName: detailName, Location: loc);
+        }
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "NONE", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            return new SelectRowsStmt(All: false, None: true, Index: null, MatchColumn: null, MatchOp: null, MatchValue: null, DetailName: detailName, Location: loc);
         }
 
-        var index = ParseValueExpression();
-        if (index == null) return null;
-        var asHandle = ParseOptionalAs();
-        return new OpenRowStmt(index, asHandle, loc, DetailName: detailName);
+        // ALL/NONE were not present — the remainder is a WHERE clause or a positional index. Detail was
+        // already consumed above, so re-parsing it inside ParseRowTarget must not happen: it only peeks
+        // when the next token is `Detail`, which it no longer is.
+        // The leading Detail (if any) was already consumed above; ParseRowTarget parses only the
+        // WHERE/positional tail, so its detail out-param is unused here.
+        if (!ParseRowTarget("SELECT-ROWS", out var index, out var column, out var matchOp, out var value, out _))
+            return null;
+        return column != null
+            ? new SelectRowsStmt(All: false, None: false, Index: null, MatchColumn: column, MatchOp: matchOp, MatchValue: value, DetailName: detailName, Location: loc)
+            : new SelectRowsStmt(All: false, None: false, Index: index, MatchColumn: null, MatchOp: null, MatchValue: null, DetailName: detailName, Location: loc);
     }
 
     /// <summary>Parses a detail-query name after the <c>Detail</c> keyword: a string literal or a bare
@@ -745,7 +811,7 @@ public sealed class Parser
     }
 
     private static bool IsQueryFamilySubject(ExpectSubjectKind k) => k is
-        ExpectSubjectKind.TotalItems or ExpectSubjectKind.QueryProperty or ExpectSubjectKind.QueryLabel or
+        ExpectSubjectKind.TotalItems or ExpectSubjectKind.SelectionCount or ExpectSubjectKind.QueryProperty or ExpectSubjectKind.QueryLabel or
         ExpectSubjectKind.QueryMetadata or ExpectSubjectKind.QueryNavigationHints or
         ExpectSubjectKind.QueryPoProperty or ExpectSubjectKind.QueryColumn;
 
@@ -953,6 +1019,23 @@ public sealed class Parser
         if (string.Equals(tok.Lexeme, "IsDirty",    StringComparison.OrdinalIgnoreCase)) { Advance(); return new ExpectSubject(ExpectSubjectKind.IsDirty,     null, AttributeFlagKind.None, tok.Location); }
         if (string.Equals(tok.Lexeme, "IsInEdit",   StringComparison.OrdinalIgnoreCase)) { Advance(); return new ExpectSubject(ExpectSubjectKind.IsInEdit,    null, AttributeFlagKind.None, tok.Location); }
         if (string.Equals(tok.Lexeme, "TotalItems", StringComparison.OrdinalIgnoreCase)) { Advance(); return new ExpectSubject(ExpectSubjectKind.TotalItems,  null, AttributeFlagKind.None, tok.Location); }
+
+        // EXPECT Selection.Count — number of selected rows on the current query (Detail-redirectable).
+        if (string.Equals(tok.Lexeme, "Selection", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            if (!Match(TokenKind.Dot, out _) || Peek().Kind != TokenKind.Identifier ||
+                !string.Equals(Peek().Lexeme, "Count", StringComparison.OrdinalIgnoreCase))
+            {
+                Error(ErrorKind.ParseExpected,
+                    "Expected '.Count' after 'Selection'.",
+                    Peek().Location,
+                    hint: "EXPECT Selection.Count = 3");
+                return null;
+            }
+            Advance(); // Count
+            return new ExpectSubject(ExpectSubjectKind.SelectionCount, null, AttributeFlagKind.None, tok.Location);
+        }
 
         if (string.Equals(tok.Lexeme, "NavStack", StringComparison.OrdinalIgnoreCase))
         {
