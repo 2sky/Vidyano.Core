@@ -45,10 +45,11 @@ Console.WriteLine($"{(result.Success ? "PASS" : "FAIL")}: " +
 
 A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with **EXPECT** assertions checking observable state at each step. Verbs map 1:1 to user actions a frontend would perform:
 
-- `SIGN-IN <user> / <password>` — authenticate.
+- `SIGN-IN <user> / <password>` — authenticate. `SIGN-IN FROM ENV` reads `VIDYANO_USER` / `VIDYANO_PASSWORD` from the environment instead (loud-fails if either is unset).
 - `OPEN MenuItem <path>` — navigate to a query.
 - `OPEN-ROW <index>` — drill into a row by position.
 - `OPEN-ROW WHERE <column> = <value>` — drill into the single row matched by a column value (strict — 0 or >1 matches fail; value in service-string form, like `SET`). Addresses a fixture by reference instead of a brittle row index.
+- `SELECT-ROWS <ALL | NONE | <index> | WHERE <column> = <value>>` — set the current query's selection so a selection-gated `ACTION` (e.g. `Delete`) can run. Replaces the selection (never accumulates), never pushes a frame; `CanExecute` flips automatically. `WHERE` is non-strict (0-or-many matches). Optional leading `Detail "<name>"` targets a detail query.
 - `SEARCH <text>` — text-search the current query.
 - `EDIT` / `CANCEL` / `SAVE` — standard PO edit lifecycle.
 - `SET <attribute> = <value>` — change an attribute (incl. reference SET semantics).
@@ -66,7 +67,7 @@ EXPECT @session.Customer CONTAINS "Smith"
 
 The names `session`, `user`, `application` are reserved; `@session = …` is a parse error. `@user` / `@application` parse but produce a runtime diagnostic until wired up.
 
-EXPECT supports nav-stack state (`NavStack.Depth`, `NavStack.Top.Kind`, `NavStack.Top.Name`, `NavStack.Top.IsDialog`), query state (`TotalItems`, `IsInEdit`), notification state, and the `ClientOperation` queue:
+EXPECT supports nav-stack state (`NavStack.Depth`, `NavStack.Top.Kind`, `NavStack.Top.Name`, `NavStack.Top.IsDialog`), query state (`TotalItems`, `Selection.Count`, `IsInEdit`), notification state, and the `ClientOperation` queue:
 
 ```visc
 EXPECT NavStack.Depth = 2
@@ -183,6 +184,7 @@ ACTION Delete
 - **`REQUIRES <assertion>`** — reuses the full `EXPECT` grammar. Holds → continue; unmet or unevaluable → skip the rest of the body with a `state-requires-unmet` diagnostic (a skip, **not** a failure). **`REQUIRES TOOL <name>`** gates on a registered tool.
 - **`CLEANUP`** — a marker; everything after it runs even when the body was skipped, so teardown never gets stranded.
 - **Built-in vars** `{{@today}} {{@now}} {{@uuid}} {{@random}}` — evaluated on each reference, mirroring `DateTime.Now` / `rng.Next()` in C#. `Seed` fixes the `@uuid`/`@random` sequence (independent streams; each reference draws the next value); `Now` anchors the clock, which then flows by real elapsed time. Capture into a variable (`@id = {{@uuid}}`) to freeze a value for reuse.
+- **Environment values** — `{{env:NAME}}` reads an environment variable, **loud-failing if unset** (never a silent empty value); `{{env:NAME ?? "fallback"}}` makes it optional. `VidyanoScriptOptions.EnvironmentPrefix` (CLI `--env-prefix VIDYANO_`) bulk-binds `VIDYANO_*` into plain `{{NAME}}` vars with the prefix stripped, and an explicit `--var` / `Variables` entry always wins.
 - **`EXPECT … MATCHES "<regex>"`** — regex assertion on the subject's string form (1s ReDoS-guard timeout; a malformed pattern is a clean failure, null never matches).
 - **In-string interpolation** — `{{…}}` holes resolve inside `"…"` literals using the same machinery as a standalone `{{…}}`, so values compose (`"Acme {{@uuid}}"`). Escape a literal brace as `\{`.
 
