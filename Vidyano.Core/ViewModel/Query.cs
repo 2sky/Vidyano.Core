@@ -229,6 +229,31 @@ namespace Vidyano.ViewModel
             }
         }
 
+        /// <summary>Replaces the current selection in one batch: clears <see cref="SelectedItems"/>, adds
+        /// <paramref name="items"/> (nulls skipped), and sets <see cref="AllSelected"/> — atomically. The
+        /// per-item <see cref="SelectedItems"/> change notifications still fire for external observers, but
+        /// the query's own action re-evaluation runs once at the end rather than once per mutation, so a
+        /// selection-gated action's CanExecute is computed against the final state and never a transient
+        /// (e.g. exclusion rows added while <see cref="AllSelected"/> is not yet set).</summary>
+        public void SetSelection(IEnumerable<QueryResultItem> items, bool allSelected)
+        {
+            SelectedItems.CollectionChanged -= SelectedItems_CollectionChanged;
+            try
+            {
+                SelectedItems.Clear();
+                foreach (var item in items)
+                    if (item != null)
+                        SelectedItems.Add(item);
+                _AllSelected = allSelected;
+                OnPropertyChanged(nameof(AllSelected));
+            }
+            finally
+            {
+                SelectedItems.CollectionChanged += SelectedItems_CollectionChanged;
+                InvalidateActions();
+            }
+        }
+
         public bool IsZoomedIn
         {
             get => GetProperty<bool>();

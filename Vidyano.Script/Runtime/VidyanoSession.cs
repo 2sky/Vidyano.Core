@@ -561,8 +561,7 @@ public sealed class VidyanoSession : IDisposable
 
         if (none)
         {
-            query.AllSelected = false;
-            query.SelectedItems.Clear();
+            query.SetSelection(System.Array.Empty<QueryResultItem>(), allSelected: false);
             return OpResult.Success;
         }
 
@@ -604,13 +603,11 @@ public sealed class VidyanoSession : IDisposable
                 rows = System.Array.Empty<QueryResultItem>();
             }
 
-            // Replace the selection (SELECT-ROWS never accumulates). Filter nulls defensively (the index/
-            // WHERE paths already exclude them). With ALL the addressed rows become the exclusion set and
-            // AllSelected flips on; without ALL they ARE the selection and AllSelected is cleared.
-            query.SelectedItems.Clear();
-            foreach (var r in rows.Where(r => r != null))
-                query.SelectedItems.Add(r);
-            query.AllSelected = all;
+            // Replace the selection in one batch (SELECT-ROWS never accumulates). With ALL the addressed
+            // rows become the exclusion set and AllSelected flips on; without ALL they ARE the selection and
+            // AllSelected is cleared. SetSelection sets both atomically — so a selection-gated action's
+            // CanExecute is evaluated once against the final state — and skips nulls for us.
+            query.SetSelection(rows, all);
             return OpResult.Success;
         }
         catch (Exception ex)
@@ -971,13 +968,17 @@ public sealed class VidyanoSession : IDisposable
     }
 
     /// <summary>Selects (or, when <paramref name="rawId"/> is null, clears) a non-SelectInPlace
-    /// reference by Id. ChangeReference is a server round-trip that traps its own errors into a
-    /// parent notification instead of throwing, so failure is surfaced by inspecting that
-    /// notification — the same contract ExecuteActionAsync uses.</summary>
+    /// reference by Id. ChangeReference is a server round-trip that traps its own errors instead of
+    /// throwing, so failure is surfaced by inspecting state afterward: a rejected Id lands either as a
+    /// per-attribute <see cref="PersistentObjectAttribute.ValidationError"/> (stamped when the server's
+    /// result is merged back) or as a parent error notification. Check the attribute first — it's the more
+    /// specific signal — so a bad Id is reported, not silently treated as success.</summary>
     private async Task<OpResult> SetReferenceByIdAsync(PersistentObjectAttributeWithReference attr, string? rawId, SourceLocation loc)
     {
         var item = rawId is null ? null : new QueryResultItem(Client, rawId);
         await attr.ChangeReference(item).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(attr.ValidationError))
+            return OpResult.Fail(new Diagnostic(ErrorKind.AssertValidationError, attr.ValidationError, loc));
         if (attr.Parent is { HasNotification: true } p && p.NotificationType == NotificationType.Error)
             return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, p.Notification, loc));
         return OpResult.Success;
