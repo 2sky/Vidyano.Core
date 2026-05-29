@@ -21,6 +21,7 @@ namespace Vidyano.ViewModel
         private readonly SortedDictionary<int, QueryResultItem> items = new SortedDictionary<int, QueryResultItem>();
         private readonly List<int> queriedPages = new List<int>();
         private QueryColumn[] _Columns;
+        private bool _AllSelected;
         private bool _HasSearched;
         private bool _HasSelectedItems;
         private bool _HasTextSearch;
@@ -210,6 +211,58 @@ namespace Vidyano.ViewModel
 
         public ObservableCollection<QueryResultItem> SelectedItems => _SelectedItems;
 
+        /// <summary>When <c>true</c>, an executed action operates on <em>every</em> row the query matches
+        /// server-side (after the current filters/search), not just the loaded rows: the server re-runs the
+        /// full query and ignores client paging. Serialized as <c>allSelected</c> on the query object in the
+        /// ExecuteAction request.
+        /// <para>Inverse ("all except …") selection is expressed positionally rather than with a second flag:
+        /// when <see cref="AllSelected"/> is set, the server reinterprets <see cref="SelectedItems"/> as the
+        /// <em>exclusion</em> set (matched by id). So an empty <see cref="SelectedItems"/> means "all", and
+        /// adding rows means "all except those". Cleared on a fresh search/refresh, like the selection.</para></summary>
+        public bool AllSelected
+        {
+            get => _AllSelected;
+            set
+            {
+                if (SetProperty(ref _AllSelected, value))
+                    InvalidateActions();
+            }
+        }
+
+        /// <summary>Replaces the current selection in one batch: clears <see cref="SelectedItems"/>, adds
+        /// <paramref name="items"/> (nulls skipped), and sets <see cref="AllSelected"/> — atomically. The
+        /// per-item <see cref="SelectedItems"/> change notifications still fire for external observers, but
+        /// the query's own action re-evaluation runs once at the end rather than once per mutation, so a
+        /// selection-gated action's CanExecute is computed against the final state and never a transient
+        /// (e.g. exclusion rows added while <see cref="AllSelected"/> is not yet set).</summary>
+        public void SetSelection(IEnumerable<QueryResultItem> items, bool allSelected)
+        {
+            if (items == null)
+                throw new ArgumentNullException(nameof(items));
+
+            // Materialize before touching SelectedItems: a deferred sequence that throws mid-enumeration
+            // must fail before any mutation, so the selection is never left half-applied.
+            var itemList = new List<QueryResultItem>();
+            foreach (var item in items)
+                if (item != null)
+                    itemList.Add(item);
+
+            SelectedItems.CollectionChanged -= SelectedItems_CollectionChanged;
+            try
+            {
+                SelectedItems.Clear();
+                foreach (var item in itemList)
+                    SelectedItems.Add(item);
+                _AllSelected = allSelected;
+                OnPropertyChanged(nameof(AllSelected));
+            }
+            finally
+            {
+                SelectedItems.CollectionChanged += SelectedItems_CollectionChanged;
+                InvalidateActions();
+            }
+        }
+
         public bool IsZoomedIn
         {
             get => GetProperty<bool>();
@@ -240,10 +293,26 @@ namespace Vidyano.ViewModel
 
         internal virtual void SelectedItems_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
         {
-            Actions.Run(a => a.Invalidate(SelectedItems.Count));
-            PinnedActions.Run(a => a.Invalidate(SelectedItems.Count));
-            HasSelectedItems = SelectedItems.Count > 0;
+            InvalidateActions();
         }
+
+        // Re-evaluates every action's selection-gated CanExecute and the HasSelectedItems flag. Shared by
+        // the SelectedItems collection-changed handler and the AllSelected setter, since both change the
+        // effective selection an action would operate on.
+        private void InvalidateActions()
+        {
+            var count = EffectiveSelectionCount;
+            Actions.Run(a => a.Invalidate(count));
+            PinnedActions.Run(a => a.Invalidate(count));
+            HasSelectedItems = AllSelected || SelectedItems.Count > 0;
+        }
+
+        // The count fed to an action's SelectionRule. With server-side select-all the explicit SelectedItems
+        // list is empty (pure "all") or holds only the exclusion set (inverse), so a selection-gated action
+        // like Delete must see the number of rows it will actually touch — TotalItems minus the exclusions —
+        // not the literal SelectedItems.Count. Falls back to the literal count when AllSelected is off.
+        private int EffectiveSelectionCount =>
+            AllSelected ? Math.Max(0, TotalItems - SelectedItems.Count) : SelectedItems.Count;
 
         private async Task<bool> SearchAsync(bool resetItems = false)
         {
@@ -261,6 +330,7 @@ namespace Vidyano.ViewModel
                     Top = PageSize;
                     items.Clear();
                     queriedPages.Clear();
+                    AllSelected = false;
                     SelectedItems.Clear();
                     CollectionChanged(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
                 }
@@ -335,6 +405,12 @@ namespace Vidyano.ViewModel
                 if (PageSize > 0)
                     queriedPages.AddRange(Enumerable.Range(startIndex / PageSize.Value, Math.Max(1, items.Length / PageSize.Value)));
             }
+
+            // A new result changes TotalItems. When server-side select-all is active the effective selection
+            // count (TotalItems minus exclusions) changes with it, so re-evaluate selection-gated actions —
+            // a load that arrives after AllSelected was set would otherwise leave CanExecute stale.
+            if (AllSelected)
+                InvalidateActions();
         }
 
         #endregion
@@ -495,6 +571,11 @@ namespace Vidyano.ViewModel
 
             if (Columns != null)
                 jObj["columns"] = JArray.FromObject(Columns.Select(col => col.ToServiceObject()));
+
+            // Emit only when set (mirrors the server's EmitDefaultValue=false): allSelected=true tells the
+            // server to operate on the full result set, treating any posted selectedItems as exclusions.
+            if (AllSelected)
+                jObj["allSelected"] = true;
 
             return jObj;
         }

@@ -420,14 +420,14 @@ public sealed class VidyanoSession : IDisposable
         return OpResult<Query>.Success(q);
     }
 
-    /// <summary>Resolves the Query an OPEN-ROW targets: the named detail query on the current PO when
-    /// <paramref name="detailName"/> is set, otherwise the current Query. Keeps both OPEN-ROW bodies
-    /// agnostic to which query they're scanning.</summary>
+    /// <summary>Resolves the Query an OPEN-ROW / SELECT-ROWS targets: the named detail query on the
+    /// current PO when <paramref name="detailName"/> is set, otherwise the current Query. Keeps the
+    /// row-targeting verbs agnostic to which query they're scanning.</summary>
     private OpResult<Query> ResolveRowQuery(string? detailName, SourceLocation loc)
     {
         if (detailName is not null) return ResolveDetail(detailName, loc);
         if (CurrentQuery is null)
-            return OpResult<Query>.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery, "OPEN-ROW needs a current Query.", loc));
+            return OpResult<Query>.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery, "No current Query — OPEN a query first.", loc));
         return OpResult<Query>.Success(CurrentQuery);
     }
 
@@ -436,17 +436,22 @@ public sealed class VidyanoSession : IDisposable
         var qt = ResolveRowQuery(detailName, loc);
         if (!qt.Ok) return OpResult.Fail(qt.Error!);
         var query = qt.Value!;
-        if (index < 0 || index >= query.TotalItems)
+        if (index < 0)
             return OpResult.Fail(new Diagnostic(
                 ErrorKind.AssertFailed,
-                $"Row index {index} is out of range (Query has {query.TotalItems} items).",
+                $"Row index {index} is out of range (negative).",
                 loc));
         try
         {
+            // Load directly rather than pre-checking TotalItems, which is 0 on a query not yet searched
+            // (e.g. an unloaded detail query); a null row after the load means index is past the end.
             var items = await query.GetItemsAsync(index, 1).ConfigureAwait(false);
             var row = items.FirstOrDefault();
             if (row is null)
-                return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Could not load row {index}.", loc));
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"Row index {index} is out of range (Query has {query.TotalItems} items).",
+                    loc));
             return await OpenRowItemAsync(row, $"Row {index}", asHandle, loc).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -466,33 +471,13 @@ public sealed class VidyanoSession : IDisposable
         if (!qt.Ok) return OpResult.Fail(qt.Error!);
         var query = qt.Value!;
 
-        var columnNames = query.Columns.Select(c => c.Name).ToArray();
-        var matchedColumn = columnNames.FirstOrDefault(n => string.Equals(n, column, StringComparison.OrdinalIgnoreCase));
-        if (matchedColumn is null)
-            return OpResult.Fail(new Diagnostic(
-                ErrorKind.ResolveAttribute,
-                $"Column '{column}' does not exist on Query '{query.Name}'.",
-                loc,
-                Hint: Suggester.Hint(column, columnNames)));
-
-        // The value is matched against the cell's service-string form, so it must be written in
-        // service-string format — the same convention SET uses for writing values. A string literal
-        // passes through unchanged; a non-string input is rendered the same way the cell side is.
-        // Representation-tolerant matching via FromServiceString(value, column.Type) is a future upgrade.
-        var target = value as string ?? Vidyano.Client.ToServiceString(value);
-
         try
         {
-            // top==0 = all rows from skip — load the whole set and filter exactly client-side. We do
-            // NOT SearchTextAsync to narrow: that mutates the resolved Query's search state, which
-            // would linger after this row's PO frame pops. The resolved instance is retained either on
-            // the nav stack (CurrentQuery path) or on the parent PO's Queries dictionary (Detail path).
-            var items = await query.GetItemsAsync(0, 0).ConfigureAwait(false);
-            var matches = items
-                .Where(r => r != null &&
-                            string.Equals(Vidyano.Client.ToServiceString(r[matchedColumn]), target, StringComparison.Ordinal))
-                .ToList();
+            var m = await MatchRowsByColumnAsync(query, column, value, loc).ConfigureAwait(false);
+            if (!m.Ok) return OpResult.Fail(m.Error!);
+            var (matchedColumn, target, matches) = m.Value;
 
+            // Strict: a by-value OPEN-ROW must address exactly one row (no first-wins).
             if (matches.Count == 0)
                 return OpResult.Fail(new Diagnostic(
                     ErrorKind.AssertFailed,
@@ -523,6 +508,123 @@ public sealed class VidyanoSession : IDisposable
         _navStack.Add(new PoEntry(po, IsDialog(po)));
         if (asHandle != null) _handles[asHandle] = po;
         return OpResult.Success;
+    }
+
+    /// <summary>Loads <paramref name="query"/> and returns the rows whose <paramref name="column"/> cell
+    /// equals <paramref name="value"/> in service-string form (the convention SET / OPEN-ROW WHERE use).
+    /// Shared by strict OPEN-ROW WHERE (which then asserts exactly one match) and non-strict SELECT-ROWS
+    /// WHERE (which takes all), so the column resolution + match convention live in one place. A missing
+    /// column is a ResolveAttribute diagnostic; the tuple also carries the case-corrected column name and
+    /// the service-string target for the callers' own diagnostics. Representation-tolerant matching via
+    /// FromServiceString(value, column.Type) is a future upgrade. The whole set is loaded and filtered
+    /// client-side; the Query's search state is left untouched.</summary>
+    private async Task<OpResult<(string, string, List<QueryResultItem>)>> MatchRowsByColumnAsync(
+        Query query, string column, object? value, SourceLocation loc)
+    {
+        var columnNames = query.Columns.Select(c => c.Name).ToArray();
+        var matchedColumn = columnNames.FirstOrDefault(n => string.Equals(n, column, StringComparison.OrdinalIgnoreCase));
+        if (matchedColumn is null)
+            return OpResult<(string, string, List<QueryResultItem>)>.Fail(new Diagnostic(
+                ErrorKind.ResolveAttribute,
+                $"Column '{column}' does not exist on Query '{query.Name}'.",
+                loc,
+                Hint: Suggester.Hint(column, columnNames)));
+
+        var target = value as string ?? Vidyano.Client.ToServiceString(value);
+        var items = await query.GetItemsAsync(0, 0).ConfigureAwait(false);
+        var matches = items
+            .Where(r => r != null &&
+                        string.Equals(Vidyano.Client.ToServiceString(r[matchedColumn]), target, StringComparison.Ordinal))
+            .ToList();
+        return OpResult<(string, string, List<QueryResultItem>)>.Success((matchedColumn, target, matches));
+    }
+
+    // --- SELECT-ROWS --------------------------------------------------------------------------
+
+    /// <summary><c>SELECT-ROWS &lt;target&gt;</c> — set the selection on the resolved Query so a
+    /// selection-gated action can run. The selection lives on the Query frame; <c>CanExecute</c> flips
+    /// for free via <see cref="Query.SelectedItems_CollectionChanged"/> / the <see cref="Query.AllSelected"/>
+    /// setter. Targets:
+    /// <list type="bullet">
+    ///   <item><paramref name="none"/> — clear the selection (and the all-selected flag).</item>
+    ///   <item><paramref name="all"/> — <c>SELECT-ROWS ALL</c>: server-side select-all. Sets
+    ///     <see cref="Query.AllSelected"/> so the action operates on every row the query matches on the
+    ///     backend, regardless of what is loaded. When <paramref name="index"/>/<paramref name="column"/> are
+    ///     also supplied (the <c>ALL EXCEPT</c> form) the addressed rows become the server-side
+    ///     <em>exclusion</em> set; otherwise the selection is left empty (pure "all").</item>
+    ///   <item><paramref name="index"/> — one row by position (bounds-checked against <c>TotalItems</c>).</item>
+    ///   <item><paramref name="column"/>/<paramref name="value"/> — every row whose cell equals the value
+    ///     (non-strict: zero or many matches are both fine — unlike OPEN-ROW WHERE which is strict).</item>
+    /// </list>
+    /// <paramref name="detailName"/>, when set, targets the named detail query on the current PO.
+    /// Never pushes a navigation frame.</summary>
+    public async Task<OpResult> SelectRowsAsync(bool all, bool none, int? index, string? column, object? value, string? detailName, SourceLocation loc)
+    {
+        var qt = ResolveRowQuery(detailName, loc);
+        if (!qt.Ok) return OpResult.Fail(qt.Error!);
+        var query = qt.Value!;
+
+        if (none)
+        {
+            query.SetSelection(System.Array.Empty<QueryResultItem>(), allSelected: false);
+            return OpResult.Success;
+        }
+
+        try
+        {
+            // Resolve the rows the index/WHERE clause addresses (empty when neither is present — a pure
+            // SELECT-ROWS ALL). For a normal SELECT-ROWS these are the positive selection; for SELECT-ROWS
+            // ALL EXCEPT they are the exclusion set the server subtracts from the full result.
+            IReadOnlyList<QueryResultItem> rows;
+            if (column != null)
+            {
+                // NON-STRICT: zero matches → empty, many → all of them (unlike strict OPEN-ROW WHERE).
+                // Column resolution + service-string matching is shared via MatchRowsByColumnAsync.
+                var m = await MatchRowsByColumnAsync(query, column, value, loc).ConfigureAwait(false);
+                if (!m.Ok) return OpResult.Fail(m.Error!);
+                var (_, _, matches) = m.Value;
+                rows = matches;
+            }
+            else if (index is { } idx)
+            {
+                if (idx < 0)
+                    return OpResult.Fail(new Diagnostic(
+                        ErrorKind.AssertFailed,
+                        $"Row index {idx} is out of range (negative).",
+                        loc));
+                // Load the row directly instead of pre-checking against TotalItems, which is still 0 on a
+                // query that hasn't been searched yet (e.g. an unloaded detail query) — the same reason the
+                // pure-ALL branch below forces a load. A null row after the load means idx is past the end.
+                var items = await query.GetItemsAsync(idx, 1).ConfigureAwait(false);
+                var row = items.FirstOrDefault();
+                if (row is null)
+                    return OpResult.Fail(new Diagnostic(
+                        ErrorKind.AssertFailed,
+                        $"Row index {idx} is out of range (Query has {query.TotalItems} items).",
+                        loc));
+                rows = new[] { row };
+            }
+            else
+            {
+                // Pure server-side select-all: no rows are addressed. Force a minimal load so TotalItems is
+                // populated — the WHERE/index paths load via their match/index lookups, but this path would
+                // otherwise never touch the server, leaving the effective selection count at 0 and a
+                // selection-gated action (Delete) disabled. (Cheaper than the old ALL, which loaded every row.)
+                await query.GetItemsAsync(0, 1).ConfigureAwait(false);
+                rows = System.Array.Empty<QueryResultItem>();
+            }
+
+            // Replace the selection in one batch (SELECT-ROWS never accumulates). With ALL the addressed
+            // rows become the exclusion set and AllSelected flips on; without ALL they ARE the selection and
+            // AllSelected is cleared. SetSelection sets both atomically — so a selection-gated action's
+            // CanExecute is evaluated once against the final state — and skips nulls for us.
+            query.SetSelection(rows, all);
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
     }
 
     // --- edit / save / cancel / refresh -------------------------------------------------------
@@ -710,17 +812,17 @@ public sealed class VidyanoSession : IDisposable
     ///   override the search text, or <see cref="ReferenceHint.RawId"/> to bypass the lookup entirely.</item>
     /// </list>
     /// </remarks>
-    public OpResult SetAttribute(string name, object? value, SourceLocation loc, ReferenceHint? hint = null)
+    public async Task<OpResult> SetAttributeAsync(string name, object? value, SourceLocation loc, ReferenceHint? hint = null)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
-        return SetAttributeOn(CurrentPo, name, value, loc, hint);
+        return await SetAttributeOnAsync(CurrentPo, name, value, loc, hint).ConfigureAwait(false);
     }
 
     /// <summary>Sets an attribute on an explicit PO. Shared body between the implicit current-PO
-    /// path (<see cref="SetAttribute"/>) and the scoped path (<see cref="SetScopedAttribute"/>).
+    /// path (<see cref="SetAttributeAsync"/>) and the scoped path (<see cref="SetScopedAttributeAsync"/>).
     /// The only difference between callers is which PO they target — the hidden/readonly guards,
     /// the auto-enter-edit behaviour, and the reference-resolution branch are identical.</summary>
-    private OpResult SetAttributeOn(PersistentObject po, string name, object? value, SourceLocation loc, ReferenceHint? hint)
+    private async Task<OpResult> SetAttributeOnAsync(PersistentObject po, string name, object? value, SourceLocation loc, ReferenceHint? hint)
     {
         var attr = po.GetAttribute(name);
         if (attr is null)
@@ -753,7 +855,7 @@ public sealed class VidyanoSession : IDisposable
             po.Edit();
 
         if (attr is PersistentObjectAttributeWithReference refAttr)
-            return SetReferenceAttribute(refAttr, value, loc, hint);
+            return await SetReferenceAttributeAsync(refAttr, value, loc, hint).ConfigureAwait(false);
 
         // Non-reference Options-bearing attrs (KeyValueList / Dropdown / ComboBox) accept the same
         // LOOKUP/ID hints — resolve the value against Options[] and assign the matching Key. A bare
@@ -808,26 +910,31 @@ public sealed class VidyanoSession : IDisposable
             }));
     }
 
-    private OpResult SetReferenceAttribute(PersistentObjectAttributeWithReference attr, object? value, SourceLocation loc, ReferenceHint? hint)
+    private async Task<OpResult> SetReferenceAttributeAsync(PersistentObjectAttributeWithReference attr, object? value, SourceLocation loc, ReferenceHint? hint)
     {
-        // Explicit RawId hint: bypass lookup logic — the caller asserts they know the key.
+        // Explicit RawId hint: bypass lookup logic — the caller asserts they know the key. An empty
+        // Id (SET attr = ID "") means "clear", same as a null value below.
         if (hint is { Kind: ReferenceHintKind.RawId, Value: var rawId })
         {
-            attr.SelectedReferenceValue = rawId;
-            return OpResult.Success;
+            if (string.IsNullOrEmpty(rawId))
+                return await ClearReferenceAsync(attr, loc).ConfigureAwait(false);
+
+            // SelectInPlace refs carry their choices in Options[]; the setter routes the key through
+            // ChangeReference for us. For popup/lookup refs (SelectInPlace == false) the
+            // SelectedReferenceValue setter is a NO-OP, so assigning rawId silently leaves the
+            // attribute null — call ChangeReference directly (a backend call) so the server resolves
+            // the row by Id, bridged to async like the lookup path below.
+            if (attr.SelectInPlace)
+            {
+                attr.SelectedReferenceValue = rawId;
+                return OpResult.Success;
+            }
+            return await SetReferenceByIdAsync(attr, rawId, loc).ConfigureAwait(false);
         }
 
         // Null clears the reference (when allowed).
         if (value is null)
-        {
-            if (!attr.CanRemoveReference)
-                return OpResult.Fail(new Diagnostic(
-                    ErrorKind.GuardAttributeReadOnly,
-                    $"Attribute '{attr.Name}' is required and cannot be cleared.",
-                    loc));
-            attr.SelectedReferenceValue = null;
-            return OpResult.Success;
-        }
+            return await ClearReferenceAsync(attr, loc).ConfigureAwait(false);
 
         var text = value as string ?? value.ToString() ?? "";
 
@@ -850,7 +957,52 @@ public sealed class VidyanoSession : IDisposable
                 loc));
 
         var search = hint is { Kind: ReferenceHintKind.Lookup, Value: var s } ? (s ?? text) : text;
-        return SetReferenceViaLookupAsync(attr, search, loc).GetAwaiter().GetResult();
+        return await SetReferenceViaLookupAsync(attr, search, loc).ConfigureAwait(false);
+    }
+
+    /// <summary>Clears a reference attribute, honoring the required guard. For popup/lookup refs
+    /// (SelectInPlace == false) the SelectedReferenceValue setter is a no-op, so the clear must go
+    /// through ChangeReference(null) — a backend call — exactly like setting one by Id does.</summary>
+    private async Task<OpResult> ClearReferenceAsync(PersistentObjectAttributeWithReference attr, SourceLocation loc)
+    {
+        if (!attr.CanRemoveReference)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardAttributeReadOnly,
+                $"Attribute '{attr.Name}' is required and cannot be cleared.",
+                loc));
+        if (attr.SelectInPlace)
+        {
+            attr.SelectedReferenceValue = null;
+            return OpResult.Success;
+        }
+        return await SetReferenceByIdAsync(attr, null, loc).ConfigureAwait(false);
+    }
+
+    /// <summary>Selects (or, when <paramref name="rawId"/> is null, clears) a non-SelectInPlace
+    /// reference by Id. ChangeReference is a server round-trip that traps its own errors instead of
+    /// throwing, so failure is surfaced by inspecting state afterward: a rejected Id lands either as a
+    /// per-attribute <see cref="PersistentObjectAttribute.ValidationError"/> (stamped when the server's
+    /// result is merged back) or as a parent error notification. Check the attribute first — it's the more
+    /// specific signal — so a bad Id is reported, not silently treated as success.</summary>
+    private async Task<OpResult> SetReferenceByIdAsync(PersistentObjectAttributeWithReference attr, string? rawId, SourceLocation loc)
+    {
+        // ChangeReference already traps its own server errors into a parent notification (surfaced below),
+        // but wrap defensively anyway — for consistency with SetReferenceViaLookupAsync and to cover the
+        // QueryResultItem ctor / any future drift in ChangeReference's contract.
+        try
+        {
+            var item = rawId is null ? null : new QueryResultItem(Client, rawId);
+            await attr.ChangeReference(item).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(attr.ValidationError))
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertValidationError, attr.ValidationError, loc));
+            if (attr.Parent is { HasNotification: true } p && p.NotificationType == NotificationType.Error)
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, p.Notification, loc));
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
     }
 
     private async Task<OpResult> SetReferenceViaLookupAsync(PersistentObjectAttributeWithReference attr, string searchText, SourceLocation loc)
@@ -970,13 +1122,13 @@ public sealed class VidyanoSession : IDisposable
     }
 
     /// <summary>Sets an attribute on a scoped PO. Same edit/guard/reference-resolution semantics
-    /// as <see cref="SetAttribute"/>, but targeting <see cref="Vidyano.Client.Session"/> (or, in
+    /// as <see cref="SetAttributeAsync"/>, but targeting <see cref="Vidyano.Client.Session"/> (or, in
     /// the future, <c>@user</c>/<c>@application</c>) instead of the navigation-stack top.</summary>
-    public OpResult SetScopedAttribute(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc)
+    public async Task<OpResult> SetScopedAttributeAsync(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc)
     {
         var poRes = ResolveScopePo(scope, loc);
         if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
-        return SetAttributeOn(poRes.Value!, attributeName, value, loc, hint);
+        return await SetAttributeOnAsync(poRes.Value!, attributeName, value, loc, hint).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1000,7 +1152,7 @@ public sealed class VidyanoSession : IDisposable
     /// (<see cref="StringComparison.Ordinal"/>) — same convention as the SET SIP path uses against
     /// <see cref="PersistentObjectAttribute.Option.DisplayValue"/>; the diagnostic's
     /// <see cref="Suggester.Hint"/> catches close-but-not-exact typos.</summary>
-    public async Task<OpResult> ExecuteActionAsync(string name, IReadOnlyDictionary<string, string>? parameters, object? option, ReferenceHintKind? optionHint, SourceLocation loc)
+    public async Task<OpResult> ExecuteActionAsync(string name, IReadOnlyDictionary<string, string>? parameters, object? option, ReferenceHintKind? optionHint, SourceLocation loc, string? detailName = null)
     {
         if (CurrentPo is null && CurrentQuery is null)
             return OpResult.Fail(new Diagnostic(
@@ -1008,17 +1160,36 @@ public sealed class VidyanoSession : IDisposable
                 "ACTION needs a current PersistentObject or Query.",
                 loc));
 
+        // A `Detail "<name>"` clause pins the action to a detail query on the current PO (which lives off
+        // the nav stack, on CurrentPo.Queries) — so a selection set via SELECT-ROWS Detail "<name>" has a
+        // verb to act on. Without it, the action resolves PO-first then the nav-stack query, as before.
+        Query? detailQuery = null;
+        if (detailName != null)
+        {
+            var dt = ResolveDetail(detailName, loc);
+            if (!dt.Ok) return OpResult.Fail(dt.Error!);
+            detailQuery = dt.Value;
+        }
+
         ActionBase? action = null;
         IEnumerable<string> candidates = Array.Empty<string>();
-        if (CurrentPo != null)
+        if (detailQuery != null)
         {
-            action = CurrentPo.GetAction(name);
-            candidates = CurrentPo.Actions.Concat(CurrentPo.PinnedActions).Select(a => a.Name);
+            action = detailQuery.GetAction(name);
+            candidates = detailQuery.Actions.Concat(detailQuery.PinnedActions).Select(a => a.Name);
         }
-        if (action is null && CurrentQuery != null)
+        else
         {
-            action = CurrentQuery.GetAction(name);
-            candidates = candidates.Concat(CurrentQuery.Actions.Concat(CurrentQuery.PinnedActions).Select(a => a.Name));
+            if (CurrentPo != null)
+            {
+                action = CurrentPo.GetAction(name);
+                candidates = CurrentPo.Actions.Concat(CurrentPo.PinnedActions).Select(a => a.Name);
+            }
+            if (action is null && CurrentQuery != null)
+            {
+                action = CurrentQuery.GetAction(name);
+                candidates = candidates.Concat(CurrentQuery.Actions.Concat(CurrentQuery.PinnedActions).Select(a => a.Name));
+            }
         }
         if (action is null)
         {
@@ -1105,7 +1276,17 @@ public sealed class VidyanoSession : IDisposable
             {
                 var dict = parameters?.ToDictionary(kv => kv.Key, kv => kv.Value);
                 var prefix = action is QueryAction ? "Query." : "PersistentObject.";
-                result = await Client.ExecuteActionAsync(prefix + name, CurrentPo, CurrentQuery, null, dict).ConfigureAwait(false);
+                // The query the action runs against: the Detail-clause detail query when present, else the
+                // nav-stack query. parent stays CurrentPo — for a detail query that's its owning master PO,
+                // exactly the (parent, query) pair a browser posts for a detail-grid action.
+                var actionQuery = detailQuery ?? CurrentQuery;
+                // Forward the query's selection on the parameter path — mirrors ActionBase.Execute, which
+                // reads Query.SelectedItems itself on the option-label path. Without this a selection-gated
+                // action (e.g. Delete) would post an empty selection even after SELECT-ROWS.
+                var selected = action is QueryAction && actionQuery is { } q && q.SelectedItems.Count > 0
+                    ? q.SelectedItems.ToArray()
+                    : null;
+                result = await Client.ExecuteActionAsync(prefix + name, CurrentPo, actionQuery, selected, dict).ConfigureAwait(false);
             }
             // ExecuteActionAsync sets notification on the parent on error and returns null.
             if (result is null && CurrentPo != null && CurrentPo.HasNotification && CurrentPo.NotificationType == NotificationType.Error)

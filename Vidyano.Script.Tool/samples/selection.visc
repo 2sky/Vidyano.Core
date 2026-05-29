@@ -1,0 +1,80 @@
+### SELECT-ROWS — set the current query's selection for selection-gated actions, and observe it with
+### EXPECT Selection.Count / EXPECT Selection.AllSelected.
+###
+### Two flavors of selection:
+###   • Explicit rows — positional index, WHERE <col> = <value>, or a leading Detail "<name>" clause
+###     (row-addressing is identical to OPEN-ROW). These populate Query.SelectedItems.
+###   • Server-side select-all — SELECT-ROWS ALL [EXCEPT <target>]. Sets Query.AllSelected so the action
+###     operates on EVERY row the query matches on the backend, regardless of what's loaded client-side.
+### SELECT-ROWS *replaces* the selection — it never accumulates.
+###
+### Selection lives on the Query frame: it persists across ACTION, and is cleared by SEARCH / refresh /
+### a frame pop (Query.SelectedItems_CollectionChanged / the AllSelected setter → QueryAction.Invalidate
+### → CanExecute). A zero-match WHERE is NOT an error — selection simply becomes empty.
+###
+### This file is written to lint cleanly (vidyano lint) with no backend. The execution-only assertions
+### (anything that needs live rows / a real action result) are gated behind comments; uncomment them
+### when running against the local Raven sample:
+###   vidyano run selection.visc --insecure
+
+@app = "https://localhost:44353/"
+SIGN-IN admin / anything
+
+OPEN MenuItem Home/Orders
+
+### Server-side select-all. SELECT-ROWS ALL sets Query.AllSelected (serialized as `allSelected` on the
+### ExecuteAction request), so a following ACTION operates on every matching row on the backend — not
+### just the loaded page. The explicit selection list stays empty; the flag carries the intent.
+SELECT-ROWS ALL
+# EXPECT Selection.AllSelected = true
+# EXPECT Selection.Count = 0        # "all" carries no explicit rows — the flag does the work
+
+### Inverse select-all — SELECT-ROWS ALL EXCEPT <target>. AllSelected stays on, and the addressed rows
+### become the server-side EXCLUSION set ("all matching rows minus these"). EXCEPT takes the same row
+### targets as SELECT-ROWS: a non-strict WHERE or a positional index.
+SELECT-ROWS ALL EXCEPT WHERE Status = "Closed"
+# EXPECT Selection.AllSelected = true
+# EXPECT Selection.Count >= 1       # in inverse mode, Count reports the excluded rows
+SELECT-ROWS ALL EXCEPT 0
+# EXPECT Selection.AllSelected = true
+
+### Explicit selection — a single positional row. This clears the all-selected flag (replace, not add).
+SELECT-ROWS 0
+# EXPECT Selection.Count = 1
+# EXPECT Selection.AllSelected = false
+
+### Replace with a predicate. WHERE is non-strict: it may match many rows (unlike OPEN-ROW WHERE, which
+### is strict). Value is service-string form, same convention as SET.
+SELECT-ROWS WHERE Status = "Open"
+# EXPECT Selection.Count >= 1
+
+### A zero-match WHERE leaves the selection empty — tolerated, not a failure. Tolerant cleanup uses the
+### existing primitives (REQUIRES + CLEANUP) rather than a new error policy.
+SELECT-ROWS WHERE Status = "NoSuchStatusValue"
+# EXPECT Selection.Count = 0
+
+### The Detail clause is orthogonal to the ALL/EXCEPT/index/WHERE choice — it redirects selection (and
+### EXPECT Selection.*) onto a named detail query on the current PO, mirroring OPEN-ROW.
+OPEN-ROW 0
+SELECT-ROWS Detail "OrderLines" ALL
+# EXPECT Detail "OrderLines" Selection.AllSelected = true
+SELECT-ROWS Detail "OrderLines" WHERE Product = "Widget"
+SELECT-ROWS Detail "OrderLines" 0
+### ACTION takes the same leading Detail clause, so a detail selection has a verb to act on: the action
+### resolves from — and posts against — the detail query (parent = the master PO), not the nav-stack query.
+### Commented — destructive + live server.
+# ACTION Detail "OrderLines" Delete
+GO-BACK
+
+### Clear the selection — NONE is a keyword on SELECT-ROWS, not a separate verb. Clears AllSelected too.
+SELECT-ROWS NONE
+# EXPECT Selection.Count = 0
+# EXPECT Selection.AllSelected = false
+
+### Selection-gated ACTION. Delete carries a SelectionRule (>=1), so CanExecute is false until rows are
+### selected; SELECT-ROWS flips it. With ALL, the rule sees the effective count (TotalItems minus any
+### exclusions), so select-all enables Delete with no explicit rows. Commented — destructive + live server.
+SELECT-ROWS ALL
+# REQUIRES Selection.AllSelected = true
+# ACTION Delete
+# EXPECT ClientOperation Refresh IS NOT NULL

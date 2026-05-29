@@ -45,14 +45,15 @@ Console.WriteLine($"{(result.Success ? "PASS" : "FAIL")}: " +
 
 A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with **EXPECT** assertions checking observable state at each step. Verbs map 1:1 to user actions a frontend would perform:
 
-- `SIGN-IN <user> / <password>` — authenticate.
+- `SIGN-IN <user> / <password>` — authenticate. `SIGN-IN FROM ENV` reads `VIDYANO_USER` / `VIDYANO_PASSWORD` from the environment instead (loud-fails if either is unset).
 - `OPEN MenuItem <path>` — navigate to a query.
 - `OPEN-ROW <index>` — drill into a row by position.
 - `OPEN-ROW WHERE <column> = <value>` — drill into the single row matched by a column value (strict — 0 or >1 matches fail; value in service-string form, like `SET`). Addresses a fixture by reference instead of a brittle row index.
+- `SELECT-ROWS <ALL | ALL EXCEPT <index|WHERE …> | NONE | <index> | WHERE <column> = <value>>` — set the current query's selection so a selection-gated `ACTION` (e.g. `Delete`) can run. `ALL` is **server-side select-all** — it sets `Query.AllSelected` (serialized as `allSelected`) so the action operates on every row the query matches on the backend, regardless of what is loaded; the explicit selection stays empty. `ALL EXCEPT <index|WHERE>` is **inverse** selection — the addressed rows become the server-side exclusion set. `<index>` / `WHERE` (non-strict) / `NONE` set explicit rows and clear the flag. Replaces the selection (never accumulates), never pushes a frame; `CanExecute` flips automatically. Optional leading `Detail "<name>"` targets a detail query.
 - `SEARCH <text>` — text-search the current query.
 - `EDIT` / `CANCEL` / `SAVE` — standard PO edit lifecycle.
 - `SET <attribute> = <value>` — change an attribute (incl. reference SET semantics).
-- `ACTION <action>` — invoke an action by name.
+- `ACTION <action>` — invoke an action by name. An optional leading `Detail "<name>"` clause targets a detail query on the current PO (`PersistentObject.Queries`) instead of the nav-stack query: the action resolves from — and posts against — that detail query (parent stays the master PO), so a `SELECT-ROWS Detail "<name>"` selection has a verb to act on.
 
 ### Reserved `@session` variable
 
@@ -66,7 +67,7 @@ EXPECT @session.Customer CONTAINS "Smith"
 
 The names `session`, `user`, `application` are reserved; `@session = …` is a parse error. `@user` / `@application` parse but produce a runtime diagnostic until wired up.
 
-EXPECT supports nav-stack state (`NavStack.Depth`, `NavStack.Top.Kind`, `NavStack.Top.Name`, `NavStack.Top.IsDialog`), query state (`TotalItems`, `IsInEdit`), notification state, and the `ClientOperation` queue:
+EXPECT supports nav-stack state (`NavStack.Depth`, `NavStack.Top.Kind`, `NavStack.Top.Name`, `NavStack.Top.IsDialog`), query state (`TotalItems`, `Selection.Count`, `Selection.AllSelected`, `IsInEdit`), notification state, and the `ClientOperation` queue:
 
 ```visc
 EXPECT NavStack.Depth = 2
@@ -123,6 +124,44 @@ Argument values participate in the regular expression grammar (literals, `{{vars
 
 For CLI-driven runs, implement `IVidyanoScriptToolPack` and load the DLL with `vidyano run … --tools <path.dll>` — see the [Vidyano.Script.Tool README](https://www.nuget.org/packages/Vidyano.Script.Tool/) for the plugin contract.
 
+### Capturing run artifacts for verification
+
+A `.visc` run drives a live session; an in-process host often wants to grab a specific `PersistentObject` or `Query` *as it existed mid-run* and assert on it afterward (a separate "verify" step). The `TOOL` context exposes the live session, so a registered tool can hand the instance straight back to your host through a closure:
+
+```csharp
+PersistentObject? captured = null;
+
+var options = new VidyanoScriptOptions
+{
+    Tools =
+    {
+        ["capture"] = (ctx, args, ct) =>
+        {
+            captured = ctx.Session.CurrentPo;        // or ctx.Session.CurrentQuery
+            return Task.FromResult(ScriptToolResult.Ok);
+        },
+    },
+};
+
+await VidyanoScript.RunFileAsync("flow.visc", options);
+// `captured` is the live PO from the run — assert on it here.
+```
+
+```visc
+OPEN MenuItem Home/Customers
+OPEN-ROW 0
+TOOL capture            ## stash the current PO into the host
+```
+
+`ctx.Session.CurrentPo` / `CurrentQuery` are the same instances the verbs operate on. To pass a value *into the script* instead of the host, return `ScriptToolResult.Value(obj)` and bind it with `TOOL capture -> @snapshot`; the variable table holds arbitrary objects, so a later tool in the same run can read `ctx.Variables["snapshot"]`.
+
+Two limits worth knowing:
+
+- **`ScriptResult` does not expose the variable table** — the tool closure above is how you hand an object to the host; you cannot read script `@vars` off the result.
+- **A live `PersistentObject` cannot cross into a separate process/run** — it is an object graph bound to this session's `Client`. For a cross-run verify, capture its `Id` and re-open it by reference there (`OPEN-ROW WHERE Id = {{customerId}}`).
+
+If your host drives `Vidyano.Core` directly (outside this engine — e.g. a test driver that owns the `Client`), a `Hooks` subclass is another capture point: override the hook that fires for the objects you care about and record them, the same way the engine's own hooks buffer client operations.
+
 ## Deterministic regression scripts
 
 A script you check in has to pass on a teammate's machine with different data. These features let one `.visc` gate itself, pin its own randomness, and assert with patterns instead of exact values:
@@ -145,6 +184,7 @@ ACTION Delete
 - **`REQUIRES <assertion>`** — reuses the full `EXPECT` grammar. Holds → continue; unmet or unevaluable → skip the rest of the body with a `state-requires-unmet` diagnostic (a skip, **not** a failure). **`REQUIRES TOOL <name>`** gates on a registered tool.
 - **`CLEANUP`** — a marker; everything after it runs even when the body was skipped, so teardown never gets stranded.
 - **Built-in vars** `{{@today}} {{@now}} {{@uuid}} {{@random}}` — evaluated on each reference, mirroring `DateTime.Now` / `rng.Next()` in C#. `Seed` fixes the `@uuid`/`@random` sequence (independent streams; each reference draws the next value); `Now` anchors the clock, which then flows by real elapsed time. Capture into a variable (`@id = {{@uuid}}`) to freeze a value for reuse.
+- **Environment values** — `{{env:NAME}}` reads an environment variable, **loud-failing if unset** (never a silent empty value); `{{env:NAME ?? "fallback"}}` makes it optional. CLI `--env-file <path>` loads literal `KEY=VALUE` pairs from a `.env` (full-line `#` comments and an optional `export ` prefix; no quote stripping or `${VAR}` expansion) that back `{{env:NAME}}` and `SIGN-IN FROM ENV`, **shadowing the process environment** (repeatable; last file wins per key). `VidyanoScriptOptions.EnvironmentPrefix` (CLI `--env-prefix VIDYANO_`) bulk-binds `VIDYANO_*` **process** env vars into plain `{{NAME}}` vars with the prefix stripped (not fed by `--env-file`), and an explicit `--var` / `Variables` entry always wins. Hosts can inject `VidyanoScriptOptions.EnvLookup` directly for hermetic runs — the seam `--env-file` composes.
 - **`EXPECT … MATCHES "<regex>"`** — regex assertion on the subject's string form (1s ReDoS-guard timeout; a malformed pattern is a clean failure, null never matches).
 - **In-string interpolation** — `{{…}}` holes resolve inside `"…"` literals using the same machinery as a standalone `{{…}}`, so values compose (`"Acme {{@uuid}}"`). Escape a literal brace as `\{`.
 

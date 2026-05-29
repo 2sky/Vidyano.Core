@@ -30,8 +30,11 @@ public sealed record ModeDirective(GuardMode Mode, SourceLocation Location) : St
 
 /// <summary><c>SIGN-IN user / password [LANGUAGE xx-XX]</c>. <see cref="Language"/> is sent as
 /// <c>data["requestedLanguage"]</c> via <see cref="Hooks.OnCreateData"/> so subsequent server-rendered
-/// labels, messages, and notifications come back localized.</summary>
-public sealed record SignInStmt(string? SessionName, Expression UserName, Expression? Password, Expression? Language, SourceLocation Location) : Statement(Location);
+/// labels, messages, and notifications come back localized.
+/// <para><c>SIGN-IN FROM ENV [LANGUAGE xx-XX]</c> sets <see cref="FromEnv"/> — the interpreter reads
+/// <c>VIDYANO_USER</c> / <c>VIDYANO_PASSWORD</c> from the environment and loud-fails either when unset.
+/// In that form <see cref="UserName"/> and <see cref="Password"/> are <c>null</c>.</para></summary>
+public sealed record SignInStmt(string? SessionName, Expression? UserName, Expression? Password, Expression? Language, SourceLocation Location, bool FromEnv = false) : Statement(Location);
 
 /// <summary><c>SIGN-OUT</c> (current session) or <c>SIGN-OUT @name</c>.</summary>
 public sealed record SignOutStmt(string? SessionName, SourceLocation Location) : Statement(Location);
@@ -59,6 +62,32 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// positional-vs-WHERE choice: when set, the row is selected from the named detail query on the current
 /// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query.</para></summary>
 public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null) : Statement(Location);
+
+/// <summary><c>SELECT-ROWS &lt;target&gt;</c> — set the selection on the resolved Query so a
+/// selection-gated action (e.g. Delete) can run. Always replaces the current selection; never pushes a
+/// navigation frame. The target modes:
+/// <list type="bullet">
+///   <item><see cref="All"/> — <c>SELECT-ROWS ALL</c>: server-side select-all. Sets
+///     <see cref="Query.AllSelected"/> so the action operates on <em>every</em> row the query matches on
+///     the backend, regardless of what is loaded. With no EXCEPT clause <see cref="SelectedItems"/> is left
+///     empty (pure "all").</item>
+///   <item><see cref="All"/> + an EXCEPT target — <c>SELECT-ROWS ALL EXCEPT &lt;index | WHERE col = value&gt;</c>:
+///     inverse selection. <see cref="AllSelected"/> is set and the EXCEPT rows ride on
+///     <see cref="Index"/> (positional) or <see cref="MatchColumn"/>/<see cref="MatchValue"/> (WHERE); the
+///     server reinterprets them as the <em>exclusion</em> set. WHERE is non-strict.</item>
+///   <item><see cref="None"/> — <c>SELECT-ROWS NONE</c>, clears the selection (and <see cref="AllSelected"/>).</item>
+///   <item><see cref="Index"/> (with <see cref="All"/> false) — <c>SELECT-ROWS &lt;index&gt;</c>, one row by
+///     position (bounds-checked).</item>
+///   <item><see cref="MatchColumn"/> + <see cref="MatchOp"/> + <see cref="MatchValue"/> (with <see cref="All"/>
+///     false) — <c>SELECT-ROWS WHERE &lt;col&gt; = &lt;value&gt;</c>, every row whose cell equals the value
+///     (non-strict: zero or many matches are both fine).</item>
+/// </list>
+/// When <see cref="All"/> is false the index/WHERE fields carry the positive selection; when <see cref="All"/>
+/// is true they carry the (optional) EXCEPT exclusion set — the flag disambiguates the two readings.
+/// <para><see cref="DetailName"/> (the optional leading <c>Detail "&lt;name&gt;"</c> clause) is orthogonal:
+/// when set, the rows come from the named detail query on the current PO instead of the current Query —
+/// mirroring <see cref="OpenRowStmt"/>.</para></summary>
+public sealed record SelectRowsStmt(bool All, bool None, Expression? Index, string? MatchColumn, ExpectOp? MatchOp, Expression? MatchValue, string? DetailName, SourceLocation Location) : Statement(Location);
 
 /// <summary><c>GO-BACK</c> — pop the top navigation frame, revealing the one beneath (the
 /// browser back button). Refuses when the top is a PO in edit (SAVE or CANCEL first) and when
@@ -93,14 +122,20 @@ public sealed record SetStmt(string? Handle, string Attribute, Expression Value,
 /// <see cref="ActionBase.Options"/> — <see cref="OptionHint"/>=<see cref="ReferenceHintKind.RawId"/>
 /// treats the value as an int index, otherwise the value is matched against the option label.
 /// The <c>=</c> and <c>(…)</c> forms are mutually exclusive — Core's <c>Execute(option)</c> does
-/// not accept named parameters.</summary>
+/// not accept named parameters.
+/// <para>An optional leading <c>Detail "&lt;name&gt;"</c> clause (<see cref="DetailName"/>) targets a
+/// named detail query on the current PO instead of the navigation-stack query, mirroring
+/// <c>SELECT-ROWS</c>/<c>EXPECT</c>/<c>OPEN-ROW</c>. The action resolves from — and executes against —
+/// that detail query, so a selection set with <c>SELECT-ROWS Detail "…"</c> is what a selection-gated
+/// action operates on.</para></summary>
 public sealed record ActionStmt(
     string? Handle,
     string ActionName,
     IReadOnlyDictionary<string, Expression>? Parameters,
     SourceLocation Location,
     Expression? Option = null,
-    ReferenceHintKind? OptionHint = null) : Statement(Location);
+    ReferenceHintKind? OptionHint = null,
+    string? DetailName = null) : Statement(Location);
 
 /// <summary><c>SEARCH "text"</c> on the current query.</summary>
 public sealed record SearchStmt(string? Handle, Expression Text, SourceLocation Location) : Statement(Location);
@@ -149,6 +184,14 @@ public enum ExpectSubjectKind
     IsInEdit,
     /// <summary><c>EXPECT TotalItems ...</c> on the current query.</summary>
     TotalItems,
+    /// <summary><c>EXPECT Selection.Count ...</c> — number of selected rows on the current query
+    /// (<c>Query.SelectedItems.Count</c>). Detail-redirectable, mirroring <see cref="TotalItems"/>.</summary>
+    SelectionCount,
+    /// <summary><c>EXPECT Selection.AllSelected ...</c> — the server-side select-all flag
+    /// (<c>Query.AllSelected</c>). True after <c>SELECT-ROWS ALL</c> (with or without EXCEPT). Stays an
+    /// honest boolean: when set, <see cref="SelectionCount"/> still reports only the literal/exclusion rows,
+    /// not the full set. Detail-redirectable, mirroring <see cref="SelectionCount"/>.</summary>
+    SelectionAllSelected,
     /// <summary><c>EXPECT ClientOperation Refresh "X"</c> — check operations from the previous verb's response.
     /// <see cref="ExpectSubject.Name"/> holds the operation type (Refresh / ShowNotification / Navigate / …).</summary>
     ClientOperation,
@@ -231,7 +274,7 @@ public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, Attribu
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.
 /// <see cref="Available"/> is <c>IsVisible &amp;&amp; !IsReadOnly</c> — the same guard
-/// <see cref="VidyanoSession.SetAttribute"/> uses to decide whether a SET would succeed.</summary>
+/// <see cref="VidyanoSession.SetAttributeAsync"/> uses to decide whether a SET would succeed.</summary>
 public enum AttributeFlagKind { None, Visible, ReadOnly, Required, Available }
 
 /// <summary>EXPECT comparison operators. <see cref="Is"/>/<see cref="IsNot"/> drive boolean assertions like IS AVAILABLE.

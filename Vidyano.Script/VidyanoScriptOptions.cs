@@ -29,6 +29,8 @@ public sealed class VidyanoScriptOptions
         AcceptAnyServerCertificate = source.AcceptAnyServerCertificate;
         Now = source.Now;
         Seed = source.Seed;
+        EnvLookup = source.EnvLookup;
+        EnvironmentPrefix = source.EnvironmentPrefix;
         foreach (var kv in source.Variables) Variables[kv.Key] = kv.Value;
         foreach (var kv in source.Tools) Tools[kv.Key] = kv.Value;
     }
@@ -102,4 +104,20 @@ public sealed class VidyanoScriptOptions
     /// Capture into a variable to freeze a value for reuse. When unset, the streams are unseeded.
     /// </summary>
     public int? Seed { get; set; }
+
+    /// <summary>
+    /// Resolves an environment-variable name to its value, backing <c>{{env:NAME}}</c> and
+    /// <c>SIGN-IN FROM ENV</c>. Defaults to <see cref="System.Environment.GetEnvironmentVariable(string)"/>
+    /// when null. Inject a closure for hermetic NUnit / VidyanoTestDriver runs so a test never depends on
+    /// the host's process environment.
+    /// </summary>
+    public System.Func<string, string?>? EnvLookup { get; set; }
+
+    /// <summary>
+    /// When set, process environment variables whose names start with this prefix are bulk-bound into the
+    /// variable table with the prefix stripped (IConfiguration convention: <c>VIDYANO_REGION</c> →
+    /// <c>{{REGION}}</c>). An explicit <see cref="Variables"/> / <c>--var</c> binding always wins. Bulk
+    /// binding reads the live process environment, not <see cref="EnvLookup"/>.
+    /// </summary>
+    public string? EnvironmentPrefix { get; set; }
 }

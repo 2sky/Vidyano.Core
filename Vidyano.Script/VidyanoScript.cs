@@ -71,7 +71,7 @@ public static class VidyanoScript
         {
             var conn = await adapter.StartAsync().ConfigureAwait(false);
             using var session = new VidyanoSession(conn.BaseUri, conn.HttpClient, opts.AcceptAnyServerCertificate);
-            var interpreter = new Interpreter(session, opts.Variables, opts.Mode, opts.Tools, now: opts.Now, seed: opts.Seed);
+            var interpreter = new Interpreter(session, opts.Variables, opts.Mode, opts.Tools, now: opts.Now, seed: opts.Seed, envLookup: opts.EnvLookup, envPrefix: opts.EnvironmentPrefix);
             return await interpreter.RunAsync(script).ConfigureAwait(false);
         }
         finally

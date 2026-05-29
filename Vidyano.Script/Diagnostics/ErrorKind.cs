@@ -33,6 +33,7 @@ public static class ErrorKind
     public const string ResolveAction            = "resolve-action";
     public const string ResolveQuery             = "resolve-query";
     public const string ResolveMenuItem          = "resolve-menu-item";
+    public const string ResolveEnv               = "resolve-env";
 
     // Tier-1 guard — operation invalid for the current PO/Query
     public const string GuardAttributeHidden     = "guard-attribute-hidden";
