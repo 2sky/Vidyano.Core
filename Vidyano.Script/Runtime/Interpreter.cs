@@ -356,8 +356,8 @@ public sealed class Interpreter
         if (!v.Ok) return Fail(s, v.Error!);
         ReferenceHint? hint = s.Hint is null ? null : new ReferenceHint(s.Hint.Value, AsString(v.Value));
         var res = s.Scope is null
-            ? _session.SetAttribute(s.Attribute, v.Value, s.Location, hint)
-            : _session.SetScopedAttribute(s.Scope, s.Attribute, v.Value, hint, s.Location);
+            ? await _session.SetAttributeAsync(s.Attribute, v.Value, s.Location, hint).ConfigureAwait(false)
+            : await _session.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location).ConfigureAwait(false);
         return Wrap(s, res);
     }
 

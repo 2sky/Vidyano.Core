@@ -804,17 +804,17 @@ public sealed class VidyanoSession : IDisposable
     ///   override the search text, or <see cref="ReferenceHint.RawId"/> to bypass the lookup entirely.</item>
     /// </list>
     /// </remarks>
-    public OpResult SetAttribute(string name, object? value, SourceLocation loc, ReferenceHint? hint = null)
+    public async Task<OpResult> SetAttributeAsync(string name, object? value, SourceLocation loc, ReferenceHint? hint = null)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
-        return SetAttributeOn(CurrentPo, name, value, loc, hint);
+        return await SetAttributeOnAsync(CurrentPo, name, value, loc, hint).ConfigureAwait(false);
     }
 
     /// <summary>Sets an attribute on an explicit PO. Shared body between the implicit current-PO
-    /// path (<see cref="SetAttribute"/>) and the scoped path (<see cref="SetScopedAttribute"/>).
+    /// path (<see cref="SetAttributeAsync"/>) and the scoped path (<see cref="SetScopedAttributeAsync"/>).
     /// The only difference between callers is which PO they target — the hidden/readonly guards,
     /// the auto-enter-edit behaviour, and the reference-resolution branch are identical.</summary>
-    private OpResult SetAttributeOn(PersistentObject po, string name, object? value, SourceLocation loc, ReferenceHint? hint)
+    private async Task<OpResult> SetAttributeOnAsync(PersistentObject po, string name, object? value, SourceLocation loc, ReferenceHint? hint)
     {
         var attr = po.GetAttribute(name);
         if (attr is null)
@@ -847,7 +847,7 @@ public sealed class VidyanoSession : IDisposable
             po.Edit();
 
         if (attr is PersistentObjectAttributeWithReference refAttr)
-            return SetReferenceAttribute(refAttr, value, loc, hint);
+            return await SetReferenceAttributeAsync(refAttr, value, loc, hint).ConfigureAwait(false);
 
         // Non-reference Options-bearing attrs (KeyValueList / Dropdown / ComboBox) accept the same
         // LOOKUP/ID hints — resolve the value against Options[] and assign the matching Key. A bare
@@ -902,14 +902,14 @@ public sealed class VidyanoSession : IDisposable
             }));
     }
 
-    private OpResult SetReferenceAttribute(PersistentObjectAttributeWithReference attr, object? value, SourceLocation loc, ReferenceHint? hint)
+    private async Task<OpResult> SetReferenceAttributeAsync(PersistentObjectAttributeWithReference attr, object? value, SourceLocation loc, ReferenceHint? hint)
     {
         // Explicit RawId hint: bypass lookup logic — the caller asserts they know the key. An empty
         // Id (SET attr = ID "") means "clear", same as a null value below.
         if (hint is { Kind: ReferenceHintKind.RawId, Value: var rawId })
         {
             if (string.IsNullOrEmpty(rawId))
-                return ClearReference(attr, loc);
+                return await ClearReferenceAsync(attr, loc).ConfigureAwait(false);
 
             // SelectInPlace refs carry their choices in Options[]; the setter routes the key through
             // ChangeReference for us. For popup/lookup refs (SelectInPlace == false) the
@@ -921,12 +921,12 @@ public sealed class VidyanoSession : IDisposable
                 attr.SelectedReferenceValue = rawId;
                 return OpResult.Success;
             }
-            return SetReferenceByIdAsync(attr, rawId, loc).GetAwaiter().GetResult();
+            return await SetReferenceByIdAsync(attr, rawId, loc).ConfigureAwait(false);
         }
 
         // Null clears the reference (when allowed).
         if (value is null)
-            return ClearReference(attr, loc);
+            return await ClearReferenceAsync(attr, loc).ConfigureAwait(false);
 
         var text = value as string ?? value.ToString() ?? "";
 
@@ -949,13 +949,13 @@ public sealed class VidyanoSession : IDisposable
                 loc));
 
         var search = hint is { Kind: ReferenceHintKind.Lookup, Value: var s } ? (s ?? text) : text;
-        return SetReferenceViaLookupAsync(attr, search, loc).GetAwaiter().GetResult();
+        return await SetReferenceViaLookupAsync(attr, search, loc).ConfigureAwait(false);
     }
 
     /// <summary>Clears a reference attribute, honoring the required guard. For popup/lookup refs
     /// (SelectInPlace == false) the SelectedReferenceValue setter is a no-op, so the clear must go
     /// through ChangeReference(null) — a backend call — exactly like setting one by Id does.</summary>
-    private OpResult ClearReference(PersistentObjectAttributeWithReference attr, SourceLocation loc)
+    private async Task<OpResult> ClearReferenceAsync(PersistentObjectAttributeWithReference attr, SourceLocation loc)
     {
         if (!attr.CanRemoveReference)
             return OpResult.Fail(new Diagnostic(
@@ -967,7 +967,7 @@ public sealed class VidyanoSession : IDisposable
             attr.SelectedReferenceValue = null;
             return OpResult.Success;
         }
-        return SetReferenceByIdAsync(attr, null, loc).GetAwaiter().GetResult();
+        return await SetReferenceByIdAsync(attr, null, loc).ConfigureAwait(false);
     }
 
     /// <summary>Selects (or, when <paramref name="rawId"/> is null, clears) a non-SelectInPlace
@@ -1100,13 +1100,13 @@ public sealed class VidyanoSession : IDisposable
     }
 
     /// <summary>Sets an attribute on a scoped PO. Same edit/guard/reference-resolution semantics
-    /// as <see cref="SetAttribute"/>, but targeting <see cref="Vidyano.Client.Session"/> (or, in
+    /// as <see cref="SetAttributeAsync"/>, but targeting <see cref="Vidyano.Client.Session"/> (or, in
     /// the future, <c>@user</c>/<c>@application</c>) instead of the navigation-stack top.</summary>
-    public OpResult SetScopedAttribute(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc)
+    public async Task<OpResult> SetScopedAttributeAsync(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc)
     {
         var poRes = ResolveScopePo(scope, loc);
         if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
-        return SetAttributeOn(poRes.Value!, attributeName, value, loc, hint);
+        return await SetAttributeOnAsync(poRes.Value!, attributeName, value, loc, hint).ConfigureAwait(false);
     }
 
     /// <summary>

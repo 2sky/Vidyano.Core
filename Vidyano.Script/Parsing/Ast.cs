@@ -268,7 +268,7 @@ public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, Attribu
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.
 /// <see cref="Available"/> is <c>IsVisible &amp;&amp; !IsReadOnly</c> — the same guard
-/// <see cref="VidyanoSession.SetAttribute"/> uses to decide whether a SET would succeed.</summary>
+/// <see cref="VidyanoSession.SetAttributeAsync"/> uses to decide whether a SET would succeed.</summary>
 public enum AttributeFlagKind { None, Visible, ReadOnly, Required, Available }
 
 /// <summary>EXPECT comparison operators. <see cref="Is"/>/<see cref="IsNot"/> drive boolean assertions like IS AVAILABLE.

@@ -9,5 +9,5 @@ public enum ReferenceHintKind
     Lookup,
 }
 
-/// <summary>Optional override for how <see cref="VidyanoSession.SetAttribute"/> resolves a reference.</summary>
+/// <summary>Optional override for how <see cref="VidyanoSession.SetAttributeAsync"/> resolves a reference.</summary>
 public sealed record ReferenceHint(ReferenceHintKind Kind, string Value);
