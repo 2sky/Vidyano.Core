@@ -536,12 +536,17 @@ public sealed class VidyanoSession : IDisposable
 
     // --- SELECT-ROWS --------------------------------------------------------------------------
 
-    /// <summary><c>SELECT-ROWS &lt;target&gt;</c> — replace the selection on the resolved Query so a
+    /// <summary><c>SELECT-ROWS &lt;target&gt;</c> — set the selection on the resolved Query so a
     /// selection-gated action can run. The selection lives on the Query frame; <c>CanExecute</c> flips
-    /// for free via <see cref="Query.SelectedItems_CollectionChanged"/>. Targets:
+    /// for free via <see cref="Query.SelectedItems_CollectionChanged"/> / the <see cref="Query.AllSelected"/>
+    /// setter. Targets:
     /// <list type="bullet">
-    ///   <item><paramref name="none"/> — clear the selection.</item>
-    ///   <item><paramref name="all"/> — every currently loaded row (<c>GetItemsAsync(0, 0)</c>).</item>
+    ///   <item><paramref name="none"/> — clear the selection (and the all-selected flag).</item>
+    ///   <item><paramref name="all"/> — <c>SELECT-ROWS ALL</c>: server-side select-all. Sets
+    ///     <see cref="Query.AllSelected"/> so the action operates on every row the query matches on the
+    ///     backend, regardless of what is loaded. When <paramref name="index"/>/<paramref name="column"/> are
+    ///     also supplied (the <c>ALL EXCEPT</c> form) the addressed rows become the server-side
+    ///     <em>exclusion</em> set; otherwise the selection is left empty (pure "all").</item>
     ///   <item><paramref name="index"/> — one row by position (bounds-checked against <c>TotalItems</c>).</item>
     ///   <item><paramref name="column"/>/<paramref name="value"/> — every row whose cell equals the value
     ///     (non-strict: zero or many matches are both fine — unlike OPEN-ROW WHERE which is strict).</item>
@@ -556,33 +561,28 @@ public sealed class VidyanoSession : IDisposable
 
         if (none)
         {
+            query.AllSelected = false;
             query.SelectedItems.Clear();
             return OpResult.Success;
         }
 
         try
         {
-            IReadOnlyList<QueryResultItem> chosen;
-            if (all)
+            // Resolve the rows the index/WHERE clause addresses (empty when neither is present — a pure
+            // SELECT-ROWS ALL). For a normal SELECT-ROWS these are the positive selection; for SELECT-ROWS
+            // ALL EXCEPT they are the exclusion set the server subtracts from the full result.
+            IReadOnlyList<QueryResultItem> rows;
+            if (column != null)
             {
-                // top==0 = all rows from skip — load the whole set (same convention as OPEN-ROW WHERE).
-                // Filter nulls: Query's enumerator yields null for gaps in the backing dict (e.g. after a
-                // non-contiguous prior load), and a null in SelectedItems would inflate Selection.Count and
-                // post a null slot on ACTION — the WHERE branch below guards the same way.
-                chosen = (await query.GetItemsAsync(0, 0).ConfigureAwait(false)).Where(r => r != null).ToList();
-            }
-            else if (column != null)
-            {
-                // NON-STRICT: zero matches → empty selection, many → all of them (unlike strict OPEN-ROW
-                // WHERE). Column resolution + service-string matching is shared via MatchRowsByColumnAsync.
+                // NON-STRICT: zero matches → empty, many → all of them (unlike strict OPEN-ROW WHERE).
+                // Column resolution + service-string matching is shared via MatchRowsByColumnAsync.
                 var m = await MatchRowsByColumnAsync(query, column, value, loc).ConfigureAwait(false);
                 if (!m.Ok) return OpResult.Fail(m.Error!);
                 var (_, _, matches) = m.Value;
-                chosen = matches;
+                rows = matches;
             }
-            else
+            else if (index is { } idx)
             {
-                var idx = index!.Value;
                 if (idx < 0 || idx >= query.TotalItems)
                     return OpResult.Fail(new Diagnostic(
                         ErrorKind.AssertFailed,
@@ -592,12 +592,25 @@ public sealed class VidyanoSession : IDisposable
                 var row = items.FirstOrDefault();
                 if (row is null)
                     return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Could not load row {idx}.", loc));
-                chosen = new[] { row };
+                rows = new[] { row };
+            }
+            else
+            {
+                // Pure server-side select-all: no rows are addressed. Force a minimal load so TotalItems is
+                // populated — the WHERE/index paths load via their match/index lookups, but this path would
+                // otherwise never touch the server, leaving the effective selection count at 0 and a
+                // selection-gated action (Delete) disabled. (Cheaper than the old ALL, which loaded every row.)
+                await query.GetItemsAsync(0, 1).ConfigureAwait(false);
+                rows = System.Array.Empty<QueryResultItem>();
             }
 
+            // Replace the selection (SELECT-ROWS never accumulates). Filter nulls defensively (the index/
+            // WHERE paths already exclude them). With ALL the addressed rows become the exclusion set and
+            // AllSelected flips on; without ALL they ARE the selection and AllSelected is cleared.
             query.SelectedItems.Clear();
-            foreach (var r in chosen)
+            foreach (var r in rows.Where(r => r != null))
                 query.SelectedItems.Add(r);
+            query.AllSelected = all;
             return OpResult.Success;
         }
         catch (Exception ex)

@@ -95,6 +95,7 @@ public static class Cli
         AnsiConsole.MarkupLine("  [green]--seed[/] <int>           Fix the {{@uuid}}/{{@random}} sequence (next value per reference).");
         AnsiConsole.MarkupLine("  [green]--now[/] <iso-datetime>   Anchor the run clock for {{@today}}/{{@now}} (then flows by real elapsed).");
         AnsiConsole.MarkupLine("  [green]--env-prefix[/] <prefix>  Bind matching env vars into the variable table, prefix stripped (VIDYANO_REGION -> {{REGION}}). --var wins.");
+        AnsiConsole.MarkupLine("  [green]--env-file[/] <path>      Load KEY=VALUE pairs from a .env for {{env:NAME}} / SIGN-IN FROM ENV (shadows the process env). Repeatable; last wins.");
         AnsiConsole.MarkupLine("  [green]--json[/]                   NDJSON output (one event per line).");
         AnsiConsole.MarkupLine("  [green]--verbose[/]                Show per-statement snapshot detail.");
         AnsiConsole.MarkupLine("  [green]--insecure[/]               Bypass TLS validation (local dev certs only).");

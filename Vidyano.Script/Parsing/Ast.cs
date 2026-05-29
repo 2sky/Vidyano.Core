@@ -63,17 +63,27 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query.</para></summary>
 public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null) : Statement(Location);
 
-/// <summary><c>SELECT-ROWS &lt;target&gt;</c> — populate <see cref="Query.SelectedItems"/> so a
+/// <summary><c>SELECT-ROWS &lt;target&gt;</c> — set the selection on the resolved Query so a
 /// selection-gated action (e.g. Delete) can run. Always replaces the current selection; never pushes a
-/// navigation frame. Exactly one target mode is set:
+/// navigation frame. The target modes:
 /// <list type="bullet">
-///   <item><see cref="All"/> — <c>SELECT-ROWS ALL</c>, every currently loaded row.</item>
-///   <item><see cref="None"/> — <c>SELECT-ROWS NONE</c>, clears the selection.</item>
-///   <item><see cref="Index"/> — <c>SELECT-ROWS &lt;index&gt;</c>, one row by position (bounds-checked).</item>
-///   <item><see cref="MatchColumn"/> + <see cref="MatchOp"/> + <see cref="MatchValue"/> —
-///     <c>SELECT-ROWS WHERE &lt;col&gt; = &lt;value&gt;</c>, every row whose cell equals the value
+///   <item><see cref="All"/> — <c>SELECT-ROWS ALL</c>: server-side select-all. Sets
+///     <see cref="Query.AllSelected"/> so the action operates on <em>every</em> row the query matches on
+///     the backend, regardless of what is loaded. With no EXCEPT clause <see cref="SelectedItems"/> is left
+///     empty (pure "all").</item>
+///   <item><see cref="All"/> + an EXCEPT target — <c>SELECT-ROWS ALL EXCEPT &lt;index | WHERE col = value&gt;</c>:
+///     inverse selection. <see cref="AllSelected"/> is set and the EXCEPT rows ride on
+///     <see cref="Index"/> (positional) or <see cref="MatchColumn"/>/<see cref="MatchValue"/> (WHERE); the
+///     server reinterprets them as the <em>exclusion</em> set. WHERE is non-strict.</item>
+///   <item><see cref="None"/> — <c>SELECT-ROWS NONE</c>, clears the selection (and <see cref="AllSelected"/>).</item>
+///   <item><see cref="Index"/> (with <see cref="All"/> false) — <c>SELECT-ROWS &lt;index&gt;</c>, one row by
+///     position (bounds-checked).</item>
+///   <item><see cref="MatchColumn"/> + <see cref="MatchOp"/> + <see cref="MatchValue"/> (with <see cref="All"/>
+///     false) — <c>SELECT-ROWS WHERE &lt;col&gt; = &lt;value&gt;</c>, every row whose cell equals the value
 ///     (non-strict: zero or many matches are both fine).</item>
 /// </list>
+/// When <see cref="All"/> is false the index/WHERE fields carry the positive selection; when <see cref="All"/>
+/// is true they carry the (optional) EXCEPT exclusion set — the flag disambiguates the two readings.
 /// <para><see cref="DetailName"/> (the optional leading <c>Detail "&lt;name&gt;"</c> clause) is orthogonal:
 /// when set, the rows come from the named detail query on the current PO instead of the current Query —
 /// mirroring <see cref="OpenRowStmt"/>.</para></summary>
@@ -171,6 +181,11 @@ public enum ExpectSubjectKind
     /// <summary><c>EXPECT Selection.Count ...</c> — number of selected rows on the current query
     /// (<c>Query.SelectedItems.Count</c>). Detail-redirectable, mirroring <see cref="TotalItems"/>.</summary>
     SelectionCount,
+    /// <summary><c>EXPECT Selection.AllSelected ...</c> — the server-side select-all flag
+    /// (<c>Query.AllSelected</c>). True after <c>SELECT-ROWS ALL</c> (with or without EXCEPT). Stays an
+    /// honest boolean: when set, <see cref="SelectionCount"/> still reports only the literal/exclusion rows,
+    /// not the full set. Detail-redirectable, mirroring <see cref="SelectionCount"/>.</summary>
+    SelectionAllSelected,
     /// <summary><c>EXPECT ClientOperation Refresh "X"</c> — check operations from the previous verb's response.
     /// <see cref="ExpectSubject.Name"/> holds the operation type (Refresh / ShowNotification / Navigate / …).</summary>
     ClientOperation,

@@ -2,6 +2,8 @@
 
 > ✅ **Design phase complete** (`/design-interface`). Grammar and C# change-map below are hardened and ready for `/implement-issue` (point the skill at this file as the spec). GitHub Issues are disabled on this repo, so the RFC lives here as a committed doc.
 
+> ⚠️ **Partially superseded by a follow-up (same branch).** Since this RFC: (1) `SELECT-ROWS ALL` was **redefined** from "every loaded row" to **server-side select-all** — it sets `Query.AllSelected` (serialized as `allSelected`) and `SELECT-ROWS ALL EXCEPT <index|WHERE>` expresses inverse selection (the addressed rows become the server-side exclusion set). The new `EXPECT Selection.AllSelected` subject asserts the flag. (2) The legacy silent `{{$env NAME}}` form was **removed** (not kept as an alias) — use `{{env:NAME}}`. (3) `--env-file <path>` now loads literal `KEY=VALUE` pairs that back `{{env:NAME}}` / `SIGN-IN FROM ENV` (shadowing the process env), composed onto the same `EnvLookup` seam. The notes below predate these changes.
+
 Two `.visc` grammar gaps surfaced in conversation. Both have the Core plumbing already in place — only the script-language entry points are missing.
 
 ## Gap 1 — invoke selection-gated actions on a Query
@@ -54,7 +56,7 @@ SIGN-IN FROM ENV                                   # VIDYANO_USER / VIDYANO_PASS
 vidyano run x.visc --env-prefix VIDYANO_           # VIDYANO_REGION → {{REGION}}; an explicit --var still wins
 ```
 
-- `{{env:NAME}}` is **loud-on-missing** — the whole point is closing the empty-password footgun. The existing `{{$env NAME}}` stays as a **deprecated silent alias** (back-compat).
+- `{{env:NAME}}` is **loud-on-missing** — the whole point is closing the empty-password footgun. _(Follow-up: the legacy silent `{{$env NAME}}` form was removed rather than kept as an alias — see the banner at the top.)_
 - Only `??` (fallback) is added inside holes — **no `!` (required) marker**, because missing is loud *by default*, making it redundant.
 - `--env-prefix` strips the prefix (IConfiguration convention): `VIDYANO_REGION` → `{{REGION}}`. Precedence: explicit `--var` / script assignment overrides env-bound values.
 - `SIGN-IN FROM ENV` is **opt-in per statement** — credentials never appear implicitly on a plain `SIGN-IN`.
@@ -96,7 +98,7 @@ case SelectRowsStmt s: return await DoSelectRows(s);
 private async Task<StatementResult> DoSelectRows(SelectRowsStmt s);   // resolve target, mutate SelectedItems
 // EvaluateInterpolation (~1032): add EnvExpr handling via _envLookup —
 //   value ?? evaluate(Fallback); if both null → Fail(ErrorKind.ResolveEnv, "Environment variable 'NAME' is not set.")
-//   keep the legacy "$env " branch (silent) for back-compat
+//   (follow-up: the legacy "$env " branch was removed, not retained)
 // DoSignIn (~206): if FromEnv → read VIDYANO_USER / VIDYANO_PASSWORD via _envLookup, loud-fail each if null
 // _envLookup: Func<string,string?> from options (default Environment.GetEnvironmentVariable),
 //             with --env-prefix vars pre-bound into _vars

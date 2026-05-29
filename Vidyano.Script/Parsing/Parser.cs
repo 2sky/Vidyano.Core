@@ -436,6 +436,29 @@ public sealed class Parser
         if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "ALL", StringComparison.OrdinalIgnoreCase))
         {
             Advance();
+            // Optional inverse: `ALL EXCEPT <index | WHERE col = value>` — server-side select-all minus an
+            // exclusion set. The EXCEPT rows ride on the same Index/WHERE fields; All=true marks them as
+            // exclusions rather than the positive selection. ParseRowTarget's Detail out-param is unused —
+            // the next token is an index or WHERE, never Detail.
+            if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "EXCEPT", StringComparison.OrdinalIgnoreCase))
+            {
+                Advance();
+                if (!ParseRowTarget("SELECT-ROWS ALL EXCEPT", out var exIndex, out var exColumn, out var exMatchOp, out var exValue, out var exDetail))
+                    return null;
+                // The Detail clause is set once, up front (it redirects the whole statement); a Detail after
+                // EXCEPT would otherwise be silently swallowed by ParseRowTarget. Flag it rather than ignore.
+                if (exDetail != null)
+                {
+                    Error(ErrorKind.ParseUnexpectedToken,
+                        "A 'Detail' clause must precede ALL, not follow EXCEPT.",
+                        loc,
+                        hint: "Use: SELECT-ROWS Detail \"<name>\" ALL EXCEPT <index|WHERE …>");
+                    return null;
+                }
+                return exColumn != null
+                    ? new SelectRowsStmt(All: true, None: false, Index: null, MatchColumn: exColumn, MatchOp: exMatchOp, MatchValue: exValue, DetailName: detailName, Location: loc)
+                    : new SelectRowsStmt(All: true, None: false, Index: exIndex, MatchColumn: null, MatchOp: null, MatchValue: null, DetailName: detailName, Location: loc);
+            }
             return new SelectRowsStmt(All: true, None: false, Index: null, MatchColumn: null, MatchOp: null, MatchValue: null, DetailName: detailName, Location: loc);
         }
         if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "NONE", StringComparison.OrdinalIgnoreCase))
@@ -811,7 +834,7 @@ public sealed class Parser
     }
 
     private static bool IsQueryFamilySubject(ExpectSubjectKind k) => k is
-        ExpectSubjectKind.TotalItems or ExpectSubjectKind.SelectionCount or ExpectSubjectKind.QueryProperty or ExpectSubjectKind.QueryLabel or
+        ExpectSubjectKind.TotalItems or ExpectSubjectKind.SelectionCount or ExpectSubjectKind.SelectionAllSelected or ExpectSubjectKind.QueryProperty or ExpectSubjectKind.QueryLabel or
         ExpectSubjectKind.QueryMetadata or ExpectSubjectKind.QueryNavigationHints or
         ExpectSubjectKind.QueryPoProperty or ExpectSubjectKind.QueryColumn;
 
@@ -1020,21 +1043,34 @@ public sealed class Parser
         if (string.Equals(tok.Lexeme, "IsInEdit",   StringComparison.OrdinalIgnoreCase)) { Advance(); return new ExpectSubject(ExpectSubjectKind.IsInEdit,    null, AttributeFlagKind.None, tok.Location); }
         if (string.Equals(tok.Lexeme, "TotalItems", StringComparison.OrdinalIgnoreCase)) { Advance(); return new ExpectSubject(ExpectSubjectKind.TotalItems,  null, AttributeFlagKind.None, tok.Location); }
 
-        // EXPECT Selection.Count — number of selected rows on the current query (Detail-redirectable).
+        // EXPECT Selection.Count — number of selected rows; EXPECT Selection.AllSelected — the server-side
+        // select-all flag. Both Detail-redirectable.
         if (string.Equals(tok.Lexeme, "Selection", StringComparison.OrdinalIgnoreCase))
         {
             Advance();
-            if (!Match(TokenKind.Dot, out _) || Peek().Kind != TokenKind.Identifier ||
-                !string.Equals(Peek().Lexeme, "Count", StringComparison.OrdinalIgnoreCase))
+            if (!Match(TokenKind.Dot, out _) || Peek().Kind != TokenKind.Identifier)
             {
                 Error(ErrorKind.ParseExpected,
-                    "Expected '.Count' after 'Selection'.",
+                    "Expected '.Count' or '.AllSelected' after 'Selection'.",
                     Peek().Location,
                     hint: "EXPECT Selection.Count = 3");
                 return null;
             }
-            Advance(); // Count
-            return new ExpectSubject(ExpectSubjectKind.SelectionCount, null, AttributeFlagKind.None, tok.Location);
+            if (string.Equals(Peek().Lexeme, "Count", StringComparison.OrdinalIgnoreCase))
+            {
+                Advance(); // Count
+                return new ExpectSubject(ExpectSubjectKind.SelectionCount, null, AttributeFlagKind.None, tok.Location);
+            }
+            if (string.Equals(Peek().Lexeme, "AllSelected", StringComparison.OrdinalIgnoreCase))
+            {
+                Advance(); // AllSelected
+                return new ExpectSubject(ExpectSubjectKind.SelectionAllSelected, null, AttributeFlagKind.None, tok.Location);
+            }
+            Error(ErrorKind.ParseExpected,
+                "Expected '.Count' or '.AllSelected' after 'Selection'.",
+                Peek().Location,
+                hint: "EXPECT Selection.Count = 3  /  EXPECT Selection.AllSelected = true");
+            return null;
         }
 
         if (string.Equals(tok.Lexeme, "NavStack", StringComparison.OrdinalIgnoreCase))

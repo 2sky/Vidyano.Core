@@ -19,6 +19,8 @@ public sealed class Args
     public int? Seed { get; set; }
     public DateTimeOffset? Now { get; set; }
     public string? EnvironmentPrefix { get; set; }
+    public string? EnvFile { get; set; }
+    public Dictionary<string, string?> EnvFileValues { get; } = new(StringComparer.Ordinal);
     public List<string> Unknown { get; } = new();
 
     /// <summary>Parses positional + flag arguments. Unknown flags are collected; callers decide whether to error.</summary>
@@ -70,6 +72,27 @@ public sealed class Args
                 case "--env-prefix":
                     if (i + 1 >= args.Length) { result.Unknown.Add("--env-prefix requires a prefix"); break; }
                     result.EnvironmentPrefix = args[++i]; break;
+                case "--env-file":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--env-file requires a path"); break; }
+                    var envPath = args[++i];
+                    // Parse here (the single arg-validation gate both run and repl check via Unknown) so a
+                    // missing/unreadable file surfaces as a usage error instead of an exception later.
+                    // Repeatable: later files merge in, last value wins per key.
+                    if (!System.IO.File.Exists(envPath))
+                    {
+                        result.Unknown.Add(System.IO.Directory.Exists(envPath)
+                            ? $"--env-file '{envPath}' is a directory, not a file"
+                            : $"--env-file '{envPath}' not found");
+                        break;
+                    }
+                    try
+                    {
+                        foreach (var pair in DotEnv.Parse(System.IO.File.ReadAllText(envPath)))
+                            result.EnvFileValues[pair.Key] = pair.Value;
+                        result.EnvFile = envPath;
+                    }
+                    catch (Exception ex) { result.Unknown.Add($"--env-file '{envPath}' could not be read: {ex.Message}"); }
+                    break;
                 case "--json":     result.Json = true; break;
                 case "--verbose":  result.Verbose = true; break;
                 case "--insecure": result.Insecure = true; break;
@@ -96,6 +119,14 @@ public sealed class Args
         };
         if (Mode is { } m) opts.Mode = m;
         foreach (var kv in Vars) opts.Variables[kv.Key] = kv.Value;
+        if (EnvFile != null)
+        {
+            // Back {{env:NAME}} and SIGN-IN FROM ENV with the .env values, shadowing the process env; keys
+            // absent from the file fall through to it. (--env-prefix and --var use a separate variable
+            // namespace and are unaffected.)
+            var envValues = EnvFileValues;
+            opts.EnvLookup = name => envValues.TryGetValue(name, out var v) ? v : Environment.GetEnvironmentVariable(name);
+        }
         return opts;
     }
 }

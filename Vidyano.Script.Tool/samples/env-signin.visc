@@ -2,10 +2,14 @@
 ### command line. Three complementary layers, all explicit (nothing is read implicitly):
 ###
 ###   1. {{env:NAME}}            — inline, works in ANY value position (SIGN-IN, SET, params, EXPECT).
-###                                Loud-fails when unset (closes the empty-credential footgun the
-###                                deprecated silent {{$env NAME}} alias left open).
+###                                Loud-fails when unset, so a missing var never silently becomes an
+###                                empty credential.
 ###   2. {{env:NAME ?? "x"}}     — optional, with a literal fallback when NAME is unset.
 ###   3. SIGN-IN FROM ENV        — zero-ceremony: reads VIDYANO_USER / VIDYANO_PASSWORD, loud if missing.
+###
+### Where the values come from: the process environment by default, or a .env file via --env-file
+### (literal KEY=VALUE; shadows the process env) backing {{env:NAME}} and SIGN-IN FROM ENV:
+###   vidyano run env-signin.visc --env-file .env.local --insecure
 ###
 ### --env-prefix bulk-binds matching process env vars into the variable table with the prefix
 ### stripped (IConfiguration convention), so {{REGION}} resolves from VIDYANO_REGION. An explicit

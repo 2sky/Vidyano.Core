@@ -335,11 +335,12 @@ public sealed class Interpreter
             if (!mv.Ok) return Fail(sr, mv.Error!);
             matchValue = mv.Value;
         }
-        else if (!sr.All && !sr.None)
+        else if (sr.Index != null)
         {
-            // Coerce the positional index in the interpreter layer (mirrors DoOpenRow) so the
-            // "needs an integer index" diagnostic comes from the same place for both verbs.
-            var v = EvaluateExpression(sr.Index!);
+            // Positional index — the positive selection (`SELECT-ROWS <i>`) or, when All is set, the
+            // EXCEPT exclusion row (`SELECT-ROWS ALL EXCEPT <i>`). Coerce in the interpreter layer (mirrors
+            // DoOpenRow) so the "needs an integer index" diagnostic comes from the same place for both verbs.
+            var v = EvaluateExpression(sr.Index);
             if (!v.Ok) return Fail(sr, v.Error!);
             if (!TryCoerceInt(v.Value, out var idx))
                 return Fail(sr, new Diagnostic(ErrorKind.ParseInvalidValue, "SELECT-ROWS needs an integer index.", sr.Location));
@@ -818,6 +819,10 @@ public sealed class Interpreter
                 if (query is null)
                     return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Selection.Count needs a current Query.", loc));
                 return OpResult<object?>.Success((object?)query.SelectedItems.Count);
+            case ExpectSubjectKind.SelectionAllSelected:
+                if (query is null)
+                    return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Selection.AllSelected needs a current Query.", loc));
+                return OpResult<object?>.Success((object?)query.AllSelected);
             case ExpectSubjectKind.NavStackDepth:
                 return OpResult<object?>.Success((object?)_session.NavStackDepth);
             case ExpectSubjectKind.NavStackTopKind:
@@ -1111,12 +1116,6 @@ public sealed class Interpreter
     private OpResult<object?> EvaluateInterpolation(InterpExpr interp)
     {
         var inner = interp.Inner.Trim();
-        if (inner.StartsWith("$env ", StringComparison.OrdinalIgnoreCase))
-        {
-            var name = inner.Substring(5).Trim();
-            var val = Environment.GetEnvironmentVariable(name);
-            return OpResult<object?>.Success(val);
-        }
         // Built-in deterministic variables (D5): dotless @-names resolved before the @scope.attr
         // path. Each is evaluated on every reference, not memoized: {{@now}} flows from a per-run
         // anchor, and {{@uuid}}/{{@random}} draw the next value from a seeded stream. To freeze a
@@ -1180,9 +1179,10 @@ public sealed class Interpreter
                 interp.Location,
                 Hint: Suggester.Hint(key, _session.Client.Messages.Keys)));
         }
-        // {{env:NAME}} — loud-on-missing environment lookup (closes the empty-credential footgun the
-        // deprecated silent {{$env NAME}} left open). Optional `?? <fallback>` makes a value optional:
-        // a quoted string or bare token used verbatim as a literal string when NAME is unset.
+        // {{env:NAME}} — loud-on-missing environment lookup (a missing var never silently becomes an empty
+        // value). Resolves through the injectable EnvLookup, so `--env-file` / hermetic test hosts feed it.
+        // Optional `?? <fallback>` makes a value optional: a quoted string or bare token used verbatim as a
+        // literal string when NAME is unset.
         if (inner.StartsWith("env:", StringComparison.Ordinal))
         {
             var spec = inner.Substring("env:".Length);
