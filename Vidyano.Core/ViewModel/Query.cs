@@ -237,6 +237,9 @@ namespace Vidyano.ViewModel
         /// (e.g. exclusion rows added while <see cref="AllSelected"/> is not yet set).</summary>
         public void SetSelection(IEnumerable<QueryResultItem> items, bool allSelected)
         {
+            if (items == null)
+                throw new ArgumentNullException(nameof(items));
+
             SelectedItems.CollectionChanged -= SelectedItems_CollectionChanged;
             try
             {

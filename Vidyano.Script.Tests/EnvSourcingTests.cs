@@ -152,13 +152,15 @@ public sealed class EnvSourcingTests
     [Fact]
     public async Task EnvPrefix_ExplicitVarWins()
     {
-        const string key = "VIDYTEST_REGION";
+        // Distinct key/prefix from EnvPrefix_BindsStrippedVar so the two tests can never clobber each
+        // other's process-wide env state, regardless of test-runner parallelism.
+        const string key = "VIDYTEST_EXPLICIT_REGION";
         Environment.SetEnvironmentVariable(key, "eu");
         try
         {
             using var session = NewSession();
             var initial = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase) { ["REGION"] = "explicit" };
-            var interp = NewInterpreter(session, new Dictionary<string, string?>(), initialVars: initial, envPrefix: "VIDYTEST_");
+            var interp = NewInterpreter(session, new Dictionary<string, string?>(), initialVars: initial, envPrefix: "VIDYTEST_EXPLICIT_");
             var result = await interp.RunAsync(Parse("EXPECT {{REGION}} = \"explicit\""));
             Assert.True(Statements(result).Single().Ok, "An explicit --var/initialVars binding must win over an env-prefix bind.");
         }

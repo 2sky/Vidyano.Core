@@ -436,17 +436,22 @@ public sealed class VidyanoSession : IDisposable
         var qt = ResolveRowQuery(detailName, loc);
         if (!qt.Ok) return OpResult.Fail(qt.Error!);
         var query = qt.Value!;
-        if (index < 0 || index >= query.TotalItems)
+        if (index < 0)
             return OpResult.Fail(new Diagnostic(
                 ErrorKind.AssertFailed,
-                $"Row index {index} is out of range (Query has {query.TotalItems} items).",
+                $"Row index {index} is out of range (negative).",
                 loc));
         try
         {
+            // Load directly rather than pre-checking TotalItems, which is 0 on a query not yet searched
+            // (e.g. an unloaded detail query); a null row after the load means index is past the end.
             var items = await query.GetItemsAsync(index, 1).ConfigureAwait(false);
             var row = items.FirstOrDefault();
             if (row is null)
-                return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Could not load row {index}.", loc));
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"Row index {index} is out of range (Query has {query.TotalItems} items).",
+                    loc));
             return await OpenRowItemAsync(row, $"Row {index}", asHandle, loc).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -582,15 +587,21 @@ public sealed class VidyanoSession : IDisposable
             }
             else if (index is { } idx)
             {
-                if (idx < 0 || idx >= query.TotalItems)
+                if (idx < 0)
+                    return OpResult.Fail(new Diagnostic(
+                        ErrorKind.AssertFailed,
+                        $"Row index {idx} is out of range (negative).",
+                        loc));
+                // Load the row directly instead of pre-checking against TotalItems, which is still 0 on a
+                // query that hasn't been searched yet (e.g. an unloaded detail query) — the same reason the
+                // pure-ALL branch below forces a load. A null row after the load means idx is past the end.
+                var items = await query.GetItemsAsync(idx, 1).ConfigureAwait(false);
+                var row = items.FirstOrDefault();
+                if (row is null)
                     return OpResult.Fail(new Diagnostic(
                         ErrorKind.AssertFailed,
                         $"Row index {idx} is out of range (Query has {query.TotalItems} items).",
                         loc));
-                var items = await query.GetItemsAsync(idx, 1).ConfigureAwait(false);
-                var row = items.FirstOrDefault();
-                if (row is null)
-                    return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, $"Could not load row {idx}.", loc));
                 rows = new[] { row };
             }
             else

@@ -75,7 +75,7 @@ public sealed class Interpreter
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
             if (entry.Key is not string key) continue;
-            if (!key.StartsWith(envPrefix, StringComparison.Ordinal)) continue;
+            if (!key.StartsWith(envPrefix, StringComparison.OrdinalIgnoreCase)) continue;
             var stripped = key.Substring(envPrefix!.Length);
             if (stripped.Length == 0 || _vars.ContainsKey(stripped)) continue;
             _vars[stripped] = entry.Value as string;
@@ -1183,7 +1183,7 @@ public sealed class Interpreter
         // value). Resolves through the injectable EnvLookup, so `--env-file` / hermetic test hosts feed it.
         // Optional `?? <fallback>` makes a value optional: a quoted string or bare token used verbatim as a
         // literal string when NAME is unset.
-        if (inner.StartsWith("env:", StringComparison.Ordinal))
+        if (inner.StartsWith("env:", StringComparison.OrdinalIgnoreCase))
         {
             var spec = inner.Substring("env:".Length);
             string? fallback = null;
