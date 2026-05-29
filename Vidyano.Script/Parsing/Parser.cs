@@ -547,6 +547,17 @@ public sealed class Parser
 
     private Statement? ParseAction(SourceLocation loc)
     {
+        // Optional leading `Detail "<name>"` clause: routes the action onto a named detail query on the
+        // current PO (PersistentObject.Queries) instead of the nav-stack query, so a SELECT-ROWS Detail
+        // selection has a verb to act on. Mirrors the Detail clause on SELECT-ROWS/EXPECT/OPEN-ROW.
+        string? detailName = null;
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            detailName = ParseDetailName();
+            if (detailName == null) return null;
+        }
+
         if (Peek().Kind != TokenKind.Identifier)
         {
             Error(ErrorKind.ParseExpected, "ACTION needs an action name.", Peek().Location, hint: "ACTION Approve");
@@ -577,7 +588,7 @@ public sealed class Parser
                     hint: "Use either ACTION X = \"label\" or ACTION X (Param=…), not both.");
                 return null;
             }
-            return new ActionStmt(null, name, null, loc, optionExpr, optionHint);
+            return new ActionStmt(null, name, null, loc, optionExpr, optionHint, detailName);
         }
 
         Dictionary<string, Expression>? parameters = null;
@@ -619,7 +630,7 @@ public sealed class Parser
                 return null;
             }
         }
-        return new ActionStmt(null, name, parameters, loc);
+        return new ActionStmt(null, name, parameters, loc, DetailName: detailName);
     }
 
     private Statement? ParseSearch(SourceLocation loc)

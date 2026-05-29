@@ -60,6 +60,10 @@ SELECT-ROWS Detail "OrderLines" ALL
 # EXPECT Detail "OrderLines" Selection.AllSelected = true
 SELECT-ROWS Detail "OrderLines" WHERE Product = "Widget"
 SELECT-ROWS Detail "OrderLines" 0
+### ACTION takes the same leading Detail clause, so a detail selection has a verb to act on: the action
+### resolves from — and posts against — the detail query (parent = the master PO), not the nav-stack query.
+### Commented — destructive + live server.
+# ACTION Detail "OrderLines" Delete
 GO-BACK
 
 ### Clear the selection — NONE is a keyword on SELECT-ROWS, not a separate verb. Clears AllSelected too.

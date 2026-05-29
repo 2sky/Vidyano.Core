@@ -122,14 +122,20 @@ public sealed record SetStmt(string? Handle, string Attribute, Expression Value,
 /// <see cref="ActionBase.Options"/> — <see cref="OptionHint"/>=<see cref="ReferenceHintKind.RawId"/>
 /// treats the value as an int index, otherwise the value is matched against the option label.
 /// The <c>=</c> and <c>(…)</c> forms are mutually exclusive — Core's <c>Execute(option)</c> does
-/// not accept named parameters.</summary>
+/// not accept named parameters.
+/// <para>An optional leading <c>Detail "&lt;name&gt;"</c> clause (<see cref="DetailName"/>) targets a
+/// named detail query on the current PO instead of the navigation-stack query, mirroring
+/// <c>SELECT-ROWS</c>/<c>EXPECT</c>/<c>OPEN-ROW</c>. The action resolves from — and executes against —
+/// that detail query, so a selection set with <c>SELECT-ROWS Detail "…"</c> is what a selection-gated
+/// action operates on.</para></summary>
 public sealed record ActionStmt(
     string? Handle,
     string ActionName,
     IReadOnlyDictionary<string, Expression>? Parameters,
     SourceLocation Location,
     Expression? Option = null,
-    ReferenceHintKind? OptionHint = null) : Statement(Location);
+    ReferenceHintKind? OptionHint = null,
+    string? DetailName = null) : Statement(Location);
 
 /// <summary><c>SEARCH "text"</c> on the current query.</summary>
 public sealed record SearchStmt(string? Handle, Expression Text, SourceLocation Location) : Statement(Location);

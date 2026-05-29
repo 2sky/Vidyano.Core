@@ -53,7 +53,7 @@ A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with *
 - `SEARCH <text>` — text-search the current query.
 - `EDIT` / `CANCEL` / `SAVE` — standard PO edit lifecycle.
 - `SET <attribute> = <value>` — change an attribute (incl. reference SET semantics).
-- `ACTION <action>` — invoke an action by name.
+- `ACTION <action>` — invoke an action by name. An optional leading `Detail "<name>"` clause targets a detail query on the current PO (`PersistentObject.Queries`) instead of the nav-stack query: the action resolves from — and posts against — that detail query (parent stays the master PO), so a `SELECT-ROWS Detail "<name>"` selection has a verb to act on.
 
 ### Reserved `@session` variable
 

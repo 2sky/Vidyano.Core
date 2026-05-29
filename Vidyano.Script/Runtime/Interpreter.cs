@@ -391,7 +391,7 @@ public sealed class Interpreter
                     a.Location,
                     Hint: "Omit the `= …` clause to invoke without an option, or pass a label string / `ID <index>`."));
         }
-        var res = await _session.ExecuteActionAsync(a.ActionName, parameters, option, a.OptionHint, a.Location).ConfigureAwait(false);
+        var res = await _session.ExecuteActionAsync(a.ActionName, parameters, option, a.OptionHint, a.Location, a.DetailName).ConfigureAwait(false);
         return Wrap(a, res);
     }
 

@@ -1130,7 +1130,7 @@ public sealed class VidyanoSession : IDisposable
     /// (<see cref="StringComparison.Ordinal"/>) — same convention as the SET SIP path uses against
     /// <see cref="PersistentObjectAttribute.Option.DisplayValue"/>; the diagnostic's
     /// <see cref="Suggester.Hint"/> catches close-but-not-exact typos.</summary>
-    public async Task<OpResult> ExecuteActionAsync(string name, IReadOnlyDictionary<string, string>? parameters, object? option, ReferenceHintKind? optionHint, SourceLocation loc)
+    public async Task<OpResult> ExecuteActionAsync(string name, IReadOnlyDictionary<string, string>? parameters, object? option, ReferenceHintKind? optionHint, SourceLocation loc, string? detailName = null)
     {
         if (CurrentPo is null && CurrentQuery is null)
             return OpResult.Fail(new Diagnostic(
@@ -1138,17 +1138,36 @@ public sealed class VidyanoSession : IDisposable
                 "ACTION needs a current PersistentObject or Query.",
                 loc));
 
+        // A `Detail "<name>"` clause pins the action to a detail query on the current PO (which lives off
+        // the nav stack, on CurrentPo.Queries) — so a selection set via SELECT-ROWS Detail "<name>" has a
+        // verb to act on. Without it, the action resolves PO-first then the nav-stack query, as before.
+        Query? detailQuery = null;
+        if (detailName != null)
+        {
+            var dt = ResolveDetail(detailName, loc);
+            if (!dt.Ok) return OpResult.Fail(dt.Error!);
+            detailQuery = dt.Value;
+        }
+
         ActionBase? action = null;
         IEnumerable<string> candidates = Array.Empty<string>();
-        if (CurrentPo != null)
+        if (detailQuery != null)
         {
-            action = CurrentPo.GetAction(name);
-            candidates = CurrentPo.Actions.Concat(CurrentPo.PinnedActions).Select(a => a.Name);
+            action = detailQuery.GetAction(name);
+            candidates = detailQuery.Actions.Concat(detailQuery.PinnedActions).Select(a => a.Name);
         }
-        if (action is null && CurrentQuery != null)
+        else
         {
-            action = CurrentQuery.GetAction(name);
-            candidates = candidates.Concat(CurrentQuery.Actions.Concat(CurrentQuery.PinnedActions).Select(a => a.Name));
+            if (CurrentPo != null)
+            {
+                action = CurrentPo.GetAction(name);
+                candidates = CurrentPo.Actions.Concat(CurrentPo.PinnedActions).Select(a => a.Name);
+            }
+            if (action is null && CurrentQuery != null)
+            {
+                action = CurrentQuery.GetAction(name);
+                candidates = candidates.Concat(CurrentQuery.Actions.Concat(CurrentQuery.PinnedActions).Select(a => a.Name));
+            }
         }
         if (action is null)
         {
@@ -1235,13 +1254,17 @@ public sealed class VidyanoSession : IDisposable
             {
                 var dict = parameters?.ToDictionary(kv => kv.Key, kv => kv.Value);
                 var prefix = action is QueryAction ? "Query." : "PersistentObject.";
+                // The query the action runs against: the Detail-clause detail query when present, else the
+                // nav-stack query. parent stays CurrentPo — for a detail query that's its owning master PO,
+                // exactly the (parent, query) pair a browser posts for a detail-grid action.
+                var actionQuery = detailQuery ?? CurrentQuery;
                 // Forward the query's selection on the parameter path — mirrors ActionBase.Execute, which
                 // reads Query.SelectedItems itself on the option-label path. Without this a selection-gated
                 // action (e.g. Delete) would post an empty selection even after SELECT-ROWS.
-                var selected = action is QueryAction && CurrentQuery is { } q && q.SelectedItems.Count > 0
+                var selected = action is QueryAction && actionQuery is { } q && q.SelectedItems.Count > 0
                     ? q.SelectedItems.ToArray()
                     : null;
-                result = await Client.ExecuteActionAsync(prefix + name, CurrentPo, CurrentQuery, selected, dict).ConfigureAwait(false);
+                result = await Client.ExecuteActionAsync(prefix + name, CurrentPo, actionQuery, selected, dict).ConfigureAwait(false);
             }
             // ExecuteActionAsync sets notification on the parent on error and returns null.
             if (result is null && CurrentPo != null && CurrentPo.HasNotification && CurrentPo.NotificationType == NotificationType.Error)

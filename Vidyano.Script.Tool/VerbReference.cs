@@ -39,6 +39,7 @@ public static class VerbReference
         t.AddRow("SET … = null",         "SET Notes = null",                    "Clears the attribute. For reference attrs, requires CanRemoveReference.");
         t.AddRow("ACTION",               "ACTION Export (Format=\"csv\")",       "Executes an action. Subject to action-availability guard.");
         t.AddRow("ACTION X = option",    "ACTION Delete = \"Yes, delete\"",      "Choose an Options[[]] entry by label, or by `= ID <index>`. Mutually exclusive with (Param=…).");
+        t.AddRow("ACTION Detail",        "ACTION Detail \"OrderLines\" Delete",  "Targets a detail query (PO.Queries[[name]]) instead of the nav-stack query — resolves+executes the action there, so a SELECT-ROWS Detail selection has a verb to act on.");
         t.AddRow("SAVE",                 "SAVE",                                "Saves pending edits. Required attributes checked first.");
         t.AddRow("CANCEL",               "CANCEL",                              "Discards pending edits.");
         t.AddRow("EXPECT … = …",         "EXPECT Status = \"Approved\"",         "Equality (=,!=) and ordering (<,<=,>,>=) work on attribute values.");
