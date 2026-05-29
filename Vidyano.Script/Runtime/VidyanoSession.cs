@@ -986,13 +986,23 @@ public sealed class VidyanoSession : IDisposable
     /// specific signal — so a bad Id is reported, not silently treated as success.</summary>
     private async Task<OpResult> SetReferenceByIdAsync(PersistentObjectAttributeWithReference attr, string? rawId, SourceLocation loc)
     {
-        var item = rawId is null ? null : new QueryResultItem(Client, rawId);
-        await attr.ChangeReference(item).ConfigureAwait(false);
-        if (!string.IsNullOrEmpty(attr.ValidationError))
-            return OpResult.Fail(new Diagnostic(ErrorKind.AssertValidationError, attr.ValidationError, loc));
-        if (attr.Parent is { HasNotification: true } p && p.NotificationType == NotificationType.Error)
-            return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, p.Notification, loc));
-        return OpResult.Success;
+        // ChangeReference already traps its own server errors into a parent notification (surfaced below),
+        // but wrap defensively anyway — for consistency with SetReferenceViaLookupAsync and to cover the
+        // QueryResultItem ctor / any future drift in ChangeReference's contract.
+        try
+        {
+            var item = rawId is null ? null : new QueryResultItem(Client, rawId);
+            await attr.ChangeReference(item).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(attr.ValidationError))
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertValidationError, attr.ValidationError, loc));
+            if (attr.Parent is { HasNotification: true } p && p.NotificationType == NotificationType.Error)
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, p.Notification, loc));
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
     }
 
     private async Task<OpResult> SetReferenceViaLookupAsync(PersistentObjectAttributeWithReference attr, string searchText, SourceLocation loc)

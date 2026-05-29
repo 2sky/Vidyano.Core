@@ -240,13 +240,19 @@ namespace Vidyano.ViewModel
             if (items == null)
                 throw new ArgumentNullException(nameof(items));
 
+            // Materialize before touching SelectedItems: a deferred sequence that throws mid-enumeration
+            // must fail before any mutation, so the selection is never left half-applied.
+            var itemList = new List<QueryResultItem>();
+            foreach (var item in items)
+                if (item != null)
+                    itemList.Add(item);
+
             SelectedItems.CollectionChanged -= SelectedItems_CollectionChanged;
             try
             {
                 SelectedItems.Clear();
-                foreach (var item in items)
-                    if (item != null)
-                        SelectedItems.Add(item);
+                foreach (var item in itemList)
+                    SelectedItems.Add(item);
                 _AllSelected = allSelected;
                 OnPropertyChanged(nameof(AllSelected));
             }
