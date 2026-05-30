@@ -10,8 +10,9 @@
 ###   • FAILS if the verb unexpectedly succeeds (the asserted rejection never happened).
 ###
 ### The notification stays on the current PO, so a following `EXPECT Notification …` pins the
-### exact message. A client-side guard (e.g. a missing required attribute) or a transport fault is
-### still a real failure — EXPECTING ERROR only absorbs the server's error notification.
+### exact message. A client-side guard (e.g. SAVE before EDIT, or an action whose CanExecute is
+### false) or a transport fault is still a real failure — EXPECTING ERROR only absorbs the server's
+### error notification.
 
 @app = "https://demo.vidyano.com"
 

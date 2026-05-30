@@ -91,7 +91,7 @@ public static class ConsoleReporter
             RefreshStmt                => "REFRESH",
             SetStmt s                  => $"SET {Markup.Escape(s.Attribute)} = …",
             ActionStmt a               => $"ACTION {Markup.Escape(a.ActionName)}{(a.ExpectError ? " EXPECTING ERROR" : "")}",
-            SearchStmt                 => "SEARCH …",
+            SearchStmt q               => q.DetailName is null ? "SEARCH …" : $"SEARCH Detail \"{Markup.Escape(q.DetailName)}\" …",
             ExpectStmt e               => $"EXPECT {DescribeSubject(e.Subject)}",
             ToolCallStmt t             => $"TOOL {Markup.Escape(t.Name)}{(t.ResultVariable is null ? "" : $" -> @{Markup.Escape(t.ResultVariable)}")}",
             RequiresStmt r             => $"REQUIRES {DescribeSubject(r.Subject)}",

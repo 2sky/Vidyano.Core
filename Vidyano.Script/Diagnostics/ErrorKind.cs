@@ -40,6 +40,8 @@ public static class ErrorKind
     public const string GuardAttributeReadOnly   = "guard-attribute-read-only";
     public const string GuardActionNotAvailable  = "guard-action-not-available";
     public const string GuardActionHidden        = "guard-action-hidden";
+    // Retained for API compatibility; no longer emitted. The pre-save required pre-check was removed
+    // in favor of server-side validation (the server defaults some required attributes during persist).
     public const string GuardRequiredMissing     = "guard-required-missing";
     public const string GuardEditModeRequired    = "guard-edit-mode-required";
     public const string GuardNotInEdit           = "guard-not-in-edit";

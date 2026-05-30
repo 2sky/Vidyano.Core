@@ -388,16 +388,32 @@ public sealed class VidyanoSession : IDisposable
 
     // --- query operations ---------------------------------------------------------------------
 
-    public async Task<OpResult> SearchAsync(string text, SourceLocation loc)
+    /// <summary>Text-searches a query in place. With <paramref name="detailName"/> null, searches the
+    /// current nav-stack query; otherwise searches the named detail query on the current PO — loading
+    /// its rows and <c>TotalItems</c> without touching the nav stack or selection. That detail form is
+    /// the side-effect-free way to populate a detail before an <c>EXPECT Detail … TotalItems</c>, which
+    /// only reads what the query holds in memory.</summary>
+    public async Task<OpResult> SearchAsync(string text, SourceLocation loc, string? detailName = null)
     {
-        if (CurrentQuery is null)
-            return OpResult.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery,
-                "SEARCH needs a current Query.",
-                loc,
-                Hint: "Open one first with OPEN Query <id> or OPEN MenuItem <path>."));
+        Query target;
+        if (detailName is not null)
+        {
+            var detail = ResolveDetail(detailName, loc);
+            if (!detail.Ok) return OpResult.Fail(detail.Error!);
+            target = detail.Value!;
+        }
+        else
+        {
+            if (CurrentQuery is null)
+                return OpResult.Fail(new Diagnostic(ErrorKind.StateNoCurrentQuery,
+                    "SEARCH needs a current Query.",
+                    loc,
+                    Hint: "Open one first with OPEN Query <id> or OPEN MenuItem <path>."));
+            target = CurrentQuery;
+        }
         try
         {
-            await CurrentQuery.SearchTextAsync(text).ConfigureAwait(false);
+            await target.SearchTextAsync(text).ConfigureAwait(false);
             return OpResult.Success;
         }
         catch (Exception ex)
@@ -672,21 +688,10 @@ public sealed class VidyanoSession : IDisposable
                 loc,
                 Hint: "Call EDIT before SET/SAVE — or the runner can auto-edit if you SET first."));
 
-        // Required-attribute check before going out — clearer error than a server-side validation message.
-        var missing = CurrentPo.Attributes
-            .Where(a => a.IsRequired && a.IsVisible && !a.IsReadOnly && string.IsNullOrEmpty(a.ValueDirect))
-            .Select(a => a.Name)
-            .ToArray();
-        if (missing.Length > 0)
-        {
-            return OpResult.Fail(new Diagnostic(
-                ErrorKind.GuardRequiredMissing,
-                $"Required attribute(s) not set: {string.Join(", ", missing)}.",
-                loc,
-                Hint: "SET each required attribute before SAVE.",
-                Details: new Dictionary<string, object?> { ["missing"] = missing }));
-        }
-
+        // No client-side required-attribute pre-check: the server is the authority. Some required
+        // attributes are defaulted server-side during persist, so pre-blocking here produced false
+        // negatives (a save the server would have accepted). A genuinely-missing required surfaces as
+        // the server's error notification, captured below — and assertable via SAVE EXPECTING ERROR.
         try
         {
             // Capture owner relationships before Save — PersistentObject.Save already mirrors the v4
@@ -751,20 +756,9 @@ public sealed class VidyanoSession : IDisposable
         if (!po.IsInEdit)
             po.Edit();
 
-        var missing = po.Attributes
-            .Where(a => a.IsRequired && a.IsVisible && !a.IsReadOnly && string.IsNullOrEmpty(a.ValueDirect))
-            .Select(a => a.Name)
-            .ToArray();
-        if (missing.Length > 0)
-        {
-            return OpResult.Fail(new Diagnostic(
-                ErrorKind.GuardRequiredMissing,
-                $"Required attribute(s) on @initial not set: {string.Join(", ", missing)}.",
-                loc,
-                Hint: "SET each required @initial attribute before SAVE @initial.",
-                Details: new Dictionary<string, object?> { ["missing"] = missing }));
-        }
-
+        // No client-side required pre-check (parallel to SaveAsync): defer to the server, which may
+        // default required attributes during persist. A genuine miss returns the gate's error
+        // notification, surfaced below.
         try
         {
             await po.Save().ConfigureAwait(false);

@@ -639,9 +639,25 @@ public sealed class Parser
 
     private Statement? ParseSearch(SourceLocation loc)
     {
+        // Optional leading `Detail "<name>"` retargets a named detail query on the current PO, mirroring
+        // OPEN-ROW/SELECT-ROWS/EXPECT/ACTION. A bare identifier `Detail` is the keyword; to search the
+        // current query for the literal text "Detail", quote it (`SEARCH "Detail"`).
+        string? detailName = null;
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            detailName = ParseDetailName();
+            if (detailName == null) return null;
+        }
+
+        // Text is required for a current-query search; for `SEARCH Detail "<name>"` it's optional —
+        // omitting it loads the detail with an empty filter.
+        if (detailName != null && IsLineTerminator(Peek()))
+            return new SearchStmt(null, null, loc, DetailName: detailName);
+
         var text = ParseValueExpression();
         if (text == null) return null;
-        return new SearchStmt(null, text, loc);
+        return new SearchStmt(null, text, loc, DetailName: detailName);
     }
 
     /// <summary><c>SAVE</c> on the top of the nav stack, or <c>SAVE @initial</c> against

@@ -397,9 +397,14 @@ public sealed class Interpreter
 
     private async Task<StatementResult> DoSearch(SearchStmt q)
     {
-        var v = EvaluateExpression(q.Text);
-        if (!v.Ok) return Fail(q, v.Error!);
-        var res = await _session.SearchAsync(AsString(v.Value), q.Location).ConfigureAwait(false);
+        var text = "";
+        if (q.Text is not null)
+        {
+            var v = EvaluateExpression(q.Text);
+            if (!v.Ok) return Fail(q, v.Error!);
+            text = AsString(v.Value);
+        }
+        var res = await _session.SearchAsync(text, q.Location, q.DetailName).ConfigureAwait(false);
         return Wrap(q, res);
     }
 
