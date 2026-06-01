@@ -1,0 +1,93 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Vidyano Script",
+  "scopeName": "source.visc",
+  "patterns": [
+    { "include": "#step-header" },
+    { "include": "#line-comment" },
+    { "include": "#string" },
+    { "include": "#interpolation" },
+    { "include": "#verb" },
+    { "include": "#sub-keyword" },
+    { "include": "#type-word" },
+    { "include": "#constant" },
+    { "include": "#number" },
+    { "include": "#variable" },
+    { "include": "#operator" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "step-header": {
+      "match": "^\\s*(###)(.*)$",
+      "captures": {
+        "1": { "name": "punctuation.definition.comment.visc" },
+        "2": { "name": "comment.block.documentation.visc" }
+      }
+    },
+    "line-comment": {
+      "match": "(#).*$",
+      "captures": { "1": { "name": "punctuation.definition.comment.visc" } },
+      "name": "comment.line.number-sign.visc"
+    },
+    "string": {
+      "name": "string.quoted.double.visc",
+      "begin": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.visc" } },
+      "end": "\"",
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.visc" } },
+      "patterns": [
+        { "name": "constant.character.escape.visc", "match": "\\\\[ntr\"\\\\{}]" },
+        { "include": "#interpolation" }
+      ]
+    },
+    "interpolation": {
+      "name": "meta.interpolation.visc",
+      "begin": "\\{\\{",
+      "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.visc" } },
+      "end": "\\}\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.visc" } },
+      "patterns": [
+        { "name": "variable.language.visc", "match": "@(?:today|now|uuid|random)\\b" },
+        { "name": "variable.other.visc", "match": "@[A-Za-z_][A-Za-z0-9_.-]*" },
+        { "name": "support.function.visc", "match": "\\benv\\b" },
+        { "name": "keyword.operator.visc", "match": "\\?\\?|:" },
+        { "include": "#string" }
+      ]
+    },
+    "verb": {
+      "name": "keyword.control.visc",
+      "match": "(?i)(?<![\\w-])(?:SIGN-IN|SIGN-OUT|OPEN-ROW|OPEN-DETAIL|GO-BACK|SELECT-ROWS|OPEN|USE|FOLLOW|EDIT|CANCEL|SAVE|REFRESH|RELOAD|SET|ACTION|SEARCH|EXPECT|GOTO|TOOL|REQUIRES|CLEANUP)(?![\\w-])"
+    },
+    "sub-keyword": {
+      "name": "keyword.other.visc",
+      "match": "(?i)(?<![\\w-])(?:FROM|ENV|LANGUAGE|AS|WHERE|ALL|EXCEPT|NONE|IS|NOT|LOOKUP|ID|MATCHES|CONTAINS|EXPECTING|ERROR|DETAIL|VISIBLE|READONLY|REQUIRED|AVAILABLE)(?![\\w-])"
+    },
+    "type-word": {
+      "name": "support.type.visc",
+      "match": "(?i)(?<![\\w-])(?:PersistentObject|Query|MenuItem|NavStack|TotalItems|Selection|IsInEdit|IsDirty|ClientOperation|NotificationType|Notification|Attribute|TypeHint|Type|Tag|Label|PO)(?![\\w-])"
+    },
+    "constant": {
+      "name": "constant.language.visc",
+      "match": "(?i)(?<![\\w-])(?:true|false|null)(?![\\w-])"
+    },
+    "number": {
+      "name": "constant.numeric.visc",
+      "match": "(?<![\\w.])-?\\d+(?:\\.\\d+)?(?![\\w])"
+    },
+    "variable": {
+      "match": "(@)[A-Za-z_][A-Za-z0-9_-]*",
+      "captures": {
+        "1": { "name": "punctuation.definition.variable.visc" },
+        "0": { "name": "variable.other.visc" }
+      }
+    },
+    "operator": {
+      "name": "keyword.operator.visc",
+      "match": "->|==|!=|<=|>=|=|<|>|/|\\?\\?"
+    },
+    "punctuation": {
+      "name": "punctuation.separator.visc",
+      "match": "[(),\\[\\].]"
+    }
+  }
+}
