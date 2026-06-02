@@ -24,7 +24,7 @@ public sealed record VerbInfo(
 /// </summary>
 /// <remarks>
 /// Historically there were two diverging lists: <c>Parser.KnownVerbs</c> (which carried
-/// <c>FOLLOW</c>/<c>OPEN-DETAIL</c>/<c>RELOAD</c>/<c>GOTO</c>/<c>REFRESH</c>) and the Tool's
+/// <c>FOLLOW</c>/<c>OPEN-DETAIL</c>/<c>REFRESH</c>) and the Tool's
 /// syntax-form-keyed help table (which did not). This catalog reconciles them: it is keyed by bare
 /// verb name and MUST contain every verb the parser recognizes. The catalog-reconciliation guard test
 /// asserts that <c>Parser.KnownVerbs ⊆ VerbCatalog.Names</c>.
@@ -135,13 +135,6 @@ public static class VerbCatalog
             ["REFRESH"],
             "edit", []),
 
-        new("RELOAD",
-            "RELOAD",
-            "Reload the current frame from the server.",
-            null,
-            ["RELOAD"],
-            "edit", []),
-
         new("SET",
             "SET <attr> = <value>\nSET <attr> = LOOKUP \"<display>\"\nSET <attr> = ID \"<key>\"\nSET <attr> = null",
             "Change an attribute value.",
@@ -185,13 +178,6 @@ public static class VerbCatalog
             + "(1s ReDoS guard). `Detail \"<name>\"` redirects query-family subjects.",
             ["EXPECT Status = \"Approved\"", "EXPECT TotalItems >= 1", "EXPECT Code MATCHES \"^[A-Z]{2}\\d+$\""],
             "assert", []),
-
-        new("GOTO",
-            "GOTO <step>",
-            "Jump to a labeled step.",
-            null,
-            ["GOTO cleanup"],
-            "control", []),
 
         new("TOOL",
             "TOOL <name> [k=v, …] [-> @var]",

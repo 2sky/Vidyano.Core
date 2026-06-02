@@ -1356,12 +1356,18 @@ public sealed class VidyanoSession : IDisposable
             Rows: CurrentQuery.Take(10).Where(r => r != null)
                 .Select(r => (IReadOnlyDictionary<string, string?>)CurrentQuery.Columns.ToDictionary(
                     c => c.Name,
-                    c => Vidyano.Client.ToServiceString(r[c.Name]) as string)).ToList());
+                    c => Vidyano.Client.ToServiceString(r[c.Name]) as string)).ToList(),
+            Actions: CurrentQuery.Actions.Select(a => new ActionSnapshot(a.Name, a.CanExecute, a.IsVisible)).ToList(),
+            SelectedCount: CurrentQuery.SelectedItems.Count,
+            AllSelected: CurrentQuery.AllSelected);
 
         IReadOnlyDictionary<string, string>? handles = _handles.Count == 0 ? null
             : _handles.ToDictionary(kv => kv.Key, kv => DescribeHandle(kv.Value));
 
-        return new Snapshot(session, po, query, handles, sessionPo);
+        var navStack = _navStack.Count == 0 ? null
+            : _navStack.Select(e => new NavFrameSnapshot(e.Kind, e.Name, e.IsDialog)).ToList();
+
+        return new Snapshot(session, po, query, handles, sessionPo, navStack);
     }
 
     private static PoSnapshot BuildPoSnapshot(PersistentObject po) => new(
@@ -1376,7 +1382,8 @@ public sealed class VidyanoSession : IDisposable
             a.Name, a.Type, a.ValueDirect, SafeDisplay(a),
             a.IsVisible, a.IsReadOnly, a.IsRequired, a.IsValueChanged, a.ValidationError)).ToList(),
         Actions: po.Actions.Concat(po.PinnedActions)
-            .Select(a => new ActionSnapshot(a.Name, a.CanExecute, a.IsVisible)).ToList());
+            .Select(a => new ActionSnapshot(a.Name, a.CanExecute, a.IsVisible)).ToList(),
+        DetailQueries: po.Queries.Keys.ToList());
 
     private static string? SafeDisplay(PersistentObjectAttribute attr)
     {

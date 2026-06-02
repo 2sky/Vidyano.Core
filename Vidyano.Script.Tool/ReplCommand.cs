@@ -96,12 +96,7 @@ public static class ReplCommand
             var result = await interpreter.RunAsync(script).ConfigureAwait(false);
             foreach (var step in result.Steps)
                 foreach (var s in step.Statements)
-                {
-                    if (s.Ok)
-                        AnsiConsole.MarkupLine($"[green]ok[/] {ConsoleReporter.Describe(s.Statement)}");
-                    else
-                        foreach (var d in s.Diagnostics) ConsoleReporter.WriteDiagnostic(d);
-                }
+                    ConsoleReporter.WriteReplLine(s);
 
             // Only record lines that parsed; failed-at-runtime lines stay in history so :save replays
             // the same scenario (intentional — captures user intent, not just successes).
@@ -121,7 +116,8 @@ public static class ReplCommand
                 AnsiConsole.MarkupLine("  [yellow]:save <path>[/]    Write the session history as a .visc file.");
                 AnsiConsole.MarkupLine("  [yellow]:load <path>[/]    Run a .visc file in this session.");
                 AnsiConsole.MarkupLine("  [yellow]:vars[/]           List current script variables.");
-                AnsiConsole.MarkupLine("  [yellow]:snapshot[/]       Print the current session snapshot.");
+                AnsiConsole.MarkupLine("  [yellow]:state[/]          Focused view of the current frame (nav, PO/query, actions, details).");
+                AnsiConsole.MarkupLine("  [yellow]:snapshot[/]       Raw JSON of the full session snapshot.");
                 AnsiConsole.MarkupLine("  [yellow]:verbs[/]          List every .visc verb.");
                 AnsiConsole.MarkupLine("  [yellow]:quit[/]           Exit.");
                 return Task.FromResult(true);
@@ -131,6 +127,9 @@ public static class ReplCommand
             case ":vars":
                 foreach (var v in interpreter.Variables.OrderBy(kv => kv.Key))
                     AnsiConsole.MarkupLine($"  @{Markup.Escape(v.Key)} = {Markup.Escape(v.Value?.ToString() ?? "null")}");
+                return Task.FromResult(true);
+            case ":state":
+                ConsoleReporter.RenderState(sessions.Current.TakeSnapshot());
                 return Task.FromResult(true);
             case ":snapshot":
                 {
