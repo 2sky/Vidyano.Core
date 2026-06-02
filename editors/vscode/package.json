@@ -1,0 +1,70 @@
+{
+  "name": "vscode-visc",
+  "displayName": "Vidyano Script (.visc)",
+  "description": "Syntax highlighting and language server support for Vidyano .visc scripts.",
+  "version": "0.1.0",
+  "publisher": "vidyano",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/2sky/Vidyano.Core"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:visc"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "visc",
+        "aliases": ["Vidyano Script", "visc"],
+        "extensions": [".visc"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "visc",
+        "scopeName": "source.visc",
+        "path": "./syntaxes/visc.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Vidyano Script",
+      "properties": {
+        "vidyano.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the `vidyano` executable. Leave empty to locate `vidyano` on the system `PATH`."
+        },
+        "vidyano.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace the communication between VS Code and the .visc language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "typescript": "^5.4.0"
+  }
+}

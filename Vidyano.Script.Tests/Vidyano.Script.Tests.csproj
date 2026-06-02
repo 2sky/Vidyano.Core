@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vidyano.Script\Vidyano.Script.csproj" />
+    <ProjectReference Include="..\Vidyano.Script.LanguageServer\Vidyano.Script.LanguageServer.csproj" />
   </ItemGroup>
 
 </Project>

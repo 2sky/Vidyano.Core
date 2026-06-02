@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Spectre.Console;
 using Vidyano.Script;
+using Vidyano.Script.LanguageServer;
 using Vidyano.Script.Runtime;
 
 namespace Vidyano.Script.Tool;
@@ -48,6 +49,11 @@ public static class Cli
             "run"   => await RunCommand.ExecuteAsync(rest).ConfigureAwait(false),
             "lint"  => await LintCommand.ExecuteAsync(rest).ConfigureAwait(false),
             "repl"  => await ReplCommand.ExecuteAsync(rest).ConfigureAwait(false),
+            // `lsp` speaks LSP over stdio for an editor to drive. It intentionally IGNORES extra args:
+            // LSP launchers (vscode-languageclient) append transport/handshake flags after the subcommand
+            // (e.g. `--stdio`, `--clientProcessId=<pid>`). We must also never write to stdout here — stdout
+            // is the LSP message channel, and any stray bytes corrupt the protocol stream.
+            "lsp"   => await ViscLspServer.RunStdioAsync().ConfigureAwait(false),
             "help"  => Help(rest),
             _ => UnknownCommand(sub),
         };
@@ -56,7 +62,7 @@ public static class Cli
     private static int UnknownCommand(string sub)
     {
         AnsiConsole.MarkupLine($"[red]Unknown command:[/] [yellow]{Markup.Escape(sub)}[/]");
-        var hint = Diagnostics.Suggester.Hint(sub, new[] { "run", "lint", "repl", "help" });
+        var hint = Diagnostics.Suggester.Hint(sub, new[] { "run", "lint", "repl", "lsp", "help" });
         if (hint != null) AnsiConsole.MarkupLine($"[grey]{Markup.Escape(hint)}[/]");
         AnsiConsole.WriteLine();
         PrintUsage();
@@ -84,6 +90,7 @@ public static class Cli
         AnsiConsole.MarkupLine("  vidyano [yellow]run[/]   <file.visc> [grey][[options]][/]   Execute a script.");
         AnsiConsole.MarkupLine("  vidyano [yellow]lint[/]  <file.visc>                  Parse-check without executing.");
         AnsiConsole.MarkupLine("  vidyano [yellow]repl[/]  [grey][[options]][/]                     Start an interactive .visc REPL.");
+        AnsiConsole.MarkupLine("  vidyano [yellow]lsp[/]                            Run the .visc language server over stdio (for editors).");
         AnsiConsole.MarkupLine("  vidyano [yellow]help[/]  [grey][[verbs]][/]                      Show help. 'verbs' lists every .visc verb.");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Options shared by run/repl:[/]");

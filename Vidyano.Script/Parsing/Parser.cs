@@ -17,15 +17,9 @@ public sealed class Parser
     private readonly List<Diagnostic> _diagnostics;
     private int _pos;
 
-    private static readonly HashSet<string> KnownVerbs = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "SIGN-IN", "SIGN-OUT", "USE", "OPEN", "OPEN-ROW", "GO-BACK", "FOLLOW", "OPEN-DETAIL",
-        "EDIT", "CANCEL", "SAVE", "REFRESH", "RELOAD",
-        "SET", "ACTION", "SEARCH", "SELECT-ROWS",
-        "EXPECT", "GOTO",
-        "TOOL",
-        "REQUIRES", "CLEANUP",
-    };
+    // The recognized-verb set delegates to VerbCatalog so verb knowledge lives in exactly one place
+    // (the catalog also feeds `help verbs` and editor hover). See VerbCatalog for the reconciliation note.
+    private static readonly IReadOnlySet<string> KnownVerbs = VerbCatalog.Names;
 
     private static readonly HashSet<string> KnownOpenKinds = new(StringComparer.OrdinalIgnoreCase)
     {
