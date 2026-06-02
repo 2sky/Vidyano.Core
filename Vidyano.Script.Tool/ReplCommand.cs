@@ -54,8 +54,11 @@ public static class ReplCommand
         // The default ("") slot is the REPL's connection; named SIGN-INs mint their own cookie jar via
         // the VidyanoSession own-jar ctor branch (never closing over a shared client) so identities stay
         // isolated. :snapshot reads sessions.Current, so it reflects whatever USE selected.
+        // The REPL owns the default slot's transport (own-jar ctor), so dispose it explicitly —
+        // SessionBook never disposes the caller-supplied `initial`.
+        using var initialSession = new VidyanoSession(a.AppUri, acceptAnyServerCertificate: a.Insecure);
         using var sessions = new SessionBook(
-            initial: new VidyanoSession(a.AppUri, acceptAnyServerCertificate: a.Insecure),
+            initial: initialSession,
             mintFresh: () => new ValueTask<VidyanoSession>(
                 new VidyanoSession(a.AppUri, acceptAnyServerCertificate: a.Insecure)));
         var interpreter = new Interpreter(sessions, options.Variables, a.Mode ?? GuardMode.Navigation, options.Tools, now: options.Now, seed: options.Seed, envLookup: options.EnvLookup, envPrefix: options.EnvironmentPrefix);
