@@ -108,7 +108,11 @@ public static class ConsoleReporter
     {
         var detail = sr.DetailName is null ? "" : $"Detail \"{Markup.Escape(sr.DetailName)}\" ";
         var target = sr.None ? "NONE"
-            : sr.All ? (sr.Index is not null || sr.MatchColumn is not null ? "ALL EXCEPT …" : "ALL")
+            : sr.All ? (
+                sr.Index is not null ? $"ALL EXCEPT {DescribeValue(sr.Index)}"
+                : sr.MatchColumn is not null ? $"ALL EXCEPT WHERE {Markup.Escape(sr.MatchColumn)} = …"
+                : "ALL")
+            : sr.Index is not null ? DescribeValue(sr.Index)
             : sr.MatchColumn is not null ? $"WHERE {Markup.Escape(sr.MatchColumn)} = …"
             : "…";
         return detail + target;
