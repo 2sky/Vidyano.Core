@@ -51,8 +51,17 @@ public static class ReplCommand
             }
         }
 
-        using var session = new VidyanoSession(a.AppUri, acceptAnyServerCertificate: a.Insecure);
-        var interpreter = new Interpreter(session, options.Variables, a.Mode ?? GuardMode.Navigation, options.Tools, now: options.Now, seed: options.Seed, envLookup: options.EnvLookup, envPrefix: options.EnvironmentPrefix);
+        // The default ("") slot is the REPL's connection; named SIGN-INs mint their own cookie jar via
+        // the VidyanoSession own-jar ctor branch (never closing over a shared client) so identities stay
+        // isolated. :snapshot reads sessions.Current, so it reflects whatever USE selected.
+        // The REPL owns the default slot's transport (own-jar ctor), so dispose it explicitly —
+        // SessionBook never disposes the caller-supplied `initial`.
+        using var initialSession = new VidyanoSession(a.AppUri, acceptAnyServerCertificate: a.Insecure);
+        using var sessions = new SessionBook(
+            initial: initialSession,
+            mintFresh: () => new ValueTask<VidyanoSession>(
+                new VidyanoSession(a.AppUri, acceptAnyServerCertificate: a.Insecure)));
+        var interpreter = new Interpreter(sessions, options.Variables, a.Mode ?? GuardMode.Navigation, options.Tools, now: options.Now, seed: options.Seed, envLookup: options.EnvLookup, envPrefix: options.EnvironmentPrefix);
 
         AnsiConsole.MarkupLine($"[bold]vidyano repl[/] — connected to [green]{Markup.Escape(a.AppUri)}[/]");
         AnsiConsole.MarkupLine("[grey]Type a .visc line at the prompt. ':help' lists commands. ':save <path>' to write history. Ctrl-C exits.[/]");
@@ -70,7 +79,7 @@ public static class ReplCommand
             // Meta commands
             if (trimmed.StartsWith(':'))
             {
-                if (!await HandleMeta(trimmed, history, interpreter, session).ConfigureAwait(false)) break;
+                if (!await HandleMeta(trimmed, history, interpreter, sessions).ConfigureAwait(false)) break;
                 continue;
             }
 
@@ -101,7 +110,7 @@ public static class ReplCommand
         return Cli.ExitOk;
     }
 
-    private static Task<bool> HandleMeta(string cmd, List<string> history, Interpreter interpreter, VidyanoSession session)
+    private static Task<bool> HandleMeta(string cmd, List<string> history, Interpreter interpreter, SessionBook sessions)
     {
         // Returns false to exit the REPL.
         var parts = cmd.Split(' ', 2);
@@ -125,7 +134,7 @@ public static class ReplCommand
                 return Task.FromResult(true);
             case ":snapshot":
                 {
-                    var snap = session.TakeSnapshot();
+                    var snap = sessions.Current.TakeSnapshot();
                     System.Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(snap,
                         new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
                     return Task.FromResult(true);

@@ -38,7 +38,7 @@ public sealed class DeterminismRuntimeTests
         DateTimeOffset? now = null,
         int? seed = null,
         IReadOnlyDictionary<string, ScriptToolHandler>? tools = null) =>
-        new(session, initialVars: null, mode: GuardMode.Navigation, tools: tools, cancellationToken: default,
+        new(TestSessionBook.Wrap(session), initialVars: null, mode: GuardMode.Navigation, tools: tools, cancellationToken: default,
             now: now, seed: seed);
 
     private static List<StatementResult> Statements(ScriptResult result) =>

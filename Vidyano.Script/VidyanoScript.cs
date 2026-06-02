@@ -70,8 +70,17 @@ public static class VidyanoScript
         try
         {
             var conn = await adapter.StartAsync().ConfigureAwait(false);
-            using var session = new VidyanoSession(conn.BaseUri, conn.HttpClient, opts.AcceptAnyServerCertificate);
-            var interpreter = new Interpreter(session, opts.Variables, opts.Mode, opts.Tools, now: opts.Now, seed: opts.Seed, envLookup: opts.EnvLookup, envPrefix: opts.EnvironmentPrefix);
+            // The default ("") slot reuses the runner-owned transport (conn.HttpClient); named SIGN-INs
+            // mint their OWN cookie jar via the VidyanoSession own-jar ctor branch (the `httpClient: null`
+            // path) so each named identity is isolated. mintFresh must never close over conn.HttpClient.
+            // initial reuses the runner-owned conn.HttpClient, so its Dispose is a no-op today; bind it
+            // to `using` anyway for IDisposable hygiene (SessionBook never disposes the caller's initial).
+            using var initialSession = new VidyanoSession(conn.BaseUri, conn.HttpClient, opts.AcceptAnyServerCertificate);
+            using var sessions = new SessionBook(
+                initial: initialSession,
+                mintFresh: () => new ValueTask<VidyanoSession>(
+                    new VidyanoSession(conn.BaseUri, acceptAnyServerCertificate: opts.AcceptAnyServerCertificate)));
+            var interpreter = new Interpreter(sessions, opts.Variables, opts.Mode, opts.Tools, now: opts.Now, seed: opts.Seed, envLookup: opts.EnvLookup, envPrefix: opts.EnvironmentPrefix);
             return await interpreter.RunAsync(script).ConfigureAwait(false);
         }
         finally

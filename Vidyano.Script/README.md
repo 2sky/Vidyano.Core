@@ -46,7 +46,9 @@ Console.WriteLine(result.Ok ? "PASS" : result.Describe());
 
 A `.visc` script is a sequence of **verbs** that drive a Vidyano session, with **EXPECT** assertions checking observable state at each step. Verbs map 1:1 to user actions a frontend would perform:
 
-- `SIGN-IN <user> / <password>` — authenticate. `SIGN-IN FROM ENV` reads `VIDYANO_USER` / `VIDYANO_PASSWORD` from the environment instead (loud-fails if either is unset).
+- `SIGN-IN <user> / <password>` — authenticate. `SIGN-IN FROM ENV` reads `VIDYANO_USER` / `VIDYANO_PASSWORD` from the environment instead (loud-fails if either is unset). `SIGN-IN @name = <user> / <password>` (the `=` is required) opens a **named** session that mints its own cookie jar / identity — so admin-vs-tenant permission flows never share auth.
+- `USE @name` — switch the active session to a named one. All observable state (nav stack, current PO/Query, client operations, `@session`) swaps atomically. Only named sessions are addressable — the default session is unreachable by name, so name every session you switch between. An unknown name fails with a `resolve-session` diagnostic and a suggestion.
+- `SIGN-OUT` / `SIGN-OUT @name` — faithful `viSignOut` (real server action + auth clear) against the current (bare) or named session. A named (minted) session is then disposed and removed; the default session is left present-but-disconnected. If the signed-out session was active, the active session falls back to the default slot. Re-`SIGN-IN @name` re-authenticates an existing named session in place and does **not** reset its nav state — to get a clean slate, `SIGN-OUT @name` then `SIGN-IN @name`.
 - `OPEN MenuItem <path>` — navigate to a query.
 - `OPEN-ROW <index>` — drill into a row by position.
 - `OPEN-ROW WHERE <column> = <value>` — drill into the single row matched by a column value (strict — 0 or >1 matches fail; value in service-string form, like `SET`). Addresses a fixture by reference instead of a brittle row index.

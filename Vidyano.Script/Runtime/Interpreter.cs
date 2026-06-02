@@ -18,7 +18,8 @@ namespace Vidyano.Script.Runtime;
 /// </summary>
 public sealed class Interpreter
 {
-    private readonly VidyanoSession _session;
+    private readonly SessionBook _sessions;
+    private VidyanoSession Current => _sessions.Current;
     private readonly Dictionary<string, object?> _vars;
     private readonly Func<string, string?> _envLookup;
     private readonly IReadOnlyDictionary<string, ScriptToolHandler> _tools;
@@ -38,8 +39,11 @@ public sealed class Interpreter
     private Random _uuidRng = null!;
     private Random _randomRng = null!;
 
-    public Interpreter(
-        VidyanoSession session,
+    // internal: the ctor takes the internal SessionBook. The three construction sites — the
+    // VidyanoScript façade (same assembly), ReplCommand, and the test project — reach it via
+    // InternalsVisibleTo (declared in SessionBook.cs). The public running surface stays VidyanoScript.
+    internal Interpreter(
+        SessionBook sessions,
         IReadOnlyDictionary<string, object?>? initialVars = null,
         GuardMode mode = GuardMode.Navigation,
         IReadOnlyDictionary<string, ScriptToolHandler>? tools = null,
@@ -49,7 +53,7 @@ public sealed class Interpreter
         Func<string, string?>? envLookup = null,
         string? envPrefix = null)
     {
-        _session = session;
+        _sessions = sessions;
         _vars = initialVars is null
             ? new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, object?>(initialVars, StringComparer.OrdinalIgnoreCase);
@@ -142,14 +146,14 @@ public sealed class Interpreter
         // EXPECT — assertions consume what the *previous* verb produced). Meta statements
         // (@var, @mode) don't talk to the server, so they leave the buffer alone too.
         if (!isMetaStmt && stmt is not ExpectStmt)
-            _session.ResetLastOperations();
+            Current.ResetLastOperations();
 
         // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the
         // gate, matching the spec ("Until @initial == null, non-initial verbs error with
         // state-initial-pending"). Only meta statements, SAVE @initial, and EXPECTs that
         // observe the @initial scope are allowed through. `@mode = direct` is the documented
         // escape hatch. Lint never sees this — the guard requires a live Client.Initial.
-        if (!isMetaStmt && _mode != GuardMode.Direct && _session.Client.Initial is not null
+        if (!isMetaStmt && _mode != GuardMode.Direct && Current.Client.Initial is not null
             && !IsInitialScoped(stmt))
         {
             return Fail(stmt, new Diagnostic(
@@ -179,24 +183,24 @@ public sealed class Interpreter
                     return Ok(stmt);
                 }
             case SignInStmt si:                return await DoSignIn(si).ConfigureAwait(false);
-            case UseSessionStmt us:            return Fail(stmt, new Diagnostic(ErrorKind.ResolveSession, "Multi-session is not implemented in this build.", us.Location));
-            case SignOutStmt so:               return Fail(stmt, new Diagnostic(ErrorKind.ResolveSession, "SIGN-OUT is not implemented in this build.", so.Location));
+            case UseSessionStmt us:            return Wrap(stmt, _sessions.Use(us.SessionName, us.Location));
+            case SignOutStmt so:               return Wrap(stmt, await _sessions.SignOut(so.SessionName, so.Location).ConfigureAwait(false));
             case OpenPersistentObjectStmt op:  return await DoOpenPo(op).ConfigureAwait(false);
             case OpenQueryStmt oq:             return await DoOpenQuery(oq).ConfigureAwait(false);
             case OpenMenuItemStmt om:          return await DoOpenMenu(om).ConfigureAwait(false);
             case OpenRowStmt or:               return await DoOpenRow(or).ConfigureAwait(false);
             case SelectRowsStmt sr:            return await DoSelectRows(sr).ConfigureAwait(false);
-            case GoBackStmt gb:                return Wrap(stmt, _session.GoBack(gb.Location));
-            case EditStmt e:                   return Wrap(stmt, _session.Edit(e.Location));
-            case CancelStmt c:                 return Wrap(stmt, _session.Cancel(c.Location));
+            case GoBackStmt gb:                return Wrap(stmt, Current.GoBack(gb.Location));
+            case EditStmt e:                   return Wrap(stmt, Current.Edit(e.Location));
+            case CancelStmt c:                 return Wrap(stmt, Current.Cancel(c.Location));
             case SaveStmt sv:
                 {
                     var saveRes = string.Equals(sv.Scope, "initial", StringComparison.OrdinalIgnoreCase)
-                        ? await _session.SaveInitialAsync(sv.Location).ConfigureAwait(false)
-                        : await _session.SaveAsync(sv.Location).ConfigureAwait(false);
+                        ? await Current.SaveInitialAsync(sv.Location).ConfigureAwait(false)
+                        : await Current.SaveAsync(sv.Location).ConfigureAwait(false);
                     return sv.ExpectError ? WrapExpectingError(stmt, saveRes) : Wrap(stmt, saveRes);
                 }
-            case RefreshStmt rf:               return Wrap(stmt, await _session.RefreshAsync(rf.Location).ConfigureAwait(false));
+            case RefreshStmt rf:               return Wrap(stmt, await Current.RefreshAsync(rf.Location).ConfigureAwait(false));
             case SetStmt s:                    return await DoSet(s).ConfigureAwait(false);
             case ActionStmt a:                 return await DoAction(a).ConfigureAwait(false);
             case SearchStmt q:                 return await DoSearch(q).ConfigureAwait(false);
@@ -261,7 +265,11 @@ public sealed class Interpreter
             if (!lang.Ok) return Fail(si, lang.Error!);
             language = AsString(lang.Value);
         }
-        var res = await _session.SignInAsync(userName, password, language, si.Location).ConfigureAwait(false);
+        // Select (and, for a new named slot, mint) the target session before authenticating. A
+        // null/empty name is the default "" slot (mints nothing); a named slot is minted-or-reused.
+        var slot = await _sessions.SignInSlotAsync(si.SessionName).ConfigureAwait(false);
+        if (!slot.Ok) return Fail(si, slot.Error!);
+        var res = await Current.SignInAsync(userName, password, language, si.Location).ConfigureAwait(false);
         return Wrap(si, res);
     }
 
@@ -282,7 +290,7 @@ public sealed class Interpreter
             if (!o.Ok) return Fail(op, o.Error!);
             oid = AsString(o.Value);
         }
-        var res = await _session.OpenPersistentObjectAsync(AsString(t.Value), oid, op.AsHandle, op.Location).ConfigureAwait(false);
+        var res = await Current.OpenPersistentObjectAsync(AsString(t.Value), oid, op.AsHandle, op.Location).ConfigureAwait(false);
         return Wrap(op, res);
     }
 
@@ -290,7 +298,7 @@ public sealed class Interpreter
     {
         var t = EvaluateExpression(oq.Id);
         if (!t.Ok) return Fail(oq, t.Error!);
-        var res = await _session.OpenQueryAsync(AsString(t.Value), oq.AsHandle, oq.Location).ConfigureAwait(false);
+        var res = await Current.OpenQueryAsync(AsString(t.Value), oq.AsHandle, oq.Location).ConfigureAwait(false);
         return Wrap(oq, res);
     }
 
@@ -303,7 +311,7 @@ public sealed class Interpreter
             if (!v.Ok) return Fail(om, v.Error!);
             segments.Add(AsString(v.Value));
         }
-        var res = await _session.OpenMenuItemAsync(segments, om.AsHandle, om.Location).ConfigureAwait(false);
+        var res = await Current.OpenMenuItemAsync(segments, om.AsHandle, om.Location).ConfigureAwait(false);
         return Wrap(om, res);
     }
 
@@ -313,7 +321,7 @@ public sealed class Interpreter
         {
             var mv = EvaluateExpression(or.MatchValue!);
             if (!mv.Ok) return Fail(or, mv.Error!);
-            var whereRes = await _session.OpenRowWhereAsync(or.MatchColumn, mv.Value, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
+            var whereRes = await Current.OpenRowWhereAsync(or.MatchColumn, mv.Value, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
             return Wrap(or, whereRes);
         }
 
@@ -321,7 +329,7 @@ public sealed class Interpreter
         if (!v.Ok) return Fail(or, v.Error!);
         if (!TryCoerceInt(v.Value, out var index))
             return Fail(or, new Diagnostic(ErrorKind.ParseInvalidValue, "OPEN-ROW needs an integer index.", or.Location));
-        var res = await _session.OpenRowAsync(index, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
+        var res = await Current.OpenRowAsync(index, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
         return Wrap(or, res);
     }
 
@@ -346,7 +354,7 @@ public sealed class Interpreter
                 return Fail(sr, new Diagnostic(ErrorKind.ParseInvalidValue, "SELECT-ROWS needs an integer index.", sr.Location));
             index = idx;
         }
-        var res = await _session.SelectRowsAsync(sr.All, sr.None, index, sr.MatchColumn, matchValue, sr.DetailName, sr.Location).ConfigureAwait(false);
+        var res = await Current.SelectRowsAsync(sr.All, sr.None, index, sr.MatchColumn, matchValue, sr.DetailName, sr.Location).ConfigureAwait(false);
         return Wrap(sr, res);
     }
 
@@ -356,8 +364,8 @@ public sealed class Interpreter
         if (!v.Ok) return Fail(s, v.Error!);
         ReferenceHint? hint = s.Hint is null ? null : new ReferenceHint(s.Hint.Value, AsString(v.Value));
         var res = s.Scope is null
-            ? await _session.SetAttributeAsync(s.Attribute, v.Value, s.Location, hint).ConfigureAwait(false)
-            : await _session.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location).ConfigureAwait(false);
+            ? await Current.SetAttributeAsync(s.Attribute, v.Value, s.Location, hint).ConfigureAwait(false)
+            : await Current.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location).ConfigureAwait(false);
         return Wrap(s, res);
     }
 
@@ -391,7 +399,7 @@ public sealed class Interpreter
                     a.Location,
                     Hint: "Omit the `= …` clause to invoke without an option, or pass a label string / `ID <index>`."));
         }
-        var res = await _session.ExecuteActionAsync(a.ActionName, parameters, option, a.OptionHint, a.Location, a.DetailName).ConfigureAwait(false);
+        var res = await Current.ExecuteActionAsync(a.ActionName, parameters, option, a.OptionHint, a.Location, a.DetailName).ConfigureAwait(false);
         return a.ExpectError ? WrapExpectingError(a, res) : Wrap(a, res);
     }
 
@@ -404,7 +412,7 @@ public sealed class Interpreter
             if (!v.Ok) return Fail(q, v.Error!);
             text = AsString(v.Value);
         }
-        var res = await _session.SearchAsync(text, q.Location, q.DetailName).ConfigureAwait(false);
+        var res = await Current.SearchAsync(text, q.Location, q.DetailName).ConfigureAwait(false);
         return Wrap(q, res);
     }
 
@@ -431,7 +439,7 @@ public sealed class Interpreter
             args[k] = v.Value;
         }
 
-        var ctx = new ToolContext(_session, _vars, tc.Location, tc.Name);
+        var ctx = new ToolContext(Current, _vars, tc.Location, tc.Name);
         ScriptToolResult result;
         try
         {
@@ -578,7 +586,7 @@ public sealed class Interpreter
     private StatementResult DoExpectClientOperation(ExpectStmt ex)
     {
         var opType = ex.Subject.Name!;
-        var matches = _session.LastOperations
+        var matches = Current.LastOperations
             .Where(o => string.Equals(o.Type, opType, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
@@ -601,7 +609,7 @@ public sealed class Interpreter
         if (ex.Op == ExpectOp.IsNotNull || ex.Value is null)
         {
             if (matches.Count > 0) return Ok(ex);
-            var seen = _session.LastOperations.Select(o => o.Type).Distinct().ToArray();
+            var seen = Current.LastOperations.Select(o => o.Type).Distinct().ToArray();
             return Fail(ex, new Diagnostic(
                 ErrorKind.AssertFailed,
                 $"Expected a '{opType}' client operation but saw {(seen.Length == 0 ? "none" : string.Join(", ", seen))}.",
@@ -669,8 +677,8 @@ public sealed class Interpreter
 
     private OpResult<object?> ResolveExpectSubject(ExpectSubject subj, SourceLocation loc)
     {
-        var po = _session.CurrentPo;
-        var query = _session.CurrentQuery;
+        var po = Current.CurrentPo;
+        var query = Current.CurrentQuery;
 
         // EXPECT Detail "<name>" IS [NOT] AVAILABLE | VISIBLE — flag check against PO.Queries.
         // Handled before the DetailName-as-query-redirect path because IS AVAILABLE specifically
@@ -702,7 +710,7 @@ public sealed class Interpreter
         // identical to the current-query EXPECT TotalItems contract.
         if (subj.DetailName is not null)
         {
-            var detail = _session.ResolveDetail(subj.DetailName, loc);
+            var detail = Current.ResolveDetail(subj.DetailName, loc);
             if (!detail.Ok) return Fail<object?>(detail.Error!);
             query = detail.Value;
         }
@@ -713,7 +721,7 @@ public sealed class Interpreter
                 {
                     if (subj.Scope is not null)
                     {
-                        var scopedAttr = _session.GetScopedAttributeValue(subj.Scope, subj.Name!, loc);
+                        var scopedAttr = Current.GetScopedAttributeValue(subj.Scope, subj.Name!, loc);
                         if (scopedAttr.Ok) return scopedAttr;
                         // `@scope.Prop` may be a PO scalar (FullTypeName, Type, IsNew, …) rather
                         // than an attribute — common for @initial where the script wants to
@@ -722,7 +730,7 @@ public sealed class Interpreter
                         // still surface as-is.
                         if (scopedAttr.Error!.Kind == ErrorKind.ResolveAttribute)
                         {
-                            var scopePo = _session.ResolveScopePo(subj.Scope, loc);
+                            var scopePo = Current.ResolveScopePo(subj.Scope, loc);
                             if (scopePo.Ok)
                             {
                                 var poProp = ReadPoProperty(scopePo.Value!, subj.Name!, loc);
@@ -784,7 +792,7 @@ public sealed class Interpreter
                     PersistentObjectAttribute? attr;
                     if (subj.Scope is not null)
                     {
-                        var scoped = _session.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
+                        var scoped = Current.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
                         if (!scoped.Ok) return Fail<object?>(scoped.Error!);
                         attr = scoped.Value!.Attribute;
                     }
@@ -829,18 +837,18 @@ public sealed class Interpreter
                     return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Selection.AllSelected needs a current Query.", loc));
                 return OpResult<object?>.Success((object?)query.AllSelected);
             case ExpectSubjectKind.NavStackDepth:
-                return OpResult<object?>.Success((object?)_session.NavStackDepth);
+                return OpResult<object?>.Success((object?)Current.NavStackDepth);
             case ExpectSubjectKind.NavStackTopKind:
-                return OpResult<object?>.Success((object?)_session.NavStackTop?.Kind);
+                return OpResult<object?>.Success((object?)Current.NavStackTop?.Kind);
             case ExpectSubjectKind.NavStackTopName:
-                return OpResult<object?>.Success((object?)_session.NavStackTop?.Name);
+                return OpResult<object?>.Success((object?)Current.NavStackTop?.Name);
             case ExpectSubjectKind.NavStackTopIsDialog:
-                return OpResult<object?>.Success((object?)(_session.NavStackTop?.IsDialog ?? false));
+                return OpResult<object?>.Success((object?)(Current.NavStackTop?.IsDialog ?? false));
             case ExpectSubjectKind.AttributeLabel:
                 {
                     if (subj.Scope is not null)
                     {
-                        var scoped = _session.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
+                        var scoped = Current.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
                         if (!scoped.Ok) return Fail<object?>(scoped.Error!);
                         return OpResult<object?>.Success((object?)scoped.Value!.Attribute.Label);
                     }
@@ -958,9 +966,9 @@ public sealed class Interpreter
                     // shape is to *observe* presence/absence, not error on it. Bypass the
                     // diagnostic by reading Client.Initial / Client.Session straight.
                     if (string.Equals(subj.Scope, "initial", StringComparison.OrdinalIgnoreCase))
-                        return OpResult<object?>.Success((object?)_session.Client.Initial);
+                        return OpResult<object?>.Success((object?)Current.Client.Initial);
                     if (string.Equals(subj.Scope, "session", StringComparison.OrdinalIgnoreCase))
-                        return OpResult<object?>.Success((object?)_session.Client.Session);
+                        return OpResult<object?>.Success((object?)Current.Client.Session);
                     return Fail<object?>(new Diagnostic(ErrorKind.ResolveVariable,
                         $"Unknown variable scope '@{subj.Scope}'.", loc,
                         Hint: "Valid scopes: @session, @initial."));
@@ -987,11 +995,11 @@ public sealed class Interpreter
     {
         if (subj.Scope is not null)
         {
-            var scoped = _session.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
+            var scoped = Current.ResolveScopedAttribute(subj.Scope, subj.Name!, loc);
             if (!scoped.Ok) return OpResult<PersistentObjectAttribute>.Fail(scoped.Error!);
             return OpResult<PersistentObjectAttribute>.Success(scoped.Value!.Attribute);
         }
-        var po = _session.CurrentPo;
+        var po = Current.CurrentPo;
         if (po is null)
             return OpResult<PersistentObjectAttribute>.Fail(new Diagnostic(ErrorKind.StateNoCurrentPo,
                 $"EXPECT Attribute {subj.Name} needs a current PersistentObject.", loc));
@@ -1089,7 +1097,7 @@ public sealed class Interpreter
             case IdentifierExpr i: return OpResult<object?>.Success(i.Name);
             case InterpExpr interp: return EvaluateInterpolation(interp);
             case StringInterpExpr si: return EvaluateStringInterp(si);
-            case VariableAttributeExpr v: return _session.GetScopedAttributeValue(v.Scope, v.AttributeName, v.Location);
+            case VariableAttributeExpr v: return Current.GetScopedAttributeValue(v.Scope, v.AttributeName, v.Location);
         }
         return Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken, "Unhandled expression.", expr.Location));
     }
@@ -1165,7 +1173,7 @@ public sealed class Interpreter
                     ErrorKind.ResolveVariable,
                     $"`@{scope}` is a PO reference, not a value — use `@{scope}.<attr>`.",
                     interp.Location));
-            return _session.GetScopedAttributeValue(scope, attr, interp.Location);
+            return Current.GetScopedAttributeValue(scope, attr, interp.Location);
         }
         // {{Messages.Saved}} — look up the server-localized client message by key. Surfaces the
         // same strings the UI uses, so assertions can compare against "what the user would read"
@@ -1177,12 +1185,12 @@ public sealed class Interpreter
                 return Fail<object?>(new Diagnostic(ErrorKind.ResolveVariable,
                     "Empty Messages key.", interp.Location,
                     Hint: "Use {{Messages.<key>}} — e.g. {{Messages.Save}}."));
-            if (_session.Client.Messages.TryGetValue(key, out var msg))
+            if (Current.Client.Messages.TryGetValue(key, out var msg))
                 return OpResult<object?>.Success(msg);
             return Fail<object?>(new Diagnostic(ErrorKind.ResolveVariable,
                 $"No client message named '{key}'.",
                 interp.Location,
-                Hint: Suggester.Hint(key, _session.Client.Messages.Keys)));
+                Hint: Suggester.Hint(key, Current.Client.Messages.Keys)));
         }
         // {{env:NAME}} — loud-on-missing environment lookup (a missing var never silently becomes an empty
         // value). Resolves through the injectable EnvLookup, so `--env-file` / hermetic test hosts feed it.
@@ -1405,6 +1413,12 @@ public sealed class Interpreter
     private StatementResult Wrap(Statement stmt, OpResult res) =>
         res.Ok ? Ok(stmt) : Fail(stmt, res.Error!);
 
+    /// <summary>Same polarity as the non-generic <see cref="Wrap(Statement, OpResult)"/>, for the
+    /// <see cref="SessionBook"/> calls that return a payload the interpreter doesn't need (the slot is
+    /// already reflected through <c>Current</c>): pass on success, surface the diagnostic on failure.</summary>
+    private StatementResult Wrap<T>(Statement stmt, OpResult<T> res) =>
+        res.Ok ? Ok(stmt) : Fail(stmt, res.Error!);
+
     /// <summary>Inverts <see cref="Wrap"/>'s polarity for a verb carrying the <c>EXPECTING ERROR</c>
     /// suffix. The verb passes iff the server returned an error notification
     /// (<see cref="ErrorKind.AssertNotificationError"/>) — and because the session leaves that
@@ -1428,15 +1442,15 @@ public sealed class Interpreter
     }
 
     private StatementResult Ok(Statement stmt) =>
-        new(stmt, true, _session.TakeSnapshot(), Array.Empty<Diagnostic>());
+        new(stmt, true, Current.TakeSnapshot(), Array.Empty<Diagnostic>());
 
     private StatementResult Fail(Statement stmt, Diagnostic d) =>
-        new(stmt, false, _session.TakeSnapshot(), new[] { d });
+        new(stmt, false, Current.TakeSnapshot(), new[] { d });
 
     /// <summary>A skipped statement: a non-failing pass that did not execute. <paramref name="d"/>
     /// carries an informational diagnostic explaining the skip (e.g. an unmet REQUIRES).</summary>
     private StatementResult Skip(Statement stmt, Diagnostic? d) =>
-        new(stmt, true, _session.TakeSnapshot(),
+        new(stmt, true, Current.TakeSnapshot(),
             d is null ? Array.Empty<Diagnostic>() : new[] { d },
             Skipped: true);
 }

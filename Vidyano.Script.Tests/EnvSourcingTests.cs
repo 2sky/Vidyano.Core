@@ -38,7 +38,7 @@ public sealed class EnvSourcingTests
         IDictionary<string, string?> env,
         IReadOnlyDictionary<string, object?>? initialVars = null,
         string? envPrefix = null) =>
-        new(session, initialVars: initialVars, mode: GuardMode.Navigation, tools: null,
+        new(TestSessionBook.Wrap(session), initialVars: initialVars, mode: GuardMode.Navigation, tools: null,
             cancellationToken: default, now: null, seed: null,
             envLookup: name => env.TryGetValue(name, out var v) ? v : null,
             envPrefix: envPrefix);

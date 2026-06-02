@@ -1,0 +1,70 @@
+### Multi-session — named sessions, USE, SIGN-OUT, and per-session isolation.
+###
+### This file lints cleanly with no backend. The executable portion runs against the public demo
+### and proves the multi-session MECHANICS using one credential pair in two NAMED sessions: naming
+### a session mints its OWN cookie jar, so two named sessions are independent identities even when
+### the user is the same. The admin-vs-tenant PERMISSION-split use case needs a two-user app, so it
+### is shown commented at the end.
+###
+### Locked semantics (see the package READMEs / `vidyano help verbs`):
+###   • SIGN-IN @name = <user> / <pwd>  — the `=` is REQUIRED; mints a distinct cookie jar / identity.
+###   • USE @name                        — flips the active session; the whole observable state
+###                                        (nav stack, current PO/Query, client ops, @session) swaps.
+###   • Only NAMED sessions are addressable — the default (unnamed) session is unreachable by name,
+###                                        so name every session you intend to switch between.
+###   • Re-SIGN-IN @name                 — re-auths the existing slot in place (no nav-state reset).
+###   • SIGN-OUT [@name]                 — faithful viSignOut; a minted session is disposed + removed;
+###                                        the active session then falls back to the default slot.
+
+@app = "https://demo.vidyano.com"
+
+### Two named sessions over the same credentials — each mints its OWN cookie jar, so they are
+### distinct identities. (A real admin-vs-tenant flow would use two different users — see the bottom.)
+SIGN-IN @admin = admin / admin
+SIGN-IN @second = admin / admin
+
+### Open a Query under @admin.
+USE @admin
+OPEN MenuItem Customers
+EXPECT NavStack.Depth = 1
+EXPECT NavStack.Top.Kind = "Query"
+
+### Switch to @second — its navigation stack is independent (still empty). This is the atomic
+### per-session swap: nothing from @admin's frame leaks across the cookie-jar boundary.
+USE @second
+EXPECT NavStack.Depth = 0
+
+### Switch back — @admin still holds its frame.
+USE @admin
+EXPECT NavStack.Depth = 1
+EXPECT NavStack.Top.Kind = "Query"
+
+### SIGN-OUT a named (minted) session: faithful viSignOut, then disposed + removed. @second was not
+### the active session, so @admin stays active and keeps its frame.
+SIGN-OUT @second
+EXPECT NavStack.Depth = 1
+
+### An unknown name never throws — it is a resolve-session diagnostic with a "did you mean" hint.
+### Uncomment to watch it fail loudly (@second is gone after the SIGN-OUT above):
+# USE @second
+
+### --- Re-SIGN-IN re-auths in place (no nav-state reset) — illustrative -------------------------
+### Re-signing-in an existing named slot re-authenticates it WITHOUT resetting its nav stack; for a
+### clean slate, SIGN-OUT then SIGN-IN. (Depends on a live re-auth, so shown commented.)
+# SIGN-IN @admin = admin / admin
+# EXPECT NavStack.Depth = 1            ## still 1 — re-auth preserved the frame
+
+### --- Permission split (needs a two-user app; illustrative) ------------------------------------
+### The real reason for multi-session: assert that one identity can do what another cannot, in a
+### single script, with no auth bleed between them.
+# SIGN-IN @admin  = admin  / adminpass
+# SIGN-IN @tenant = tenant / tenantpass
+# USE @admin
+# OPEN MenuItem Home/Customers
+# SELECT-ROWS 0
+# ACTION Delete                   ## admin may delete
+# USE @tenant
+# OPEN MenuItem Home/Customers
+# SELECT-ROWS 0
+# ACTION Delete EXPECTING ERROR   ## tenant may NOT — its permissions never leaked from @admin
+# SIGN-OUT @tenant                ## disposed; the active session falls back to the default slot

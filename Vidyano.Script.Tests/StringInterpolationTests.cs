@@ -31,7 +31,7 @@ public sealed class StringInterpolationTests
         new("https://127.0.0.1:1", acceptAnyServerCertificate: true);
 
     private static Interpreter NewInterpreter(DateTimeOffset? now = null, int? seed = null) =>
-        new(NewSession(), initialVars: null, mode: GuardMode.Navigation, tools: null, cancellationToken: default,
+        new(TestSessionBook.Wrap(NewSession()), initialVars: null, mode: GuardMode.Navigation, tools: null, cancellationToken: default,
             now: now, seed: seed);
 
     private static string Var(Interpreter interp, string name) =>
