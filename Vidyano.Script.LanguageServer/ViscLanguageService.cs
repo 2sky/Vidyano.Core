@@ -155,6 +155,11 @@ public sealed class ViscLanguageService
 
     private static string LineText(string text, int lspLine)
     {
+        // A malformed client position can carry a negative line; clamp to empty rather than letting the
+        // walk fall through and return line 0.
+        if (lspLine < 0)
+            return string.Empty;
+
         var lineStart = 0;
         var currentLine = 0;
         for (var i = 0; i < text.Length && currentLine < lspLine; i++)

@@ -34,9 +34,16 @@ public static class ViscLspServer
             ?? typeof(ViscLspServer).Assembly.GetName().Version?.ToString()
             ?? "0.0.0").Split('+')[0];
 
+        // stdout is the JSON-RPC channel: bind it to the LSP transport up front, then point Console.Out at
+        // stderr so any stray Console.Write (ours or a dependency's) lands on stderr instead of corrupting
+        // the protocol stream.
+        var stdin = Console.OpenStandardInput();
+        var stdout = Console.OpenStandardOutput();
+        Console.SetOut(Console.Error);
+
         var server = await OmniLanguageServer.From(options => options
-            .WithInput(Console.OpenStandardInput())
-            .WithOutput(Console.OpenStandardOutput())
+            .WithInput(stdin)
+            .WithOutput(stdout)
             .WithServerInfo(new ServerInfo { Name = "vidyano-lsp", Version = version })
             .WithServices(services => services.AddSingleton(service))
             .OnDidOpenTextDocument(async (p, c) =>
@@ -70,22 +77,25 @@ public static class ViscLspServer
         return 0;
     }
 
-    // Publishes through the running server. The server is set once after From(...) returns; before that
-    // (during the handshake) no document handler can fire, so the field is always populated when used.
+    // Publishes through the running server. The server instance is only available after From(...) returns,
+    // but OmniSharp's message loop can dispatch a didOpen the moment the handshake completes — possibly
+    // before this method's Attach continuation runs. Awaiting a TaskCompletionSource closes that race: an
+    // early publish parks until the server is attached instead of being silently dropped.
     private sealed class PublishingSink : IDiagnosticSink
     {
-        private OmniLanguageServer? _server;
+        private readonly TaskCompletionSource<OmniLanguageServer> _serverTcs =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public void Attach(OmniLanguageServer server) => _server = server;
+        public void Attach(OmniLanguageServer server) => _serverTcs.TrySetResult(server);
 
-        public Task PublishAsync(string uri, IReadOnlyList<LspDiagnostic> diagnostics, CancellationToken ct)
+        public async Task PublishAsync(string uri, IReadOnlyList<LspDiagnostic> diagnostics, CancellationToken ct)
         {
-            _server?.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+            var server = await _serverTcs.Task.ConfigureAwait(false);
+            server.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
             {
                 Uri = DocumentUri.Parse(uri),
                 Diagnostics = new Container<LspDiagnostic>(diagnostics),
             });
-            return Task.CompletedTask;
         }
     }
 }
