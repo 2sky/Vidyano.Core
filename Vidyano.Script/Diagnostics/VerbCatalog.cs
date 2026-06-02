@@ -38,21 +38,31 @@ public static class VerbCatalog
             "Authenticate against the service.",
             "Authenticate against the Vidyano service. `SIGN-IN FROM ENV` reads `VIDYANO_USER` / "
             + "`VIDYANO_PASSWORD` from the environment and loud-fails if either is unset. The `@name =` "
-            + "form opens a named session.",
+            + "form (the `=` is required) opens a NAMED session that mints its own cookie jar / identity, "
+            + "so it never shares auth with the default session or any other named one. Re-`SIGN-IN @name` "
+            + "re-authenticates the existing slot in place — it does NOT reset its navigation state.",
             ["SIGN-IN admin / admin", "SIGN-IN @admin = user / pwd", "SIGN-IN FROM ENV"],
             "session", []),
 
         new("SIGN-OUT",
-            "SIGN-OUT",
-            "End the current session.",
-            null,
-            ["SIGN-OUT"],
+            "SIGN-OUT\nSIGN-OUT @name",
+            "End the current (or a named) session.",
+            "Performs a faithful `viSignOut` (the real server action plus auth clear) against the target "
+            + "session — the current one for bare `SIGN-OUT`, or the named slot for `SIGN-OUT @name`. A "
+            + "named (minted) session is then disposed and removed; the default session is left present "
+            + "but disconnected (the next verb fails loudly with not-signed-in). When the signed-out "
+            + "session was the active one, the active session falls back to the default slot.",
+            ["SIGN-OUT", "SIGN-OUT @admin"],
             "session", []),
 
         new("USE",
             "USE @name",
-            "Switch to a named session (multi-session not yet implemented).",
-            null,
+            "Switch the active session to a named one.",
+            "Flips the active session to the named slot — all observable state (navigation stack, current "
+            + "PO/Query, client operations, scoped `@session`) swaps atomically. Only NAMED sessions are "
+            + "addressable; the default session is unreachable by name, so name every session you switch "
+            + "between. An unknown name fails with a `resolve-session` diagnostic and a \"did you mean\" "
+            + "suggestion over the open names.",
             ["USE @admin"],
             "session", []),
 

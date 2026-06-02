@@ -110,6 +110,25 @@ EXPECT PO.Metadata.brand = "vidyano"
 EXPECT Query.Columns[FirstName].Label = "First name"
 ```
 
+### Multiple identities in one script
+
+Naming a session opts into multi-identity — each named session mints its **own** cookie jar, so an admin and a tenant never share auth. The default (unnamed) session stays the zero-cost single-session convenience.
+
+```visc
+SIGN-IN @admin = admin / pass            ## the `=` is required for a named session
+SIGN-IN @tenant = guest / pass           ## own cookie jar = distinct identity
+USE @admin                               ## flip the active session; all state swaps atomically
+OPEN MenuItem Home/Customers
+ACTION Delete                            ## runs with @admin's permissions
+USE @tenant
+ACTION Delete EXPECTING ERROR            ## @tenant can't — its permissions never leaked
+SIGN-OUT @tenant                         ## faithful viSignOut, disposed; active falls back to default
+```
+
+- Only **named** sessions are addressable by `USE` — name every session you switch between.
+- Re-`SIGN-IN @name` re-authenticates the existing session in place (no nav-state reset). For a clean slate, `SIGN-OUT @name` then `SIGN-IN @name`.
+- An unknown `USE @name` / `SIGN-OUT @name` is a `resolve-session` diagnostic with a "did you mean" suggestion — it never throws.
+
 ### Deterministic regression scripts
 
 So a checked-in script passes on any machine, it can gate itself and pin its own randomness:

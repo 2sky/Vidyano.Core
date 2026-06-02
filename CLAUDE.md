@@ -120,6 +120,9 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 |---|---|
 | `SIGN-IN <user> / <pwd>` | Authenticate (optionally `LANGUAGE xx-XX`). |
 | `SIGN-IN FROM ENV` | Authenticate using `VIDYANO_USER` / `VIDYANO_PASSWORD` from the environment (loud-fails when either is unset). Optional `LANGUAGE xx-XX`. |
+| `SIGN-IN @name = <user> / <pwd>` | Open a **named** session (the `=` is required). Mints its OWN cookie jar / identity, so it never shares auth with the default or any other named session. Re-`SIGN-IN @name` re-auths the existing slot in place (no nav-state reset). |
+| `USE @name` | Switch the active session to a named one — all observable state (nav stack, current PO/Query, client operations, `@session`) swaps atomically. Only named sessions are addressable (the default `""` session is unreachable by name); an unknown name fails with `resolve-session` + a suggestion. |
+| `SIGN-OUT` / `SIGN-OUT @name` | Faithful `viSignOut` (real server action + auth clear) against the current (bare) or named session. A named (minted) session is then disposed + removed; the default session is left present-but-disconnected. If the signed-out session was active, the active session falls back to the default slot. |
 | `OPEN MenuItem <path>` | Push a Query frame on the nav stack. |
 | `OPEN-ROW <i>` | Push a PO frame from row `i` of the top Query (by index). |
 | `OPEN-ROW WHERE <col> = <value>` | Push a PO frame from the single row whose `<col>` equals `<value>` — addresses a fixture by reference, not index. Strict: 0 or >1 matches fail. Value is service-string form (same convention as `SET`); only `=` is supported. |
