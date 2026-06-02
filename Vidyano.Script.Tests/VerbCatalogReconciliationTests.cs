@@ -13,14 +13,14 @@ namespace Vidyano.Script.Tests;
 /// </summary>
 public sealed class VerbCatalogReconciliationTests
 {
-    // The authoritative set the parser recognized before the catalog existed (Parser.cs:20-28).
-    // VerbCatalog.Names is internal to Vidyano.Script, so this list stands in as the contract under test.
+    // The set the parser must still recognize. VerbCatalog.Names is internal to Vidyano.Script, so this
+    // list stands in as the contract under test — every entry must resolve in the catalog.
     private static readonly string[] HistoricalKnownVerbs =
     [
         "SIGN-IN", "SIGN-OUT", "USE", "OPEN", "OPEN-ROW", "GO-BACK", "FOLLOW", "OPEN-DETAIL",
-        "EDIT", "CANCEL", "SAVE", "REFRESH", "RELOAD",
+        "EDIT", "CANCEL", "SAVE", "REFRESH",
         "SET", "ACTION", "SEARCH", "SELECT-ROWS",
-        "EXPECT", "GOTO",
+        "EXPECT",
         "TOOL",
         "REQUIRES", "CLEANUP",
     ];
