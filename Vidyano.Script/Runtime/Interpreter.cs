@@ -189,6 +189,7 @@ public sealed class Interpreter
             case OpenQueryStmt oq:             return await DoOpenQuery(oq).ConfigureAwait(false);
             case OpenMenuItemStmt om:          return await DoOpenMenu(om).ConfigureAwait(false);
             case OpenRowStmt or:               return await DoOpenRow(or).ConfigureAwait(false);
+            case FollowStmt fl:                return await DoFollow(fl).ConfigureAwait(false);
             case SelectRowsStmt sr:            return await DoSelectRows(sr).ConfigureAwait(false);
             case GoBackStmt gb:                return Wrap(stmt, Current.GoBack(gb.Location));
             case EditStmt e:                   return Wrap(stmt, Current.Edit(e.Location));
@@ -331,6 +332,14 @@ public sealed class Interpreter
             return Fail(or, new Diagnostic(ErrorKind.ParseInvalidValue, "OPEN-ROW needs an integer index.", or.Location));
         var res = await Current.OpenRowAsync(index, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
         return Wrap(or, res);
+    }
+
+    private async Task<StatementResult> DoFollow(FollowStmt f)
+    {
+        // The attribute name is a static identifier on the AST (like detail names), not a value
+        // expression, so there's nothing to evaluate — delegate straight to the session.
+        var res = await Current.FollowAsync(f.Attribute, f.AsHandle, f.Location).ConfigureAwait(false);
+        return Wrap(f, res);
     }
 
     private async Task<StatementResult> DoSelectRows(SelectRowsStmt sr)

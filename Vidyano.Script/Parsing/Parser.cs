@@ -23,7 +23,7 @@ public sealed class Parser
 
     private static readonly HashSet<string> KnownOpenKinds = new(StringComparer.OrdinalIgnoreCase)
     {
-        "PersistentObject", "Query", "MenuItem", "Detail",
+        "PersistentObject", "Query", "MenuItem",
     };
 
     /// <summary>Reserved <c>@name</c> identifiers that the engine binds to fixed scoped PersistentObjects
@@ -129,6 +129,7 @@ public sealed class Parser
             "OPEN-ROW"    => ParseOpenRow(tok.Location),
             "SELECT-ROWS" => ParseSelectRows(tok.Location),
             "GO-BACK"     => new GoBackStmt(tok.Location),
+            "FOLLOW"      => ParseFollow(tok.Location),
             "EDIT"        => new EditStmt(null, tok.Location),
             "CANCEL"      => new CancelStmt(null, tok.Location),
             "SAVE"        => ParseSave(tok.Location),
@@ -365,6 +366,17 @@ public sealed class Parser
         return column != null
             ? new OpenRowStmt(null, asHandle, loc, MatchColumn: column, MatchOp: matchOp, MatchValue: value, DetailName: detailName)
             : new OpenRowStmt(index, asHandle, loc, DetailName: detailName);
+    }
+
+    /// <summary>Parses <c>FOLLOW &lt;attr&gt; [AS @handle]</c>. The attribute name is read with the same
+    /// dotted-identifier rule as <c>SET</c> (so a reference resolved via a dotted path parses), and the
+    /// optional <c>AS @handle</c> tail reuses the shared handle helper.</summary>
+    private Statement? ParseFollow(SourceLocation loc)
+    {
+        var attr = ParseDottedAttributeName();
+        if (attr == null) return null;
+        var asHandle = ParseOptionalAs();
+        return new FollowStmt(attr, asHandle, loc);
     }
 
     /// <summary>Parses the row-addressing clause shared by <c>OPEN-ROW</c> and <c>SELECT-ROWS</c>:

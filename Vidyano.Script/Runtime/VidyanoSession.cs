@@ -526,6 +526,86 @@ public sealed class VidyanoSession : IDisposable
         return OpResult.Success;
     }
 
+    /// <summary><c>FOLLOW &lt;attr&gt; [AS @handle]</c> — navigate from a reference attribute on the current
+    /// PO to the PersistentObject it points at, pushing a PO frame. This is the .visc equivalent of the web
+    /// client's "open" affordance next to a reference field: it honors the same <c>CanOpen</c> gate
+    /// (a non-empty reference the user may read) and loads the target the same way a query row does
+    /// (<see cref="QueryResultItem.Load"/> → <c>GetPersistentObjectAsync(targetTypeId, objectId, parent)</c>).
+    /// It is NOT the <c>PersistentObject.SelectReference</c> action — that is the SET/change-the-reference
+    /// path. Reuses the exact push-frame-and-bind-handle tail as <see cref="OpenRowItemAsync"/>.</summary>
+    public async Task<OpResult> FollowAsync(string attributeName, string? asHandle, SourceLocation loc)
+    {
+        if (CurrentPo is null) return NoCurrentPo(loc);
+
+        var attr = CurrentPo.GetAttribute(attributeName);
+        if (attr is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveAttribute,
+                $"Attribute '{attributeName}' does not exist on {CurrentPo.Type}.",
+                loc,
+                Hint: Suggester.Hint(attributeName, CurrentPo.Attributes.Select(a => a.Name))));
+
+        if (attr is not PersistentObjectAttributeWithReference reference)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardNotReachable,
+                $"Attribute '{attributeName}' on {CurrentPo.Type} is not a reference — there is nothing to follow.",
+                loc,
+                Hint: "FOLLOW only applies to reference attributes (a lookup to another PersistentObject)."));
+
+        // The UI never offers an open affordance on a hidden field; mirror the SET hidden guard.
+        if (!reference.IsVisible)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardAttributeHidden,
+                $"Reference '{attributeName}' is hidden on {CurrentPo.Type} — the UI cannot open it.",
+                loc));
+
+        // CanOpen => ObjectId != null && Lookup.CanRead. Lookup can be null (the server only sends one
+        // when the attribute carries a lookup) and CanOpen dereferences it — so guard each part for a
+        // precise message instead of letting CanOpen NRE or collapsing every cause into one diagnostic.
+        if (reference.Lookup is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardNotReachable,
+                $"Reference '{attributeName}' has no lookup target to follow.",
+                loc));
+        if (reference.ObjectId is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardNotReachable,
+                $"Reference '{attributeName}' is empty — no target is selected, so there is nothing to follow.",
+                loc));
+        if (!reference.Lookup.CanRead)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.GuardNotReachable,
+                $"You can't open '{attributeName}' — you have no read right on its target.",
+                loc));
+
+        var typeId = reference.Lookup.PersistentObject?.Id;
+        if (string.IsNullOrEmpty(typeId))
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ServerError,
+                $"Reference '{attributeName}' has no resolvable target type.",
+                loc));
+
+        try
+        {
+            // The same load the web client performs to open a reference / a query row
+            // (QueryResultItem.Load): GetPersistentObjectAsync(targetTypeId, objectId, parent). The
+            // lookup's Parent supplies the parent context, matching QueryResultItem.Load()'s Query.Parent.
+            var po = await Client.GetPersistentObjectAsync(typeId, reference.ObjectId, reference.Lookup.Parent).ConfigureAwait(false);
+            if (po is null)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.ServerError,
+                    $"Following '{attributeName}' did not load a PersistentObject.",
+                    loc));
+            _navStack.Add(new PoEntry(po, IsDialog(po)));
+            if (asHandle != null) _handles[asHandle] = po;
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
     /// <summary>Loads <paramref name="query"/> and returns the rows whose <paramref name="column"/> cell
     /// equals <paramref name="value"/> in service-string form (the convention SET / OPEN-ROW WHERE use).
     /// Shared by strict OPEN-ROW WHERE (which then asserts exactly one match) and non-strict SELECT-ROWS

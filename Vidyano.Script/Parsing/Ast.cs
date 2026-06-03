@@ -94,6 +94,15 @@ public sealed record SelectRowsStmt(bool All, bool None, Expression? Index, stri
 /// already at the root frame.</summary>
 public sealed record GoBackStmt(SourceLocation Location) : Statement(Location);
 
+/// <summary><c>FOLLOW &lt;attr&gt; [AS @handle]</c> — navigate from a reference attribute on the current PO
+/// to the PersistentObject it points at, pushing a new PO frame. The .visc equivalent of clicking the
+/// "open" affordance next to a reference field. <see cref="Attribute"/> is a (possibly dotted) attribute
+/// name resolved on the current PO; it must be a reference attribute
+/// (<c>PersistentObjectAttributeWithReference</c>), and FOLLOW honors the same <c>CanOpen</c> gate the UI
+/// uses (a non-empty reference the signed-in user may read). Distinct from <c>SET</c>, which <em>changes</em>
+/// a reference rather than opening it.</summary>
+public sealed record FollowStmt(string Attribute, string? AsHandle, SourceLocation Location) : Statement(Location);
+
 /// <summary><c>EDIT</c> — enter edit mode on the current PO.</summary>
 public sealed record EditStmt(string? Handle, SourceLocation Location) : Statement(Location);
 

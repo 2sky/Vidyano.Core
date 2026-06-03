@@ -24,7 +24,7 @@ public sealed record VerbInfo(
 /// </summary>
 /// <remarks>
 /// Historically there were two diverging lists: <c>Parser.KnownVerbs</c> (which carried
-/// <c>FOLLOW</c>/<c>OPEN-DETAIL</c>/<c>REFRESH</c>) and the Tool's
+/// <c>FOLLOW</c>/<c>REFRESH</c>) and the Tool's
 /// syntax-form-keyed help table (which did not). This catalog reconciles them: it is keyed by bare
 /// verb name and MUST contain every verb the parser recognizes. The catalog-reconciliation guard test
 /// asserts that <c>Parser.KnownVerbs ⊆ VerbCatalog.Names</c>.
@@ -94,15 +94,12 @@ public static class VerbCatalog
         new("FOLLOW",
             "FOLLOW <attr> [AS @h]",
             "Follow a reference attribute to its target PO.",
-            null,
+            "Navigates from a reference attribute on the current PersistentObject to the PO it points at, "
+            + "pushing a new PO frame — the .visc equivalent of clicking the \"open\" affordance next to a "
+            + "reference field. The attribute must be a reference (a lookup to another PO); FOLLOW honors the "
+            + "same gate the UI uses (a non-empty reference the signed-in user may read) and loads the target "
+            + "the same way opening a query row does. It does NOT change the reference — that is what `SET` does.",
             ["FOLLOW Customer AS @c"],
-            "navigation", []),
-
-        new("OPEN-DETAIL",
-            "OPEN-DETAIL \"<name>\" [AS @h]",
-            "Open a detail query on the current PO as a frame.",
-            null,
-            ["OPEN-DETAIL \"OrderLines\""],
             "navigation", []),
 
         new("EDIT",

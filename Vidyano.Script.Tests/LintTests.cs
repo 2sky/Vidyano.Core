@@ -86,6 +86,38 @@ public sealed class LintTests
         AssertClean("REQUIRES TOOL seed\nEDIT\nCLEANUP\nEXPECT NavStack.Depth >= 0");
     }
 
+    // --- FOLLOW -------------------------------------------------------------------------------
+
+    [Fact]
+    public void Follow_BareAttribute_Parses()
+    {
+        AssertClean("FOLLOW Customer");
+    }
+
+    [Fact]
+    public void Follow_WithHandle_Parses()
+    {
+        AssertClean("FOLLOW Customer AS @c");
+    }
+
+    [Fact]
+    public void Follow_DottedAttribute_Parses()
+    {
+        AssertClean("FOLLOW Customer.Owner");
+    }
+
+    [Fact]
+    public void Follow_MissingAttribute_Diagnoses()
+    {
+        AssertHasDiagnostic("FOLLOW");
+    }
+
+    [Fact]
+    public void Follow_AsWithoutHandle_Diagnoses()
+    {
+        AssertHasDiagnostic("FOLLOW Customer AS");
+    }
+
     // --- EXPECT ... MATCHES -------------------------------------------------------------------
 
     [Fact]

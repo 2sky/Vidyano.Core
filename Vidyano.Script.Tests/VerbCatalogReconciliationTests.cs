@@ -17,7 +17,7 @@ public sealed class VerbCatalogReconciliationTests
     // list stands in as the contract under test — every entry must resolve in the catalog.
     private static readonly string[] HistoricalKnownVerbs =
     [
-        "SIGN-IN", "SIGN-OUT", "USE", "OPEN", "OPEN-ROW", "GO-BACK", "FOLLOW", "OPEN-DETAIL",
+        "SIGN-IN", "SIGN-OUT", "USE", "OPEN", "OPEN-ROW", "GO-BACK", "FOLLOW",
         "EDIT", "CANCEL", "SAVE", "REFRESH",
         "SET", "ACTION", "SEARCH", "SELECT-ROWS",
         "EXPECT",
