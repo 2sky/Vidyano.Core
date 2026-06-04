@@ -1457,7 +1457,11 @@ public sealed class Interpreter
             _ => v.ToString() ?? "null",
         };
 
-    private static string AsString(object? v) => v switch { null => "", string s => s, IFormattable f => f.ToString(null, CultureInfo.InvariantCulture), _ => v.ToString() ?? "" };
+    // Coerce a value to the wire string the server's FromServiceString expects. Routes through the
+    // same Client.ToServiceString the attr.Value setter uses, so a value reaching the server via a
+    // quoted hole / ACTION param coerces identically to one assigned through a bare hole — the two
+    // paths must not disagree (temporal types format dd-MM-yyyy, not the invariant MM/dd general pattern).
+    private static string AsString(object? v) => v switch { null => "", string s => s, _ => Vidyano.Client.ToServiceString(v) ?? "" };
 
     /// <summary>Strips one matching pair of surrounding double or single quotes from a <c>??</c> fallback
     /// token, so <c>?? "x"</c> and <c>?? x</c> both yield the literal <c>x</c>. Unbalanced or absent quotes
