@@ -820,9 +820,19 @@ public sealed class Interpreter
                         .Concat(query?.Actions ?? Array.Empty<Vidyano.ViewModel.Actions.QueryAction>())
                         .Select(a => a.Name);
                     if (action is null)
-                        return Fail<object?>(new Diagnostic(ErrorKind.ResolveAction,
-                            $"Action '{subj.Name}' does not exist here.", loc,
-                            Hint: Suggester.Hint(subj.Name!, candidates)));
+                    {
+                        // An absent action (e.g. removed via DisableActions) is neither visible nor
+                        // executable — answer false for an explicit flag so a script can assert it was
+                        // filtered out (EXPECT Action X IS NOT AVAILABLE). A bare `EXPECT Action X`
+                        // (no flag) still errors, preserving typo detection over candidate names.
+                        return subj.Flag switch
+                        {
+                            AttributeFlagKind.Visible or AttributeFlagKind.Available => OpResult<object?>.Success((object?)false),
+                            _ => Fail<object?>(new Diagnostic(ErrorKind.ResolveAction,
+                                    $"Action '{subj.Name}' does not exist here.", loc,
+                                    Hint: Suggester.Hint(subj.Name!, candidates))),
+                        };
+                    }
                     // IS VISIBLE → IsVisible; IS AVAILABLE → CanExecute. None (no flag yet) defaults
                     // to CanExecute — preserves the bare `EXPECT Action X` historical sense.
                     return subj.Flag switch
