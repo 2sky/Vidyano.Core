@@ -40,3 +40,14 @@ public sealed record QueryEntry(Query Query, bool IsDialog = false) : NavEntry
     public override string Name => Query.Name;
     public override bool IsDialog { get; } = IsDialog;
 }
+
+/// <summary>A modal frame for a server-driven retry request (<see cref="PendingRetry"/>), pushed while an
+/// action is paused awaiting confirmation/input and popped by <c>CONFIRM</c>. Always a dialog — it
+/// overlays whatever PO/Query was current when the action ran. <see cref="Name"/> is the retry title, so
+/// <c>EXPECT NavStack.Top.Kind = "RetryDialog"</c> / <c>NavStack.Top.Name</c> read it like any other frame.</summary>
+public sealed record RetryEntry(PendingRetry Retry) : NavEntry
+{
+    public override string Kind => "RetryDialog";
+    public override string Name => Retry.Title;
+    public override bool IsDialog => true;
+}

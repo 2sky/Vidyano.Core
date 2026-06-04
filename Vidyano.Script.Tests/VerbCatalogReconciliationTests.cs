@@ -19,7 +19,7 @@ public sealed class VerbCatalogReconciliationTests
     [
         "SIGN-IN", "SIGN-OUT", "USE", "OPEN", "OPEN-ROW", "GO-BACK", "FOLLOW",
         "EDIT", "CANCEL", "SAVE", "REFRESH",
-        "SET", "ACTION", "SEARCH", "SELECT-ROWS",
+        "SET", "ACTION", "CONFIRM", "SEARCH", "SELECT-ROWS",
         "EXPECT",
         "TOOL",
         "REQUIRES", "CLEANUP",

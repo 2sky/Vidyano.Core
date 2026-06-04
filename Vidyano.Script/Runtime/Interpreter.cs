@@ -163,6 +163,19 @@ public sealed class Interpreter
                 Hint: "Drive @initial to a clean SAVE (SAVE @initial) or set `@mode = direct` at the top of the script to bypass the gate."));
         }
 
+        // Retry-pending gate: while a server RetryAction dialog is open the action is paused, so the
+        // script is frozen against it — parallel to the Initial-PO gate above. Only CONFIRM (answer the
+        // dialog), SET (supply input on the retry PO), and read-only EXPECT/REQUIRES are allowed through;
+        // everything else trips state-retry-pending. Lint never reaches here (no live retry).
+        if (!isMetaStmt && Current.CurrentRetry is not null && !IsRetryScoped(stmt))
+        {
+            return Fail(stmt, new Diagnostic(
+                ErrorKind.StateRetryPending,
+                "A server retry dialog is open — the action paused to ask for confirmation or more input.",
+                stmt.Location,
+                Hint: "Answer it with CONFIRM \"<option>\" / CONFIRM ID <index>; SET attributes on the retry PO first if it asks for input."));
+        }
+
         switch (stmt)
         {
             case VariableAssignment va:
@@ -204,6 +217,7 @@ public sealed class Interpreter
             case RefreshStmt rf:               return Wrap(stmt, await Current.RefreshAsync(rf.Location).ConfigureAwait(false));
             case SetStmt s:                    return await DoSet(s).ConfigureAwait(false);
             case ActionStmt a:                 return await DoAction(a).ConfigureAwait(false);
+            case ConfirmStmt cf:               return await DoConfirm(cf).ConfigureAwait(false);
             case SearchStmt q:                 return await DoSearch(q).ConfigureAwait(false);
             case ExpectStmt ex:                return DoExpect(ex);
             case ToolCallStmt tc:              return await DoTool(tc).ConfigureAwait(false);
@@ -230,6 +244,12 @@ public sealed class Interpreter
             RequiresStmt or RequiresToolStmt => true,
             _ => false,
         };
+
+    /// <summary>Returns <c>true</c> when a statement is permitted while a server retry dialog is open.
+    /// <c>CONFIRM</c> answers it, <c>SET</c> supplies input on the retry PO, and <c>EXPECT</c>/<c>REQUIRES</c>
+    /// are read-only — everything else trips <see cref="ErrorKind.StateRetryPending"/>.</summary>
+    private static bool IsRetryScoped(Statement stmt) =>
+        stmt is ConfirmStmt or SetStmt or ExpectStmt or RequiresStmt or RequiresToolStmt;
 
     // --- statement handlers -------------------------------------------------------------------
 
@@ -410,6 +430,22 @@ public sealed class Interpreter
         }
         var res = await Current.ExecuteActionAsync(a.ActionName, parameters, option, a.OptionHint, a.Location, a.DetailName).ConfigureAwait(false);
         return a.ExpectError ? WrapExpectingError(a, res) : Wrap(a, res);
+    }
+
+    private async Task<StatementResult> DoConfirm(ConfirmStmt cf)
+    {
+        var ov = EvaluateExpression(cf.Option);
+        if (!ov.Ok) return Fail(cf, ov.Error!);
+        // CONFIRM = null is a footgun, same as ACTION X = null: an option clause was written, so a null
+        // value silently degrading to "no answer" would mask the author's intent.
+        if (ov.Value is null)
+            return Fail(cf, new Diagnostic(
+                ErrorKind.ParseInvalidValue,
+                "CONFIRM needs an option label or ID <index>.",
+                cf.Location,
+                Hint: "CONFIRM \"Yes\"  •  CONFIRM ID 0"));
+        var res = await Current.ConfirmRetryAsync(ov.Value, cf.OptionHint, cf.Location).ConfigureAwait(false);
+        return Wrap(cf, res);
     }
 
     private async Task<StatementResult> DoSearch(SearchStmt q)
@@ -853,6 +889,12 @@ public sealed class Interpreter
                 return OpResult<object?>.Success((object?)Current.NavStackTop?.Name);
             case ExpectSubjectKind.NavStackTopIsDialog:
                 return OpResult<object?>.Success((object?)(Current.NavStackTop?.IsDialog ?? false));
+            case ExpectSubjectKind.RetryTitle:
+                return OpResult<object?>.Success((object?)Current.CurrentRetry?.Title);
+            case ExpectSubjectKind.RetryMessage:
+                return OpResult<object?>.Success((object?)Current.CurrentRetry?.Message);
+            case ExpectSubjectKind.RetryOptions:
+                return OpResult<object?>.Success((object?)(Current.CurrentRetry is { } rd ? string.Join(", ", rd.Options) : null));
             case ExpectSubjectKind.AttributeLabel:
                 {
                     if (subj.Scope is not null)

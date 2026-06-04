@@ -150,6 +150,18 @@ public static class VerbCatalog
             ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete"],
             "action", []),
 
+        new("CONFIRM",
+            "CONFIRM \"<label>\"\nCONFIRM ID <index>",
+            "Answer the open server retry dialog.",
+            "Answers the modal retry dialog a server action raised mid-execution (the web client's "
+            + "`onRetryAction`), resuming the paused ACTION/SAVE with the chosen option. `\"<label>\"` "
+            + "matches one of the offered option labels; `ID <index>` picks by position. When the retry "
+            + "carried a PersistentObject for extra input, `SET` its attributes before CONFIRM — the edits "
+            + "ride back to the server with the confirmation. Fails with `state-no-retry-pending` when no "
+            + "dialog is open.",
+            ["CONFIRM \"Yes\"", "CONFIRM ID 0"],
+            "action", []),
+
         new("SEARCH",
             "SEARCH <text>\nSEARCH Detail \"<name>\" [text]",
             "Text-search the current query in place.",
@@ -171,8 +183,9 @@ public static class VerbCatalog
             "EXPECT <subject> <op> <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>",
             "Assert on session/PO/query state.",
             "Asserts on `NavStack.*`, `TotalItems`, `Selection.*`, `IsInEdit`, `ClientOperation`, "
-            + "attributes, notifications, and round-tripped metadata. `MATCHES` is a regex assertion "
-            + "(1s ReDoS guard). `Detail \"<name>\"` redirects query-family subjects.",
+            + "`RetryDialog.*` (Title / Message / Options of an open server retry), attributes, "
+            + "notifications, and round-tripped metadata. `MATCHES` is a regex assertion (1s ReDoS "
+            + "guard). `Detail \"<name>\"` redirects query-family subjects.",
             ["EXPECT Status = \"Approved\"", "EXPECT TotalItems >= 1", "EXPECT Code MATCHES \"^[A-Z]{2}\\d+$\""],
             "assert", []),
 

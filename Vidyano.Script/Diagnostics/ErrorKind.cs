@@ -63,6 +63,11 @@ public static class ErrorKind
     /// <summary>Informational: a <c>REQUIRES</c> precondition was not met (or could not be
     /// evaluated), so the rest of the body is skipped. Not a failure.</summary>
     public const string StateRequiresUnmet       = "state-requires-unmet";
+    /// <summary>A non-retry verb was attempted while a server retry dialog is open. Only
+    /// <c>CONFIRM</c> / <c>SET</c> / <c>EXPECT</c> are allowed until the retry is answered.</summary>
+    public const string StateRetryPending        = "state-retry-pending";
+    /// <summary><c>CONFIRM</c> was issued with no retry dialog open to answer.</summary>
+    public const string StateNoRetryPending      = "state-no-retry-pending";
 
     // Assertions
     public const string AssertFailed             = "assert-failed";

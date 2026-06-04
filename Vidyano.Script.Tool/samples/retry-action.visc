@@ -1,0 +1,52 @@
+### RETRY ACTION — answering a server-driven confirmation/input dialog
+###
+### This file lints cleanly with no backend. It demonstrates CONFIRM and the EXPECT RetryDialog.*
+### subjects. The RavenDB / demo samples don't raise a RetryAction, so the round-trip itself is
+### lint-only here — but every form below is real grammar the runtime executes against a server that
+### does call `Manager.Current.RetryAction(...)`.
+###
+### Background. A server action handler can interrupt its own ExecuteAction by calling
+### `Manager.Current.RetryAction(title, message, options, ...)`. The client (a browser, or this script)
+### shows the dialog, the user picks an option — and optionally fills in a PersistentObject the retry
+### carried — then the SAME action is re-posted with that answer so the server continues. In .visc the
+### paused ACTION/SAVE surfaces as a modal nav frame:
+###
+###   • EXPECT RetryDialog.Title / .Message / .Options  read the open dialog.
+###   • While it is open the script is frozen: only CONFIRM, SET, and EXPECT run (anything else trips
+###     `state-retry-pending`), exactly like the @initial gate.
+###   • CONFIRM "<label>" or CONFIRM ID <index> answers it and resumes the action.
+###   • EXPECT NavStack.Top.Kind = "RetryDialog" sees the frame like any other.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+### --- Message-only retry: a plain "are you really sure?" confirmation ---------------------------
+### A Delete whose handler calls RetryAction("Are you really sure?", "...", ["Yes","No"], 0, 1).
+### The action pauses; the dialog is now the top frame.
+OPEN MenuItem Customers
+SELECT-ROWS 0
+ACTION Delete
+EXPECT NavStack.Top.Kind = "RetryDialog"
+EXPECT RetryDialog.Title = "Are you really sure?"
+EXPECT RetryDialog.Options CONTAINS "Yes"
+### Answer it. CONFIRM resumes the action with the chosen option and pops the dialog frame.
+CONFIRM "Yes"
+
+### --- Retry that carries a PersistentObject for extra input -------------------------------------
+### Some retries hand back a PO to fill in (e.g. "which target?"). SET its attributes while the dialog
+### is open — those edits ride back to the server with the confirmation — then CONFIRM by index.
+OPEN MenuItem Orders
+OPEN-ROW 0
+ACTION Reassign
+EXPECT NavStack.Top.Kind = "RetryDialog"
+SET Reason = "Customer request {{@uuid}}"
+CONFIRM ID 0
+
+### --- Declining a retry -------------------------------------------------------------------------
+### CONFIRM the "No"/cancel option to resume the action down its decline path. The dialog still pops.
+OPEN MenuItem Customers
+SELECT-ROWS 0
+ACTION Delete
+CONFIRM "No"
+EXPECT RetryDialog.Title IS NULL
