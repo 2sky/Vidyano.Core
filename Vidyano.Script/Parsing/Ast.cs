@@ -186,6 +186,14 @@ public sealed record RequiresToolStmt(string ToolName, SourceLocation Location) 
 /// skipped by an unmet <c>REQUIRES</c>. Zero-arg; only its position in the statement stream matters.</summary>
 public sealed record CleanupMarker(SourceLocation Location) : Statement(Location);
 
+/// <summary><c>CONFIRM "&lt;label&gt;"</c> or <c>CONFIRM ID &lt;index&gt;</c> — answer the open server retry
+/// dialog, resuming the paused action with the chosen option. <see cref="Option"/> picks an entry from the
+/// retry's offered options: <see cref="OptionHint"/>=<see cref="ReferenceHintKind.RawId"/> treats the value
+/// as an int index into them, otherwise it is matched against the option labels (mirroring
+/// <c>ACTION X = &lt;option&gt;</c>). Any <c>SET</c>s applied to the retry's PersistentObject while the
+/// dialog was open ride back to the server with the confirmation.</summary>
+public sealed record ConfirmStmt(Expression Option, ReferenceHintKind? OptionHint, SourceLocation Location) : Statement(Location);
+
 // --- EXPECT subject + operator ----------------------------------------------------------------
 
 /// <summary>Categories of things EXPECT can target.</summary>
@@ -276,6 +284,17 @@ public enum ExpectSubjectKind
     /// or VISIBLE (= <c>!IsHidden</c>). Distinct from the <c>Detail … &lt;query-subject&gt;</c> form
     /// (which redirects to a query-family subject) because the flag check itself is the assertion.</summary>
     DetailQueryFlag,
+    /// <summary><c>EXPECT RetryDialog.Title = "..."</c> — the title of the open server retry dialog
+    /// (<c>null</c> when none is open).</summary>
+    RetryTitle,
+    /// <summary><c>EXPECT RetryDialog.Message = "..."</c> — the message body of the open retry dialog.</summary>
+    RetryMessage,
+    /// <summary><c>EXPECT RetryDialog.Options = "Yes, No"</c> — the option labels the retry offered (the
+    /// buttons <c>CONFIRM</c> chooses among), joined with <c>", "</c> for display/assertion. The join is a
+    /// readable surface for <c>=</c> / <c>MATCHES</c>; for a membership check prefer <c>CONTAINS "Label"</c>,
+    /// bearing in mind a label that itself contains <c>", "</c> can blur a boundary (rare). <c>CONFIRM</c>
+    /// itself matches against the discrete option list, not this joined string, so answering is exact.</summary>
+    RetryOptions,
     /// <summary><c>EXPECT @initial IS NULL</c> — the reserved scope PO itself (no attribute).
     /// Used to assert presence/absence of the scoped PO (<see cref="Vidyano.Client.Initial"/>
     /// for <c>@initial</c>, <see cref="Vidyano.Client.Session"/> for <c>@session</c>) without

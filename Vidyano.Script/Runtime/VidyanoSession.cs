@@ -30,6 +30,30 @@ public sealed class VidyanoSession : IDisposable
     private readonly List<NavEntry> _navStack = new();
     private readonly ScriptHooks _hooks = new();
 
+    // --- server retry-action coroutine state --------------------------------------------------
+    // A server RetryAction fires synchronously inside Client.ExecuteActionAsync (via Hooks.OnRetryAction),
+    // but the .visc surface answers it with a separate CONFIRM verb. We bridge the two by running the
+    // fallible verb (ACTION/SAVE) as a background task and ping-ponging control with the interpreter
+    // through two TaskCompletionSources: the action parks on _retryAnswer until CONFIRM completes it, and
+    // the interpreter parks on _retryArrived until the action either raises a retry or finishes. Only one
+    // side ever runs at a time (the TCSes use RunContinuationsAsynchronously to prevent inline reentrancy),
+    // so this is a cooperative coroutine, not true concurrency.
+    //
+    // The "is a retry from MY action?" gate is _withinInflight, an AsyncLocal set only inside the parkable
+    // body (StartInflight). It flows into the action's async tree — and into the resumed continuation after
+    // CONFIRM, since ExecutionContext is captured at each await — so a retry the action itself raises parks.
+    // It is NOT seen by the interpreter's own context, so an out-of-band server call started off that
+    // context — notably the FIRE-AND-FORGET PersistentObject.Refresh that a SET of a TriggersRefresh
+    // attribute kicks off (PersistentObjectAttribute.Value setter) while the dialog is open — auto-cancels
+    // ("-1") instead of racing into the hook and hijacking the park. A plain bool gate could not tell the
+    // two apart; AsyncLocal is also flow-isolated, so no volatile/barrier is needed on the gate.
+    private readonly AsyncLocal<bool> _withinInflight = new();
+    private volatile bool _disposing;                    // set in Dispose so a drained action's further retries cancel
+    private Task<OpResult>? _inflight;                    // the running ACTION/SAVE, null when none is parked
+    private PendingRetry? _pendingRetry;                  // the open retry dialog, null when none
+    private TaskCompletionSource<bool>? _retryArrived;    // completed by OnRetryAction when a retry parks
+    private TaskCompletionSource<string>? _retryAnswer;   // completed by CONFIRM with the chosen option
+
     /// <summary>
     /// Creates a session. When <paramref name="httpClient"/> is <c>null</c>, the constructor builds an
     /// <see cref="HttpClient"/> with a <see cref="CookieContainer"/> attached — Vidyano's auth depends
@@ -73,6 +97,11 @@ public sealed class VidyanoSession : IDisposable
             if (Environment.GetEnvironmentVariable("VIDYANO_DUMP_OPERATIONS") == "1")
                 Console.Error.WriteLine($"[vidyano] op: {co.Type}{((string?)co.Raw["name"] is { } n ? $":{n}" : "")}");
         };
+
+        // Park server RetryActions as dialog frames the script answers with CONFIRM (see the coroutine
+        // fields above). Returns "-1" (Core's cancel sentinel) whenever no park is armed — a retry raised
+        // outside an ACTION/SAVE window has no dialog to surface, so cancelling keeps it from hanging.
+        _hooks.RetryActionHandler = HandleRetryFromHookAsync;
     }
 
     /// <summary>All client operations seen since the session started, in arrival order.</summary>
@@ -90,8 +119,16 @@ public sealed class VidyanoSession : IDisposable
     /// <summary>The underlying Vidyano client. Exposed so library callers can drop down when needed.</summary>
     public Vidyano.Client Client { get; }
 
-    /// <summary>The PO at the top of the navigation stack, or <c>null</c> if the top is a Query or the stack is empty.</summary>
-    public PersistentObject? CurrentPo => _navStack.Count > 0 && _navStack[^1] is PoEntry pe ? pe.Po : null;
+    /// <summary>The PO at the top of the navigation stack, or <c>null</c> if the top is a Query or the stack is empty.
+    /// When a server retry dialog is open (a <see cref="RetryEntry"/> on top), this is the retry's PersistentObject —
+    /// so <c>SET</c> targets it, and the edits ride back to the server on <c>CONFIRM</c>. It is <c>null</c> for a
+    /// message-only retry (one with no PO to fill in).</summary>
+    public PersistentObject? CurrentPo => _navStack.Count == 0 ? null : _navStack[^1] switch
+    {
+        PoEntry pe    => pe.Po,
+        RetryEntry re => re.Retry.Po,
+        _             => null,
+    };
 
     /// <summary>The nearest Query on the navigation stack going down from the top, or <c>null</c> if none.
     /// This means SEARCH and OPEN-ROW still target the underlying Query even after OPEN-ROW pushed a PO on top of it.</summary>
@@ -114,6 +151,11 @@ public sealed class VidyanoSession : IDisposable
 
     /// <summary>Number of entries on the navigation stack. Zero before the first OPEN.</summary>
     public int NavStackDepth => _navStack.Count;
+
+    /// <summary>The open server retry dialog, or <c>null</c> when no action is paused awaiting confirmation.
+    /// Non-null between the verb that triggered the retry and the <c>CONFIRM</c> that answers it; read by
+    /// <c>EXPECT RetryDialog.*</c> and by the interpreter's retry-pending gate.</summary>
+    public PendingRetry? CurrentRetry => _pendingRetry;
 
     /// <summary>Whether the session has completed sign-in.</summary>
     public bool IsSignedIn => Client.IsConnected;
@@ -772,6 +814,11 @@ public sealed class VidyanoSession : IDisposable
         // attributes are defaulted server-side during persist, so pre-blocking here produced false
         // negatives (a save the server would have accepted). A genuinely-missing required surfaces as
         // the server's error notification, captured below — and assertable via SAVE EXPECTING ERROR.
+        // SAVE goes through Core's ExecuteAction loop too, so a server RetryAction can fire here (e.g. a
+        // "are you sure?" gate on persist). Run it in the parking coroutine so it surfaces as a CONFIRM-able
+        // dialog; with no retry it behaves exactly as a direct await.
+        return await RunParkableAsync(async () =>
+        {
         try
         {
             // Capture owner relationships before Save — PersistentObject.Save already mirrors the v4
@@ -811,6 +858,7 @@ public sealed class VidyanoSession : IDisposable
         {
             return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
         }
+        }).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1337,6 +1385,11 @@ public sealed class VidyanoSession : IDisposable
             }
         }
 
+        // Run the server call(s) inside the parking coroutine: a RetryAction raised by Core's
+        // ExecuteAction loop parks the action here and surfaces as a dialog frame the script answers
+        // with CONFIRM (see the coroutine fields). With no retry it behaves exactly as a direct await.
+        return await RunParkableAsync(async () =>
+        {
         try
         {
             PersistentObject? result;
@@ -1383,6 +1436,7 @@ public sealed class VidyanoSession : IDisposable
         {
             return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
         }
+        }).ConfigureAwait(false);
     }
 
     /// <summary>Coerces a script value into an int. Accepts <see cref="int"/>, <see cref="long"/>,
@@ -1400,6 +1454,152 @@ public sealed class VidyanoSession : IDisposable
             case string s when int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p):       result = p;      return true;
             default:                                                                                                 result = 0;      return false;
         }
+    }
+
+    // --- server retry-action coroutine --------------------------------------------------------
+
+    /// <summary>Runs a fallible verb's server call(s) such that a RetryAction raised inside Core's
+    /// ExecuteAction loop pauses the action and yields control back to the interpreter. Returns the verb's
+    /// own <see cref="OpResult"/> when it completes without a retry, or <see cref="OpResult.Success"/> after
+    /// pushing a <see cref="RetryEntry"/> dialog frame when a retry parks (the script then answers with
+    /// <c>CONFIRM</c>). The body must perform all server I/O — <see cref="HandleRetryFromHookAsync"/> only
+    /// parks while a call inside <paramref name="body"/> is in flight.</summary>
+    private async Task<OpResult> RunParkableAsync(Func<Task<OpResult>> body)
+    {
+        _retryArrived = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _inflight = StartInflight(body);
+        // Attach exactly ONE completion continuation for the action's whole lifetime: when it finally
+        // finishes (no further retry), complete whatever _retryArrived cycle is then current with false.
+        // Doing this once — rather than a fresh Task.WhenAny(_inflight, …) per CONFIRM resume — avoids
+        // stacking N continuations on the long-lived _inflight across an N-retry chain. Each per-park
+        // _retryArrived is completed exactly once: true by the hook when a retry parks, or false here when
+        // the action ends (the two are mutually exclusive within a cycle).
+        _ = _inflight.ContinueWith(
+            static (_, s) => ((VidyanoSession)s!)._retryArrived!.TrySetResult(false),
+            this, TaskContinuationOptions.ExecuteSynchronously);
+        return await AwaitParkedAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Starts the parkable body with <see cref="_withinInflight"/> set, so the action's async tree
+    /// (and its post-CONFIRM continuation, via the ExecutionContext captured at each await) is the only flow
+    /// whose <see cref="Hooks.OnRetryAction"/> parks. The flag is cleared in <c>finally</c> so it does not
+    /// leak to the interpreter's own context: by the time <c>finally</c> runs, <paramref name="body"/>'s
+    /// synchronous prefix has reached its first <c>await</c> and captured the flag, so the action keeps
+    /// seeing <c>true</c> while the interpreter — and any fire-and-forget server call it later starts — sees
+    /// <c>false</c>.</summary>
+    private Task<OpResult> StartInflight(Func<Task<OpResult>> body)
+    {
+        _withinInflight.Value = true;
+        try { return body(); }
+        finally { _withinInflight.Value = false; }
+    }
+
+    /// <summary>Waits for the current cycle's outcome on <see cref="_retryArrived"/>: <c>true</c> = the action
+    /// raised a retry and parked, <c>false</c> = the action finished (signalled by the single completion
+    /// continuation attached in <see cref="RunParkableAsync"/>). Shared tail of <see cref="RunParkableAsync"/>
+    /// (first call) and <see cref="ConfirmRetryAsync"/> (each resume), each of which (re)arms a fresh
+    /// <see cref="_retryArrived"/> before starting/resuming the action.</summary>
+    private async Task<OpResult> AwaitParkedAsync()
+    {
+        var parked = await _retryArrived!.Task.ConfigureAwait(false);
+        if (!parked)
+        {
+            // Action finished (no further retry). _inflight is already complete (its continuation is what
+            // set false), so this await returns at once; clear the coroutine state and return the result.
+            var result = await _inflight!.ConfigureAwait(false);
+            _inflight = null;
+            _retryAnswer = null;
+            _pendingRetry = null;
+            return result;
+        }
+        // A retry parked: surface it as a modal frame and hand control back to the interpreter.
+        _navStack.Add(new RetryEntry(_pendingRetry!));
+        return OpResult.Success;
+    }
+
+    /// <summary>Core's <see cref="Hooks.OnRetryAction"/>, routed here via <see cref="ScriptHooks"/>. Captures
+    /// the retry as <see cref="_pendingRetry"/>, wakes the parked interpreter side, and returns a task that
+    /// the action awaits until <see cref="ConfirmRetryAsync"/> answers it. Only the genuine in-flight action's
+    /// flow parks (<see cref="_withinInflight"/>); an out-of-band server call on this session — or any retry
+    /// arriving during teardown — cancels with Core's <c>"-1"</c>, which has no dialog to surface.</summary>
+    private Task<string> HandleRetryFromHookAsync(string title, string? message, string[] options, PersistentObject? po)
+    {
+        if (_disposing || !_withinInflight.Value)
+            return Task.FromResult("-1");
+
+        _pendingRetry = new PendingRetry(title, message, options ?? Array.Empty<string>(), po);
+        var answer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _retryAnswer = answer;
+        _retryArrived!.TrySetResult(true);
+        return answer.Task;
+    }
+
+    /// <summary>Answers the open retry dialog with the chosen option, resuming the paused action. Pops the
+    /// <see cref="RetryEntry"/> before resuming so the action's post-execute nav-stack logic sees the
+    /// underlying frame. Returns the action's result if it then completes, or <see cref="OpResult.Success"/>
+    /// if the server raises a further retry (which re-parks as a new dialog).</summary>
+    public async Task<OpResult> ConfirmRetryAsync(object? option, ReferenceHintKind? optionHint, SourceLocation loc)
+    {
+        if (_pendingRetry is null || _retryAnswer is null || _inflight is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.StateNoRetryPending,
+                "CONFIRM has no open retry dialog to answer.",
+                loc,
+                Hint: "CONFIRM answers a server retry raised by a preceding ACTION / SAVE — there isn't one pending."));
+
+        var resolved = ResolveRetryOption(_pendingRetry.Options, option, optionHint, loc);
+        if (!resolved.Ok) return OpResult.Fail(resolved.Error!);
+
+        if (_navStack.Count > 0 && _navStack[^1] is RetryEntry)
+            _navStack.RemoveAt(_navStack.Count - 1);
+
+        var answer = _retryAnswer;
+        _pendingRetry = null;
+        // Re-arm the park waiter for the resumed action's NEXT retry. No flag to set: the action resumes on
+        // its captured ExecutionContext, so _withinInflight is already true for it (and for any further retry
+        // it raises). TrySetResult, not SetResult, to stay idempotent like the sibling completions.
+        _retryArrived = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        answer.TrySetResult(resolved.Value!);
+        return await AwaitParkedAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Resolves a CONFIRM value against the retry's offered option labels — mirroring the
+    /// <c>ACTION X = &lt;option&gt;</c> logic: <see cref="ReferenceHintKind.RawId"/> indexes positionally,
+    /// otherwise the value is matched against the labels. Returns the label string Core posts back as
+    /// <c>RetryActionOption</c>.</summary>
+    private static OpResult<string> ResolveRetryOption(
+        IReadOnlyList<string> options, object? value, ReferenceHintKind? hint, SourceLocation loc)
+    {
+        if (options.Count == 0)
+            return OpResult<string>.Fail(new Diagnostic(
+                ErrorKind.AssertFailed,
+                "The retry dialog offered no options to choose from.",
+                loc));
+
+        if (hint == ReferenceHintKind.RawId)
+        {
+            if (value is null || !TryAsInt(value, out var idx))
+                return OpResult<string>.Fail(new Diagnostic(
+                    ErrorKind.ParseInvalidValue, "CONFIRM ID <index> needs an integer.", loc));
+            if (idx < 0 || idx >= options.Count)
+                return OpResult<string>.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"Option index {idx} is out of range (the retry offered {options.Count}).",
+                    loc,
+                    Hint: $"Valid indices: 0..{options.Count - 1}. Options: {string.Join(", ", options.Select(o => $"\"{o}\""))}."));
+            return OpResult<string>.Success(options[idx]);
+        }
+
+        var label = value as string ?? value?.ToString() ?? "";
+        var hit = options.FirstOrDefault(o => string.Equals(o, label, StringComparison.Ordinal));
+        if (hit is null)
+            return OpResult<string>.Fail(new Diagnostic(
+                ErrorKind.AssertFailed,
+                $"'{label}' is not one of the retry options.",
+                loc,
+                Hint: Suggester.Hint(label, options),
+                Details: new Dictionary<string, object?> { ["available"] = options }));
+        return OpResult<string>.Success(hit);
     }
 
     // --- handle lookup ------------------------------------------------------------------------
@@ -1492,6 +1692,21 @@ public sealed class VidyanoSession : IDisposable
 
     public void Dispose()
     {
+        // Assumes the host is not executing a verb concurrently with Dispose (the cooperative coroutine is
+        // single-threaded: one verb at a time, and Dispose runs after the run ends). Under that invariant the
+        // unsynchronized field reads below are safe.
+        //
+        // Drain a retry left unanswered at end-of-run so its background action task doesn't dangle on an
+        // answer that will never come. Setting _disposing first means any further retry the resumed action
+        // raises also cancels ("-1") even though its flow still carries _withinInflight — so the drain
+        // can't re-park. Best-effort and time-boxed.
+        _disposing = true;
+        if (_retryAnswer is { } pending && _inflight is { } inflight)
+        {
+            pending.TrySetResult("-1");
+            try { inflight.Wait(TimeSpan.FromSeconds(5)); }
+            catch { /* tearing down — the action's outcome no longer matters */ }
+        }
         _ownedHttpClient?.Dispose();
     }
 }

@@ -1,5 +1,7 @@
 using System;
+using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using Vidyano.ViewModel;
 
 // Resolve the ClientOperation name collision: Vidyano.ViewModel.ClientOperation (Vidyano.Core,
 // strongly-typed wire shape) vs Vidyano.Script.Runtime.ClientOperation (script-facing wrapper
@@ -34,6 +36,17 @@ internal sealed class ScriptHooks : Hooks
     /// <see cref="VidyanoSession"/> so it can append to its <c>_allOperations</c> /
     /// <c>_lastOperations</c> buffers without exposing them here.</summary>
     public Action<CoreClientOperation>? ClientOperationObserver { get; set; }
+
+    /// <summary>Invoked when the server raises a RetryAction mid-<c>ExecuteAction</c> (Core's
+    /// <see cref="Hooks.OnRetryAction"/>). Set by <see cref="VidyanoSession"/> to park the action and
+    /// surface the retry as a dialog frame; the returned task completes with the chosen option (or
+    /// <c>"-1"</c> to cancel) once the script answers with <c>CONFIRM</c>. When unset, the base behaviour
+    /// (auto-cancel with <c>"-1"</c>) applies — that's also the fallback for a retry raised while no park
+    /// is armed, which keeps a stray server call from hanging the session.</summary>
+    public Func<string, string?, string[], PersistentObject?, Task<string>>? RetryActionHandler { get; set; }
+
+    protected override Task<string> OnRetryAction(string title, string message, string[] options, PersistentObject persistentObject)
+        => RetryActionHandler?.Invoke(title, message, options, persistentObject) ?? Task.FromResult("-1");
 
     // Cross-assembly override of `protected internal` collapses to `protected` (the `internal`
     // portion isn't visible outside Vidyano.Core).

@@ -136,6 +136,7 @@ public sealed class Parser
             "REFRESH"     => new RefreshStmt(null, tok.Location),
             "SET"         => ParseSet(tok.Location),
             "ACTION"      => ParseAction(tok.Location),
+            "CONFIRM"     => ParseConfirm(tok.Location),
             "SEARCH"      => ParseSearch(tok.Location),
             "EXPECT"      => ParseExpect(tok.Location),
             "TOOL"        => ParseTool(tok.Location),
@@ -643,6 +644,23 @@ public sealed class Parser
         return new ActionStmt(null, name, parameters, loc, DetailName: detailName, ExpectError: expectError);
     }
 
+    /// <summary><c>CONFIRM "&lt;label&gt;"</c> / <c>CONFIRM ID &lt;index&gt;</c> — answer the open server retry
+    /// dialog. The optional <c>ID</c> keyword switches the value from a label match to a positional index,
+    /// mirroring the <c>ACTION X = ID &lt;index&gt;</c> option form.</summary>
+    private Statement? ParseConfirm(SourceLocation loc)
+    {
+        ReferenceHintKind? optionHint = null;
+        if (Peek().Kind == TokenKind.Identifier &&
+            string.Equals(Peek().Lexeme, "ID", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            optionHint = ReferenceHintKind.RawId;
+        }
+        var optionExpr = ParseValueExpression();
+        if (optionExpr == null) return null;
+        return new ConfirmStmt(optionExpr, optionHint, loc);
+    }
+
     private Statement? ParseSearch(SourceLocation loc)
     {
         // Optional leading `Detail "<name>"` retargets a named detail query on the current PO, mirroring
@@ -1111,6 +1129,32 @@ public sealed class Parser
                 "Expected '.Count' or '.AllSelected' after 'Selection'.",
                 Peek().Location,
                 hint: "EXPECT Selection.Count = 3  /  EXPECT Selection.AllSelected = true");
+            return null;
+        }
+
+        // EXPECT RetryDialog.Title | .Message | .Options — read the open server retry dialog.
+        if (string.Equals(tok.Lexeme, "RetryDialog", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            if (!Match(TokenKind.Dot, out _) || Peek().Kind != TokenKind.Identifier)
+            {
+                Error(ErrorKind.ParseExpected,
+                    "Expected '.Title', '.Message', or '.Options' after 'RetryDialog'.",
+                    Peek().Location,
+                    hint: "EXPECT RetryDialog.Title = \"Are you sure?\"");
+                return null;
+            }
+            var leaf = Advance();
+            if (string.Equals(leaf.Lexeme, "Title", StringComparison.OrdinalIgnoreCase))
+                return new ExpectSubject(ExpectSubjectKind.RetryTitle, null, AttributeFlagKind.None, tok.Location);
+            if (string.Equals(leaf.Lexeme, "Message", StringComparison.OrdinalIgnoreCase))
+                return new ExpectSubject(ExpectSubjectKind.RetryMessage, null, AttributeFlagKind.None, tok.Location);
+            if (string.Equals(leaf.Lexeme, "Options", StringComparison.OrdinalIgnoreCase))
+                return new ExpectSubject(ExpectSubjectKind.RetryOptions, null, AttributeFlagKind.None, tok.Location);
+            Error(ErrorKind.ParseUnexpectedToken,
+                $"RetryDialog has no property '{leaf.Lexeme}'.",
+                leaf.Location,
+                hint: "Use RetryDialog.Title, RetryDialog.Message, or RetryDialog.Options.");
             return null;
         }
 
