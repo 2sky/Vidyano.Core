@@ -113,14 +113,22 @@ public static class VidyanoScript
         return opts;
     }
 
-    /// <summary>Lints only — returns parse diagnostics without executing.</summary>
-    public static IReadOnlyList<Diagnostic> Lint(string body, string sourcePath = "<inline>")
+    /// <summary>Lints only — returns diagnostics without executing. Parse errors take precedence; when
+    /// the source parses cleanly the script is additionally checked for <c>{{x}}</c> reads of variables
+    /// nothing declares (see <see cref="VariableUseAnalyzer"/>). <paramref name="expectedVariables"/>
+    /// names the variables the caller will supply at run time (<c>--var</c>, options, env-prefix) so a
+    /// parameterized script doesn't false-positive on a value it never declares inline.</summary>
+    public static IReadOnlyList<Diagnostic> Lint(string body, string sourcePath = "<inline>", IEnumerable<string>? expectedVariables = null)
     {
         var lexer = new Lexer(body, sourcePath);
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens, lexer.Diagnostics);
-        _ = parser.Parse();
-        return parser.Diagnostics;
+        var script = parser.Parse();
+        // A broken AST makes name-resolution diagnostics misleading, so only run the semantic pass once
+        // the source is syntactically clean — same reasoning as RunAsync refusing a partial parse.
+        if (parser.Diagnostics.Count > 0)
+            return parser.Diagnostics;
+        return VariableUseAnalyzer.Analyze(script, expectedVariables);
     }
 
     private static string? PeekAppVar(Parsing.ScriptAst script)
