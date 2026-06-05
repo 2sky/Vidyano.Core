@@ -34,7 +34,8 @@ internal static class VariableUseAnalyzer
         var declared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (externalVariables is not null)
             foreach (var name in externalVariables)
-                declared.Add(name);
+                if (name is not null) // public API param — an ordinal HashSet throws on a null element
+                    declared.Add(name);
 
         // First pass: every name the script binds. `@x =` assignments and TOOL `-> @result` captures
         // both populate the variable table at runtime, so a later {{x}} / {{result}} is legal.
