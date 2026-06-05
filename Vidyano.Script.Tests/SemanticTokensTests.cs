@@ -243,6 +243,18 @@ public sealed class SemanticTokensTests
     }
 
     [Fact]
+    public async Task BackslashBeforeCrlfInString_ContinuesString_SoFollowingHashIsNotAComment()
+    {
+        // CRLF parity with the LF case above: on a Windows-authored (CRLF) file `\`+`\r\n` is the same string
+        // continuation, so the next line's '#' is string content, not a comment. The earlier code consumed the
+        // CR, reset string state at the bare LF, and mis-colored the '#' — the dropped-comment re-scan must keep
+        // string state across the whole CRLF, matching the lexer.
+        var spans = await Tokenize("SET X = \"a\\\r\n# b\"");
+
+        Assert.DoesNotContain(spans, s => s.TokenTypeIndex == Comment);
+    }
+
+    [Fact]
     public async Task StepHeader_ColorsAsCommentToEol()
     {
         var spans = await Tokenize("### Section one\nOPEN Query Customers");

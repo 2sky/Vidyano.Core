@@ -272,6 +272,7 @@ public sealed class ViscLanguageService
                     if (i + 1 < text.Length)
                     {
                         if (text[i + 1] == '\n') { i++; line++; col = 0; }
+                        else if (text[i + 1] == '\r' && i + 2 < text.Length && text[i + 2] == '\n') { i += 2; line++; col = 0; }
                         else { i++; col += 2; }
                     }
                     else
