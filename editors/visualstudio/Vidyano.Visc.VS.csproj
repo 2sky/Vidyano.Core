@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- net8.0 is mandatory, not incidental: VS's out-of-process extension host runs extensions on
+         .NET 8 only (as of VS 2026 / 2026-03, microsoft/VSExtensibility#544). Targeting net10.0 makes VS
+         fail to load the extension (System.Runtime 10.0.0.0 not found). The ⓘ "nearing EOL" icon in
+         Extension Manager is the expected, benign cost of the out-of-proc model — see README. Bump only
+         once the host ships .NET 10. -->
     <TargetFramework>net8.0-windows8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <!-- C# 12 mirrors Microsoft's verified VisualStudio.Extensibility samples; this project is bound to

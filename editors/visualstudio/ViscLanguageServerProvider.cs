@@ -19,7 +19,7 @@ using Nerdbank.Streams;
 /// Drives the .visc language experience inside Visual Studio by launching the <c>vidyano lsp</c> stdio
 /// language server — the very server the VS Code extension uses. This client owns no language logic:
 /// it locates the <c>vidyano</c> tool, spawns it, and bridges its stdio to Visual Studio's LSP plumbing.
-/// Everything the user sees (diagnostics, hover) comes from the server, so the experience tracks the
+/// Everything the user sees (diagnostics, hover, semantic-token coloring) comes from the server, so the experience tracks the
 /// CLI tool's version, not this extension's.
 /// </summary>
 [VisualStudioContribution]

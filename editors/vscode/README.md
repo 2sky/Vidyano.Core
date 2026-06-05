@@ -48,7 +48,7 @@ Or in VS Code: Extensions view → `…` menu → **Install from VSIX…**.
 
 ## What you get
 
-- Syntax highlighting (TextMate grammar).
+- Syntax highlighting — TextMate grammar plus semantic tokens from `vidyano lsp`.
 - Live parse/lint diagnostics from `vidyano lsp`.
 - Hover docs for `.visc` verbs.
 
