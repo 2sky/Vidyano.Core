@@ -50,4 +50,19 @@ public sealed class LexerStringContinuationTests
 
         Assert.Contains(diags, d => d.Kind == ErrorKind.ParseUnterminatedString);
     }
+
+    [Fact]
+    public void Continuation_AdvancesLineTracking_SoTokensAfterTheStringAreOnTheRightLine()
+    {
+        // A token after a `\`-continued string must report its true physical line. Source spans three lines:
+        //   line 1: "a\
+        //   line 2: b"
+        //   line 3: Z
+        static int LineOfZ(string src) =>
+            new Lexer(src, "<test>").Tokenize()
+                .First(t => t.Kind == TokenKind.Identifier && t.Lexeme == "Z").Location.Line;
+
+        Assert.Equal(3, LineOfZ("\"a\\\nb\"\nZ"));        // LF
+        Assert.Equal(3, LineOfZ("\"a\\\r\nb\"\r\nZ"));    // CRLF parity
+    }
 }
