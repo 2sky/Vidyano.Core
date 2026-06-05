@@ -168,6 +168,15 @@ public sealed class Lexer
             {
                 _pos++; _col++;
                 var esc = _source[_pos];
+                // A backslash before a CRLF newline drops the CR so continuation behaves the same as `\`+`\n`:
+                // on either line ending the string carries onto the next line with a single '\n' in the value.
+                // Without this a CRLF (Windows-authored) file ends the string at the bare LF and reports it as
+                // unterminated.
+                if (esc == '\r' && Peek(1) == '\n')
+                {
+                    _pos++; _col++; // step over the CR onto the LF
+                    esc = '\n';
+                }
                 // `\{` / `\}` escape a literal brace so an author can write a literal {{ that is not a hole.
                 var decoded = esc switch { 'n' => '\n', 't' => '\t', 'r' => '\r', '"' => '"', '\\' => '\\', '{' => '{', '}' => '}', _ => esc };
                 sb.Append(decoded);
