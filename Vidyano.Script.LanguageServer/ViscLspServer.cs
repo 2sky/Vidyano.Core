@@ -69,7 +69,22 @@ public static class ViscLspServer
                 })
             .OnHover((p, c) => Task.FromResult(
                     service.Hover(p.TextDocument.Uri.ToString(), p.Position)),
-                (_, _) => new HoverRegistrationOptions { DocumentSelector = ViscSelector }))
+                (_, _) => new HoverRegistrationOptions { DocumentSelector = ViscSelector })
+            .OnSemanticTokens((builder, id) =>
+                {
+                    // The producer already orders spans ascending + non-overlapping, so this loop only pushes
+                    // — no sorting or dedup here, or the brain's ordering invariant would have leaked.
+                    foreach (var t in service.SemanticTokens(id.TextDocument.Uri.ToString()))
+                        builder.Push(t.Line, t.StartChar, t.Length, t.TokenTypeIndex, t.ModifierBits);
+                    return Task.CompletedTask;
+                },
+                id => Task.FromResult(new SemanticTokensDocument(ViscLanguageService.Legend.ToOmni())),
+                (_, _) => new SemanticTokensRegistrationOptions
+                {
+                    DocumentSelector = ViscSelector,
+                    Legend = ViscLanguageService.Legend.ToOmni(),
+                    Full = true,
+                }))
             .ConfigureAwait(false);
 
         sink.Attach(server);
@@ -98,4 +113,17 @@ public static class ViscLspServer
             });
         }
     }
+}
+
+/// <summary>Maps the brain's transport-free <see cref="SemanticTokensLegendSpec"/> to OmniSharp's
+/// <see cref="SemanticTokensLegend"/>. Confined to the server file so the OmniSharp legend type never
+/// reaches the brain's public surface — mirroring how <c>PublishingSink</c> keeps <c>PublishDiagnostics</c>
+/// out of <see cref="ViscLanguageService"/>.</summary>
+internal static class SemanticTokensLegendSpecExtensions
+{
+    public static SemanticTokensLegend ToOmni(this SemanticTokensLegendSpec spec) => new()
+    {
+        TokenTypes = new Container<SemanticTokenType>(spec.TokenTypes.Select(s => (SemanticTokenType)s)),
+        TokenModifiers = new Container<SemanticTokenModifier>(spec.TokenModifiers.Select(s => (SemanticTokenModifier)s)),
+    };
 }
