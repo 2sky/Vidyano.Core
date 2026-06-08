@@ -38,13 +38,11 @@ internal static class VariableUseAnalyzer
                     declared.Add(name);
 
         // First pass: every name the script binds. `@x =` assignments and TOOL `-> @result` captures
-        // both populate the variable table at runtime, so a later {{x}} / {{result}} is legal.
+        // populate the variable table at runtime; a REPEAT `AS @i` / FOR-EACH `AS @row` binds a
+        // loop-scoped name read in the body ({{i}} / {{row.…}}). All make a later read legal. Loop bodies
+        // are walked recursively so a binding inside a nested loop is seen too.
         foreach (var step in script.Steps)
-            foreach (var stmt in step.Statements)
-            {
-                if (stmt is VariableAssignment va) declared.Add(va.Name);
-                else if (stmt is ToolCallStmt { ResultVariable: { } rv }) declared.Add(rv);
-            }
+            CollectDeclarations(step.Statements, declared);
 
         // Second pass: collect every interpolation read, then flag the plain-variable ones whose name
         // nothing declares.
@@ -66,6 +64,29 @@ internal static class VariableUseAnalyzer
                       ?? "Declare it with `@name = …`, pass --var name=value, or add it to the expected variables."));
         }
         return diags;
+    }
+
+    /// <summary>Walks a statement list (a step's body or a loop's body), adding every name it binds to
+    /// <paramref name="declared"/> and recursing into loop bodies. A loop's <c>AS @i</c> / <c>AS @row</c>
+    /// binds a name the body may read, so it counts as a declaration the same as <c>@x = …</c>.</summary>
+    private static void CollectDeclarations(IReadOnlyList<Statement> statements, HashSet<string> declared)
+    {
+        foreach (var stmt in statements)
+        {
+            switch (stmt)
+            {
+                case VariableAssignment va: declared.Add(va.Name); break;
+                case ToolCallStmt { ResultVariable: { } rv }: declared.Add(rv); break;
+                case RepeatStmt r:
+                    if (r.IndexVar is { } iv) declared.Add(iv);
+                    CollectDeclarations(r.Body, declared);
+                    break;
+                case ForEachRowStmt fe:
+                    if (fe.RowVar is { } rov) declared.Add(rov);
+                    CollectDeclarations(fe.Body, declared);
+                    break;
+            }
+        }
     }
 
     /// <summary>True when an interpolation body is a plain variable name — not a built-in (<c>@…</c>),

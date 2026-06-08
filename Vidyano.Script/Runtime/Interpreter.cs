@@ -34,6 +34,11 @@ public sealed class Interpreter
     // position from one line into the next.
     private bool _skipped;
     private bool _inCleanup;
+
+    // Loop-bound row handles (FOR-EACH ROW … AS @row). Maps the handle name (e.g. "row") to the snapshotted
+    // QueryResultItem for the current iteration, so `@row.<col>` reads a cell and `OPEN-ROW @row` opens by
+    // identity. Bound on iteration entry and restored after the loop — loop-scoped, like the REPEAT index.
+    private readonly Dictionary<string, Vidyano.ViewModel.QueryResultItem> _rowHandles = new(StringComparer.OrdinalIgnoreCase);
     private DateTimeOffset _clockAnchor;
     private Stopwatch _stopwatch = null!;
     private Random _uuidRng = null!;
@@ -112,18 +117,147 @@ public sealed class Interpreter
     private async Task<(StepResult Result, bool Ok)> RunStepAsync(Step step)
     {
         var stmtResults = new List<StatementResult>(step.Statements.Count);
-        var anyFail = false;
-        foreach (var stmt in step.Statements)
-        {
-            var r = await RunStatementAsync(stmt).ConfigureAwait(false);
-            stmtResults.Add(r);
-            if (!r.Ok) anyFail = true;
-        }
+        await RunStatementsAsync(step.Statements, stmtResults).ConfigureAwait(false);
+        var anyFail = stmtResults.Any(s => !s.Ok);
         var skipped = stmtResults.Count > 0 && stmtResults.All(s => s.Skipped);
         return (new StepResult(step.Label, step.Location, !anyFail, stmtResults, skipped), !anyFail);
     }
 
-    private async Task<StatementResult> RunStatementAsync(Statement stmt)
+    /// <summary>Runs a statement sequence (a step's body, or a loop's body for one iteration), appending one
+    /// <see cref="StatementResult"/> per executed statement-instance into <paramref name="sink"/> in execution
+    /// order. Loop bodies recurse through here, so REPEAT 5 over a 2-statement body contributes 10 results —
+    /// each with its own snapshot — keeping the flat per-statement tally <see cref="ScriptResult.Describe"/>
+    /// computes intact.</summary>
+    private async Task RunStatementsAsync(IReadOnlyList<Statement> statements, List<StatementResult> sink)
+    {
+        foreach (var stmt in statements)
+            await RunStatementAsync(stmt, sink).ConfigureAwait(false);
+    }
+
+    /// <summary>Executes one statement and appends its result(s) to <paramref name="sink"/>. Most statements
+    /// contribute exactly one result (returned by <see cref="ExecuteStatementAsync"/>); the loop statements
+    /// contribute their own structural-error result (if any) plus one per executed body-statement-instance.</summary>
+    private async Task RunStatementAsync(Statement stmt, List<StatementResult> sink)
+    {
+        switch (stmt)
+        {
+            case RepeatStmt r:      await RunRepeatAsync(r, sink).ConfigureAwait(false); return;
+            case ForEachRowStmt fe: await RunForEachRowAsync(fe, sink).ConfigureAwait(false); return;
+            default:                sink.Add(await ExecuteStatementAsync(stmt).ConfigureAwait(false)); return;
+        }
+    }
+
+    /// <summary>Runs <c>REPEAT &lt;n&gt; [AS @i] … END</c>. The bound is resolved once at entry (negative /
+    /// non-int → <c>state-invalid-bound</c>; <c>0</c> runs zero times). Each iteration binds the loop index
+    /// (if requested), records the entry nav depth, runs the body into <paramref name="sink"/>, then restores
+    /// the nav stack to that depth (loud-fail if a PO is left in edit). The index binding is loop-scoped: any
+    /// prior binding of the same name is saved and restored.</summary>
+    private async Task RunRepeatAsync(RepeatStmt stmt, List<StatementResult> sink)
+    {
+        // A gated loop (skipped by an unmet top-level REQUIRES, or blocked by an initial/retry gate) emits a
+        // single result for the loop statement — the body is never entered, so it contributes no per-iteration
+        // results. That's why a skipped loop counts as one unit in the tally, unlike a skipped flat statement.
+        if (TryGateStatement(stmt, out var gated)) { sink.Add(gated!); return; }
+
+        var countRes = EvaluateExpression(stmt.Count);
+        if (!countRes.Ok) { sink.Add(Fail(stmt, countRes.Error!)); return; }
+        if (!TryResolveRepeatCount(countRes.Value, out var n))
+        {
+            sink.Add(Fail(stmt, new Diagnostic(
+                ErrorKind.StateInvalidBound,
+                $"REPEAT count must be a whole number ≥ 0, got {FormatValue(countRes.Value)}.",
+                stmt.Location,
+                Hint: "The count is fixed at entry (e.g. REPEAT 5), so the loop always halts — a fraction or out-of-range value can't be a bound.")));
+            return;
+        }
+
+        object? priorValue = null;
+        var hadPrior = stmt.IndexVar != null && _vars.TryGetValue(stmt.IndexVar, out priorValue);
+        try
+        {
+            for (var i = 0; i < n; i++)
+            {
+                if (stmt.IndexVar != null) _vars[stmt.IndexVar] = (long)i;
+                var entryDepth = Current.NavStackDepth;
+                await RunStatementsAsync(stmt.Body, sink).ConfigureAwait(false);
+                var restore = Current.RestoreNavDepth(entryDepth, stmt.Location);
+                if (!restore.Ok) { sink.Add(Fail(stmt, restore.Error!)); return; }
+            }
+        }
+        finally
+        {
+            if (stmt.IndexVar != null)
+            {
+                if (hadPrior) _vars[stmt.IndexVar] = priorValue;
+                else _vars.Remove(stmt.IndexVar);
+            }
+        }
+    }
+
+    /// <summary>Runs <c>FOR-EACH ROW [Detail …] [WHERE …] [AS @row] … END</c>. The matching row set is
+    /// snapshotted once at entry from the currently-loaded rows (by identity, so body mutations can't shift
+    /// the iteration); a query holding more rows on the server than were loaded emits a WARNING diagnostic
+    /// (no silent truncation). Each iteration binds the row handle (if requested), records the entry nav
+    /// depth, runs the body, then restores the nav stack (loud-fail if a PO is left in edit). The row binding
+    /// is loop-scoped.</summary>
+    private async Task RunForEachRowAsync(ForEachRowStmt stmt, List<StatementResult> sink)
+    {
+        if (TryGateStatement(stmt, out var gated)) { sink.Add(gated!); return; }
+
+        var qt = Current.ResolveForEachQuery(stmt.DetailName, stmt.Location);
+        if (!qt.Ok) { sink.Add(Fail(stmt, qt.Error!)); return; }
+
+        object? matchValue = null;
+        if (stmt.MatchColumn != null)
+        {
+            var mv = EvaluateExpression(stmt.MatchValue!);
+            if (!mv.Ok) { sink.Add(Fail(stmt, mv.Error!)); return; }
+            matchValue = mv.Value;
+        }
+
+        var snap = await Current.SnapshotRowsAsync(qt.Value!, stmt.MatchColumn, matchValue, stmt.Location).ConfigureAwait(false);
+        if (!snap.Ok) { sink.Add(Fail(stmt, snap.Error!)); return; }
+        var (rows, totalItems, loadedCount) = snap.Value;
+
+        // No silent truncation: an unpaged query is fully loaded by the snapshot (SnapshotRowsAsync force-
+        // searches it), so loadedCount == totalItems and this never fires. It only triggers for a PageSize-
+        // bounded query with unvisited pages — there the loop covers just the resident rows, so we surface a
+        // warning naming the gap (spec §4.3). Recorded as a *passing* statement carrying a warning-kind
+        // diagnostic (Describe surfaces non-failing diagnostics), so it shows up without failing the run.
+        if (totalItems > loadedCount)
+            sink.Add(new StatementResult(stmt, true, Current.TakeSnapshot(), new[]
+            {
+                new Diagnostic(
+                    ErrorKind.StateForeachTruncated,
+                    $"FOR-EACH ROW is iterating {loadedCount} of {totalItems} rows — only loaded rows are visited.",
+                    stmt.Location,
+                    Hint: "SEARCH or page the query to load the rest before the loop if you need full coverage.")
+            }));
+
+        Vidyano.ViewModel.QueryResultItem? priorRow = null;
+        var hadPrior = stmt.RowVar != null && _rowHandles.TryGetValue(stmt.RowVar, out priorRow);
+        try
+        {
+            foreach (var row in rows)
+            {
+                if (stmt.RowVar != null) _rowHandles[stmt.RowVar] = row;
+                var entryDepth = Current.NavStackDepth;
+                await RunStatementsAsync(stmt.Body, sink).ConfigureAwait(false);
+                var restore = Current.RestoreNavDepth(entryDepth, stmt.Location);
+                if (!restore.Ok) { sink.Add(Fail(stmt, restore.Error!)); return; }
+            }
+        }
+        finally
+        {
+            if (stmt.RowVar != null)
+            {
+                if (hadPrior) _rowHandles[stmt.RowVar] = priorRow!;
+                else _rowHandles.Remove(stmt.RowVar);
+            }
+        }
+    }
+
+    private async Task<StatementResult> ExecuteStatementAsync(Statement stmt)
     {
         // CLEANUP opens the cleanup phase: every statement after it runs even when the body was
         // skipped by an unmet REQUIRES. The marker itself is recorded as a normal pass.
@@ -133,48 +267,11 @@ public sealed class Interpreter
             return Ok(stmt);
         }
 
-        // Once an unmet REQUIRES has set the skip flag, body statements are recorded as skipped
-        // without executing. Cleanup statements are exempt — they always run.
-        if (_skipped && !_inCleanup)
-            return Skip(stmt, null);
-
-        // Track whether real work has happened, so @mode can be rejected after the first execution.
-        var isMetaStmt = stmt is VariableAssignment or ModeDirective;
-        if (!isMetaStmt) _statementsExecuted = true;
-
-        // Reset the per-verb ClientOperations buffer before every executable verb (but NOT before
-        // EXPECT — assertions consume what the *previous* verb produced). Meta statements
-        // (@var, @mode) don't talk to the server, so they leave the buffer alone too.
-        if (!isMetaStmt && stmt is not ExpectStmt)
-            Current.ResetLastOperations();
-
-        // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the
-        // gate, matching the spec ("Until @initial == null, non-initial verbs error with
-        // state-initial-pending"). Only meta statements, SAVE @initial, and EXPECTs that
-        // observe the @initial scope are allowed through. `@mode = direct` is the documented
-        // escape hatch. Lint never sees this — the guard requires a live Client.Initial.
-        if (!isMetaStmt && _mode != GuardMode.Direct && Current.Client.Initial is not null
-            && !IsInitialScoped(stmt))
-        {
-            return Fail(stmt, new Diagnostic(
-                ErrorKind.StateInitialPending,
-                "An Initial PO is pending — the server returned a gate (license terms, 2FA enrol, password reset) that must be satisfied first.",
-                stmt.Location,
-                Hint: "Drive @initial to a clean SAVE (SAVE @initial) or set `@mode = direct` at the top of the script to bypass the gate."));
-        }
-
-        // Retry-pending gate: while a server RetryAction dialog is open the action is paused, so the
-        // script is frozen against it — parallel to the Initial-PO gate above. Only CONFIRM (answer the
-        // dialog), SET (supply input on the retry PO), and read-only EXPECT/REQUIRES are allowed through;
-        // everything else trips state-retry-pending. Lint never reaches here (no live retry).
-        if (!isMetaStmt && Current.CurrentRetry is not null && !IsRetryScoped(stmt))
-        {
-            return Fail(stmt, new Diagnostic(
-                ErrorKind.StateRetryPending,
-                "A server retry dialog is open — the action paused to ask for confirmation or more input.",
-                stmt.Location,
-                Hint: "Answer it with CONFIRM \"<option>\" / CONFIRM ID <index>; SET attributes on the retry PO first if it asks for input."));
-        }
+        // The skip / initial-pending / retry-pending gates fire here AND for body statements (which route
+        // back through this method), so a gated state freezes a loop body the same way it freezes the
+        // top-level stream. A blocking result short-circuits execution.
+        if (TryGateStatement(stmt, out var gated))
+            return gated!;
 
         switch (stmt)
         {
@@ -250,6 +347,64 @@ public sealed class Interpreter
     /// are read-only — everything else trips <see cref="ErrorKind.StateRetryPending"/>.</summary>
     private static bool IsRetryScoped(Statement stmt) =>
         stmt is ConfirmStmt or SetStmt or ExpectStmt or RequiresStmt or RequiresToolStmt;
+
+    /// <summary>Runs the per-statement gates and bookkeeping that precede every execution: the skip flag,
+    /// the <c>_statementsExecuted</c> / <c>ResetLastOperations</c> side-effects, and the initial-pending /
+    /// retry-pending freezes. Returns <c>true</c> with <paramref name="result"/> set when the statement must
+    /// not execute (skipped or blocked); <c>false</c> when it may proceed. Shared by
+    /// <see cref="ExecuteStatementAsync"/> and the loop runners so a loop and its body honor the same
+    /// gates.</summary>
+    private bool TryGateStatement(Statement stmt, out StatementResult? result)
+    {
+        result = null;
+
+        // Once an unmet REQUIRES has set the skip flag, statements are recorded as skipped without
+        // executing. Cleanup statements are exempt — they always run.
+        if (_skipped && !_inCleanup)
+        {
+            result = Skip(stmt, null);
+            return true;
+        }
+
+        // Track whether real work has happened, so @mode can be rejected after the first execution.
+        var isMetaStmt = stmt is VariableAssignment or ModeDirective;
+        if (!isMetaStmt) _statementsExecuted = true;
+
+        // Reset the per-verb ClientOperations buffer before every executable verb (but NOT before
+        // EXPECT — assertions consume what the *previous* verb produced). Meta statements
+        // (@var, @mode) don't talk to the server, so they leave the buffer alone too. A loop verb is
+        // structural — its body statements reset the buffer themselves — so leave it untouched for them.
+        if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt)
+            Current.ResetLastOperations();
+
+        // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the gate. Only
+        // meta statements, SAVE @initial, and EXPECTs that observe the @initial scope are allowed through;
+        // `@mode = direct` is the documented escape hatch. Lint never sees this (no live Client.Initial).
+        if (!isMetaStmt && _mode != GuardMode.Direct && Current.Client.Initial is not null
+            && !IsInitialScoped(stmt))
+        {
+            result = Fail(stmt, new Diagnostic(
+                ErrorKind.StateInitialPending,
+                "An Initial PO is pending — the server returned a gate (license terms, 2FA enrol, password reset) that must be satisfied first.",
+                stmt.Location,
+                Hint: "Drive @initial to a clean SAVE (SAVE @initial) or set `@mode = direct` at the top of the script to bypass the gate."));
+            return true;
+        }
+
+        // Retry-pending gate: while a server RetryAction dialog is open the action is paused, so the script
+        // is frozen against it. Only CONFIRM, SET, and read-only EXPECT/REQUIRES are allowed through.
+        if (!isMetaStmt && Current.CurrentRetry is not null && !IsRetryScoped(stmt))
+        {
+            result = Fail(stmt, new Diagnostic(
+                ErrorKind.StateRetryPending,
+                "A server retry dialog is open — the action paused to ask for confirmation or more input.",
+                stmt.Location,
+                Hint: "Answer it with CONFIRM \"<option>\" / CONFIRM ID <index>; SET attributes on the retry PO first if it asks for input."));
+            return true;
+        }
+
+        return false;
+    }
 
     // --- statement handlers -------------------------------------------------------------------
 
@@ -338,6 +493,19 @@ public sealed class Interpreter
 
     private async Task<StatementResult> DoOpenRow(OpenRowStmt or)
     {
+        // OPEN-ROW @row — open the row a FOR-EACH bound for this iteration, by snapshotted identity.
+        if (or.RowVar != null)
+        {
+            if (!_rowHandles.TryGetValue(or.RowVar, out var rowItem))
+                return Fail(or, new Diagnostic(
+                    ErrorKind.ResolveHandle,
+                    $"No row handle '@{or.RowVar}' is bound — OPEN-ROW @{or.RowVar} only works inside a FOR-EACH ROW … AS @{or.RowVar} block.",
+                    or.Location,
+                    Hint: "Bind the row with `FOR-EACH ROW … AS @row` and open it inside the loop body."));
+            var rowRes = await Current.OpenRowItemAsync(rowItem, or.AsHandle, or.Location).ConfigureAwait(false);
+            return Wrap(or, rowRes);
+        }
+
         if (or.MatchColumn != null)
         {
             var mv = EvaluateExpression(or.MatchValue!);
@@ -1158,7 +1326,10 @@ public sealed class Interpreter
             case IdentifierExpr i: return OpResult<object?>.Success(i.Name);
             case InterpExpr interp: return EvaluateInterpolation(interp);
             case StringInterpExpr si: return EvaluateStringInterp(si);
-            case VariableAttributeExpr v: return Current.GetScopedAttributeValue(v.Scope, v.AttributeName, v.Location);
+            case VariableAttributeExpr v:
+                return _rowHandles.TryGetValue(v.Scope, out var rowItem)
+                    ? Current.ReadRowCell(rowItem, v.AttributeName, v.Location)
+                    : Current.GetScopedAttributeValue(v.Scope, v.AttributeName, v.Location);
         }
         return Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken, "Unhandled expression.", expr.Location));
     }
@@ -1234,7 +1405,10 @@ public sealed class Interpreter
                     ErrorKind.ResolveVariable,
                     $"`@{scope}` is a PO reference, not a value — use `@{scope}.<attr>`.",
                     interp.Location));
-            return Current.GetScopedAttributeValue(scope, attr, interp.Location);
+            // A loop-bound row handle (FOR-EACH … AS @row) reads a cell; otherwise it's a scoped PO.
+            return _rowHandles.TryGetValue(scope, out var rowItem)
+                ? Current.ReadRowCell(rowItem, attr, interp.Location)
+                : Current.GetScopedAttributeValue(scope, attr, interp.Location);
         }
         // {{Messages.Saved}} — look up the server-localized client message by key. Surfaces the
         // same strings the UI uses, so assertions can compare against "what the user would read"
@@ -1300,6 +1474,7 @@ public sealed class Interpreter
     {
         _skipped = false;
         _inCleanup = false;
+        _rowHandles.Clear();
         // Anchor the clock once per run; each {{@now}} read = anchor + real elapsed. A pinned --now
         // fixes the origin, but time still flows the way a live session's would (the delta is real,
         // so it is NOT bit-reproducible — capture into a variable when an exact value is needed).
@@ -1418,6 +1593,25 @@ public sealed class Interpreter
         var sa = a is string s1 ? s1 : a.ToString();
         var sb = b is string s2 ? s2 : b.ToString();
         return string.Equals(sa, sb, StringComparison.Ordinal);
+    }
+
+    /// <summary>Resolves a <c>REPEAT</c> bound to a non-negative <see cref="int"/>. Unlike
+    /// <see cref="TryCoerceInt"/> — which truncates/wraps, fine for row-index callers — this rejects a
+    /// fractional or out-of-range value, so a bad bound surfaces as <c>state-invalid-bound</c> rather than
+    /// a silently-wrong iteration count (e.g. <c>2.9</c> running twice, or <c>2^32+1</c> wrapping to 1).</summary>
+    private static bool TryResolveRepeatCount(object? v, out int n)
+    {
+        n = 0;
+        switch (v)
+        {
+            case int i when i >= 0: n = i; return true;
+            case long l when l is >= 0 and <= int.MaxValue: n = (int)l; return true;
+            case decimal d when d == decimal.Truncate(d) && d >= 0 && d <= int.MaxValue: n = (int)d; return true;
+            case double db when db == Math.Floor(db) && db >= 0 && db <= int.MaxValue: n = (int)db; return true;
+            // NumberStyles.Integer forbids a decimal point, so "2.9" fails to parse — exactly the reject we want.
+            case string s when long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p) && p is >= 0 and <= int.MaxValue: n = (int)p; return true;
+        }
+        return false;
     }
 
     private static bool TryCoerceInt(object? v, out int result)

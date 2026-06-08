@@ -110,6 +110,19 @@ public sealed class Parser
         }
 
         var verb = tok.Lexeme;
+
+        // END is a block terminator, not a verb. ParseBlock consumes the END that closes a loop; one
+        // reaching here is unmatched. Guard it before the unknown-verb path so the message names the cause.
+        if (string.Equals(verb, "END", StringComparison.OrdinalIgnoreCase))
+        {
+            Error(ErrorKind.ParseUnexpectedToken,
+                "END without a matching REPEAT/FOR-EACH.",
+                tok.Location,
+                hint: "END closes a REPEAT or FOR-EACH block. Remove it, or add the opening loop verb.");
+            Advance();
+            return null;
+        }
+
         if (!KnownVerbs.Contains(verb))
         {
             Error(ErrorKind.ParseUnknownVerb,
@@ -142,6 +155,8 @@ public sealed class Parser
             "TOOL"        => ParseTool(tok.Location),
             "REQUIRES"    => ParseRequires(tok.Location),
             "CLEANUP"     => new CleanupMarker(tok.Location),
+            "REPEAT"      => ParseRepeat(tok.Location),
+            "FOR-EACH"    => ParseForEachRow(tok.Location),
             _             => UnimplementedVerb(tok),
         };
     }
@@ -361,6 +376,16 @@ public sealed class Parser
 
     private Statement? ParseOpenRow(SourceLocation loc)
     {
+        // OPEN-ROW @row — open the row handle a FOR-EACH bound (by snapshotted identity). A reserved scope
+        // (@session/@initial) is not a row handle, so reject it with the shared handle helper's check.
+        if (Peek().Kind == TokenKind.At)
+        {
+            var rowVar = ConsumeHandleName("OPEN-ROW");
+            if (rowVar is null) return null;
+            var rowHandle = ParseOptionalAs();
+            return new OpenRowStmt(null, rowHandle, loc, RowVar: rowVar);
+        }
+
         if (!ParseRowTarget("OPEN-ROW", out var index, out var column, out var matchOp, out var value, out var detailName))
             return null;
         var asHandle = ParseOptionalAs();
@@ -717,6 +742,139 @@ public sealed class Parser
         var expectError = TryConsumeExpectingError(out var malformed);
         if (malformed) return null;
         return new SaveStmt(null, loc, Scope: scope, ExpectError: expectError);
+    }
+
+    // --- REPEAT / FOR-EACH (bounded iteration) ------------------------------------------------
+
+    /// <summary>Parses <c>REPEAT &lt;n&gt; [AS @i] NL &lt;block&gt; END</c>. The count is a value expression
+    /// (literal or interpolation) resolved at runtime to a non-negative int; the optional <c>AS @i</c> binds
+    /// the loop index. The verb keyword was already consumed.</summary>
+    private Statement? ParseRepeat(SourceLocation loc)
+    {
+        var count = ParseValueExpression();
+        if (count == null) return null;
+        var indexVar = ParseOptionalAs();
+        var body = ParseBlock(loc, "REPEAT");
+        if (body == null) return null;
+        return new RepeatStmt(count, indexVar, body, loc);
+    }
+
+    /// <summary>Parses <c>FOR-EACH ROW [Detail "&lt;name&gt;"] [WHERE &lt;col&gt; = &lt;value&gt;] [AS @row]
+    /// NL &lt;block&gt; END</c>. The leading <c>ROW</c> keyword is required. Unlike OPEN-ROW there is no
+    /// positional-index form — the only filter is the optional WHERE clause; without it every loaded row is
+    /// iterated. The verb keyword was already consumed.</summary>
+    private Statement? ParseForEachRow(SourceLocation loc)
+    {
+        if (Peek().Kind != TokenKind.Identifier || !string.Equals(Peek().Lexeme, "ROW", StringComparison.OrdinalIgnoreCase))
+        {
+            Error(ErrorKind.ParseExpected, "FOR-EACH must be followed by ROW.", Peek().Location,
+                hint: "FOR-EACH ROW [WHERE <col> = <value>] [AS @row] … END");
+            return null;
+        }
+        Advance(); // ROW
+
+        // Optional leading `Detail "<name>"` clause: targets a named detail query on the current PO.
+        string? detailName = null;
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            detailName = ParseDetailName();
+            if (detailName == null) return null;
+        }
+
+        // Optional `WHERE <col> = <value>` filter. No positional-index form here, so WHERE is the only
+        // filter and its absence means "every loaded row".
+        string? column = null;
+        ExpectOp? matchOp = null;
+        Expression? value = null;
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "WHERE", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            column = ParseDottedAttributeName();
+            if (column == null) return null;
+            if (!Match(TokenKind.Equals, out _))
+            {
+                Error(ErrorKind.ParseExpected, "FOR-EACH ROW WHERE currently supports only '='.", Peek().Location,
+                    hint: "FOR-EACH ROW WHERE Status = \"Inactive\" AS @row");
+                return null;
+            }
+            value = ParseValueExpression();
+            if (value == null) return null;
+            matchOp = ExpectOp.Eq;
+        }
+
+        var rowVar = ParseOptionalAs();
+        var body = ParseBlock(loc, "FOR-EACH");
+        if (body == null) return null;
+        return new ForEachRowStmt(column, matchOp, value, detailName, rowVar, body, loc);
+    }
+
+    /// <summary>Parses a loop body: zero or more statements on <c>Newline</c>-separated lines, terminated by
+    /// the <c>END</c> identifier. Mirrors the top-level <see cref="Parse"/> cadence (SkipToEndOfLine /
+    /// SkipNewlines between statements). Returns <c>null</c> after emitting a diagnostic on:
+    /// <list type="bullet">
+    ///   <item>EOF before END — <see cref="ErrorKind.ParseMissingBlockEnd"/>.</item>
+    ///   <item>a <c>###</c> step header inside the block — steps are top-level reporting groups, not nestable.</item>
+    ///   <item>a <c>REQUIRES</c> / <c>CLEANUP</c> inside the block — the skip/cleanup gate model is top-level only.</item>
+    /// </list>
+    /// <paramref name="openLoc"/> / <paramref name="verb"/> describe the opening loop verb in the missing-END
+    /// diagnostic.</summary>
+    private IReadOnlyList<Statement>? ParseBlock(SourceLocation openLoc, string verb)
+    {
+        // The loop header ended at this line's newline; advance past it to reach the body's first statement.
+        SkipToEndOfLine();
+        SkipNewlines();
+
+        var body = new List<Statement>();
+        while (true)
+        {
+            if (IsAtEnd)
+            {
+                Error(ErrorKind.ParseMissingBlockEnd,
+                    $"{verb} block is missing its closing END.",
+                    openLoc,
+                    hint: $"Add an END line to close the {verb} block.");
+                return null;
+            }
+
+            var tok = Peek();
+            if (tok.Kind == TokenKind.StepHeader)
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "A '###' step header can't appear inside a loop body.",
+                    tok.Location,
+                    hint: "Steps are top-level reporting groups — close the loop with END before the next step.");
+                return null;
+            }
+
+            // END closes the block.
+            if (tok.Kind == TokenKind.Identifier && string.Equals(tok.Lexeme, "END", StringComparison.OrdinalIgnoreCase))
+            {
+                Advance(); // END
+                return body;
+            }
+
+            // REQUIRES / CLEANUP are top-level-only (decision (f)): the skip/cleanup gate model is not
+            // nestable. Reject them here rather than letting ParseStatement build a node that the
+            // interpreter's body-runner would mishandle.
+            if (tok.Kind == TokenKind.Identifier &&
+                (string.Equals(tok.Lexeme, "REQUIRES", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(tok.Lexeme, "CLEANUP", StringComparison.OrdinalIgnoreCase)))
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    $"{tok.Lexeme.ToUpperInvariant()} is only allowed at the top level, not inside a loop body.",
+                    tok.Location,
+                    hint: "Gate the whole loop with a top-level REQUIRES, or move the CLEANUP outside the block.");
+                return null;
+            }
+
+            var stmt = ParseStatement();
+            if (stmt != null)
+                body.Add(stmt);
+
+            SkipToEndOfLine();
+            SkipNewlines();
+        }
     }
 
     // --- TOOL ---------------------------------------------------------------------------------
@@ -1511,6 +1669,19 @@ public sealed class Parser
                 return new IdentifierExpr(tok.Lexeme, tok.Location);
             case TokenKind.At:
                 {
+                    // `@name.attr` in value position: a reserved scope (@session.X) or a loop-bound row
+                    // handle (@row.Column). Row handles aren't known at parse time, so a non-reserved
+                    // `@name` followed by `.` is accepted and resolved at runtime (the interpreter reads a
+                    // cell off the bound row, or surfaces an unknown-scope diagnostic if there is none).
+                    if (!ReservedScopes.Contains(tok.Lexeme) &&
+                        _pos + 1 < _tokens.Count && _tokens[_pos + 1].Kind == TokenKind.Dot)
+                    {
+                        var handleTok = Advance();
+                        Advance(); // '.'
+                        var cellName = ParseDottedAttributeName();
+                        if (cellName == null) return null;
+                        return new VariableAttributeExpr(handleTok.Lexeme, cellName, tok.Location);
+                    }
                     var scope = TryConsumeScopePrefix();
                     if (scope == null) return null;
                     var attr = ParseDottedAttributeName();

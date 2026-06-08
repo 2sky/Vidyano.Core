@@ -214,6 +214,30 @@ public static class VerbCatalog
             + "`REQUIRES` — the .visc equivalent of a finally block.",
             ["CLEANUP"],
             "control", []),
+
+        new("REPEAT",
+            "REPEAT <n> [AS @i]\n  …\nEND",
+            "Run a block a fixed number of times.",
+            "Runs the `END`-terminated block `<n>` times, where `<n>` is a literal or interpolation that "
+            + "resolves once at entry to a non-negative int (negative/non-int → `state-invalid-bound`; "
+            + "`REPEAT 0` runs zero times). `AS @i` binds the zero-based iteration index as a loop-scoped "
+            + "variable, read in the body as `{{i}}`. The bound is fixed at entry — no body can extend it, "
+            + "so the loop always halts. Each iteration restores the nav stack to its entry depth (loud-fail "
+            + "if a PO is left in edit).",
+            ["REPEAT 5 AS @i"],
+            "control", []),
+
+        new("FOR-EACH",
+            "FOR-EACH ROW [Detail \"<name>\"] [WHERE <col> = <value>] [AS @row]\n  …\nEND",
+            "Iterate the loaded rows of the current query.",
+            "Iterates the currently-loaded rows of the current query (or a named detail query), optionally "
+            + "filtered by `WHERE <col> = <value>`. The matching set is snapshotted at entry by row identity, "
+            + "so body mutations (e.g. Delete) don't shift the iteration. `AS @row` binds a loop-scoped row "
+            + "reference — read cells with `@row.<col>`, open it with `OPEN-ROW @row`. Each iteration restores "
+            + "the nav stack to its entry depth (loud-fail if a PO is left in edit). It iterates only loaded "
+            + "rows and warns when the query holds more on the server.",
+            ["FOR-EACH ROW WHERE Status = \"Inactive\" AS @row"],
+            "control", []),
     ];
 
     private static readonly IReadOnlySet<string> _names =

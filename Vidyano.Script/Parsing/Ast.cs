@@ -58,10 +58,14 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// <see cref="MatchValue"/> (with <see cref="Index"/> null). <see cref="MatchOp"/> is modelled with the
 /// EXPECT operator enum so a future operator is a parser whitelist change; only <see cref="ExpectOp.Eq"/>
 /// is accepted in this build.
+/// <para><see cref="RowVar"/> is the third, mutually-exclusive mode: <c>OPEN-ROW @row</c> opens the row
+/// handle a <see cref="ForEachRowStmt"/> bound for the current iteration, by snapshotted identity rather
+/// than a live index — so a body mutation that shifts the query's rows can't reopen the wrong one.</para>
 /// <para><see cref="DetailName"/> (the optional <c>Detail "&lt;name&gt;"</c> clause) is orthogonal to the
 /// positional-vs-WHERE choice: when set, the row is selected from the named detail query on the current
-/// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query.</para></summary>
-public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null) : Statement(Location);
+/// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query. It does not apply to the
+/// <see cref="RowVar"/> form, which already carries its own snapshotted row.</para></summary>
+public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null, string? RowVar = null) : Statement(Location);
 
 /// <summary><c>SELECT-ROWS &lt;target&gt;</c> — set the selection on the resolved Query so a
 /// selection-gated action (e.g. Delete) can run. Always replaces the current selection; never pushes a
@@ -185,6 +189,34 @@ public sealed record RequiresToolStmt(string ToolName, SourceLocation Location) 
 /// <summary><c>CLEANUP</c> — marker after which every statement always runs, even when the body was
 /// skipped by an unmet <c>REQUIRES</c>. Zero-arg; only its position in the statement stream matters.</summary>
 public sealed record CleanupMarker(SourceLocation Location) : Statement(Location);
+
+/// <summary><c>REPEAT &lt;n&gt; [AS @i] … END</c> — run <see cref="Body"/> a fixed number of times.
+/// <see cref="Count"/> resolves once at entry to a non-negative int; a negative or non-integer value is a
+/// runtime error (<c>state-invalid-bound</c>), never an unbounded loop, so the language stays total.
+/// <c>REPEAT 0</c> runs the body zero times — empty is legal, not an error. <see cref="IndexVar"/>, when
+/// set, binds the zero-based iteration index as a loop-scoped variable (the variable table key, read in
+/// scripts as <c>{{i}}</c>); any prior binding of that name is saved on entry and restored on exit.
+/// Each iteration restores the navigation stack to the depth it had at the loop's entry (see
+/// <see cref="ForEachRowStmt"/> remarks for the edit-left-open guard).</summary>
+public sealed record RepeatStmt(
+    Expression Count, string? IndexVar, IReadOnlyList<Statement> Body, SourceLocation Location) : Statement(Location);
+
+/// <summary><c>FOR-EACH ROW [Detail "&lt;name&gt;"] [WHERE &lt;col&gt; = &lt;value&gt;] [AS @row] … END</c> —
+/// iterate the rows of the current query (or the named detail query), optionally filtered by an equality
+/// match. The matching set is <b>snapshotted at entry</b> by row identity, so body mutations (e.g. Delete)
+/// don't shift the iteration. Unlike <see cref="OpenRowStmt"/> there is no positional-index form — the only
+/// filter is the optional <see cref="MatchColumn"/> WHERE clause; with none, every loaded row is iterated.
+/// <see cref="RowVar"/>, when set, binds a loop-scoped row reference: read cells with <c>@row.&lt;col&gt;</c>
+/// and push its PO with <c>OPEN-ROW @row</c>.
+/// <para>At the end of every iteration the navigation stack is popped back to the depth it had at the loop's
+/// entry, so the body may drill in (OPEN-ROW / FOLLOW) without manual GO-BACK bookkeeping. Restoration
+/// refuses (loud fail, <c>state-loop-edit-left-open</c>) if a PO is left in edit — the same rule GO-BACK
+/// enforces.</para>
+/// The WHERE fields reuse the OpenRow/SelectRows convention; <see cref="MatchOp"/> is whitelisted to
+/// <see cref="ExpectOp.Eq"/> in this build.</summary>
+public sealed record ForEachRowStmt(
+    string? MatchColumn, ExpectOp? MatchOp, Expression? MatchValue, string? DetailName,
+    string? RowVar, IReadOnlyList<Statement> Body, SourceLocation Location) : Statement(Location);
 
 /// <summary><c>CONFIRM "&lt;label&gt;"</c> or <c>CONFIRM ID &lt;index&gt;</c> — answer the open server retry
 /// dialog, resuming the paused action with the chosen option. <see cref="Option"/> picks an entry from the
