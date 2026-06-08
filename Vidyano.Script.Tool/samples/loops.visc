@@ -1,0 +1,47 @@
+### Bounded iteration — REPEAT and FOR-EACH ROW
+###
+### This file lints cleanly with no backend. It demonstrates the two bounded-iteration constructs.
+### Both stay TOTAL: the bound is fixed before the loop runs, so no body can introduce an unbounded
+### search. There is no WHILE, no recursion, no computed bounds.
+###
+###   • REPEAT <n> [AS @i] … END — run the END-terminated block <n> times. <n> resolves once at entry
+###     to a non-negative int (negative/non-int → state-invalid-bound; REPEAT 0 runs zero times).
+###     AS @i binds the zero-based iteration index, READ IN THE BODY AS {{i}} (no @ — user variables
+###     are assigned @name and read {{name}}, like the rest of the language).
+###   • FOR-EACH ROW [WHERE <col> = <value>] [AS @row] … END — iterate the loaded rows of the current
+###     query (or a Detail "<name>"), snapshotted at entry by row identity so body deletes/inserts can't
+###     shift the iteration. AS @row binds a row handle: read cells with @row.<col>, open it with
+###     OPEN-ROW @row. Each iteration auto-restores the nav stack to the loop's entry depth, so the body
+###     may drill in without manual GO-BACK (it loud-fails if a PO is left in edit).
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+### REPEAT — seed N fixtures. {{i}} composes into unique, recognizable test data.
+OPEN MenuItem Sales/Customers
+REPEAT 3 AS @i
+  ACTION New
+  SET Name = "Load Test {{i}}"
+  SAVE
+END
+
+### FOR-EACH ROW — process every matching row. The snapshot protects against index shift, so a
+### Delete in the body never skips a row. The nav stack is auto-restored to the query frame each pass.
+OPEN MenuItem Sales/Customers
+SEARCH ""
+FOR-EACH ROW WHERE Status = "Inactive" AS @row
+  OPEN-ROW @row
+  EXPECT Name = "{{@row.Name}}"
+  ACTION Delete = "Yes, delete"
+END
+
+### Loops nest. The bound of each is fixed at its own entry.
+REPEAT 2 AS @outer
+  OPEN MenuItem Sales/Customers
+  SEARCH ""
+  FOR-EACH ROW AS @row
+    OPEN-ROW @row
+    GO-BACK
+  END
+END

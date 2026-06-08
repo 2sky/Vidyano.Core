@@ -43,6 +43,7 @@ public static class KeywordCatalog
     {
         "FROM", "ENV", "LANGUAGE", "AS", "WHERE", "ALL", "EXCEPT", "NONE", "IS", "NOT", "LOOKUP", "ID",
         "MATCHES", "CONTAINS", "EXPECTING", "ERROR", "DETAIL", "VISIBLE", "READONLY", "REQUIRED", "AVAILABLE",
+        "END", "ROW",
     };
 
     private static readonly IReadOnlySet<string> _typeWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

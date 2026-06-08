@@ -568,6 +568,73 @@ public sealed class VidyanoSession : IDisposable
         return OpResult.Success;
     }
 
+    /// <summary><c>OPEN-ROW @row</c> — open the PO behind a row a <c>FOR-EACH</c> snapshotted, by the row's
+    /// own identity rather than a live index. Same push-frame-and-bind-handle tail the index/WHERE forms use,
+    /// so a row opened this way behaves identically — but a body mutation that shifted the query's rows can't
+    /// make it reopen the wrong one. <paramref name="row"/> is the snapshotted item the interpreter holds for
+    /// the current iteration.</summary>
+    public Task<OpResult> OpenRowItemAsync(QueryResultItem row, string? asHandle, SourceLocation loc) =>
+        OpenRowItemAsync(row, "FOR-EACH row", asHandle, loc);
+
+    /// <summary>Reads a cell off a snapshotted <see cref="QueryResultItem"/> by column name, in
+    /// service-string form (the convention <c>SET</c> / <c>WHERE</c> values use). Backs the
+    /// <c>@row.&lt;col&gt;</c> read path. A column the row doesn't carry surfaces a
+    /// <see cref="ErrorKind.ResolveAttribute"/> diagnostic with a suggester hint over the row's columns,
+    /// so a typo reads like any other unknown-column error.</summary>
+    public OpResult<object?> ReadRowCell(QueryResultItem row, string column, SourceLocation loc)
+    {
+        var columnNames = row.Query.Columns.Select(c => c.Name).ToArray();
+        var matched = columnNames.FirstOrDefault(n => string.Equals(n, column, StringComparison.OrdinalIgnoreCase));
+        if (matched is null)
+            return OpResult<object?>.Fail(new Diagnostic(
+                ErrorKind.ResolveAttribute,
+                $"Row has no column named '{column}'.",
+                loc,
+                Hint: Suggester.Hint(column, columnNames)));
+        return OpResult<object?>.Success((object?)Vidyano.Client.ToServiceString(row[matched]));
+    }
+
+    /// <summary>Loads and returns the rows of <paramref name="query"/> matching an optional column equality,
+    /// for <c>FOR-EACH ROW</c> to snapshot by identity. Both paths force a load: an unpaged query is fully
+    /// searched (so every matching row is visited — no partial coverage by default), and a PageSize-bounded
+    /// query yields only its resident pages. With <paramref name="column"/> null all loaded rows are returned;
+    /// otherwise the match is NON-STRICT (zero or many are both fine) — the same convention SELECT-ROWS WHERE
+    /// uses, shared via <see cref="MatchRowsByColumnAsync"/>. The tuple also reports the query's
+    /// <c>TotalItems</c> and the loaded count so the caller can warn when a paged query holds more than was
+    /// iterated (no silent truncation).</summary>
+    public async Task<OpResult<(List<QueryResultItem> Rows, int TotalItems, int LoadedCount)>> SnapshotRowsAsync(
+        Query query, string? column, object? value, SourceLocation loc)
+    {
+        try
+        {
+            if (column is null)
+            {
+                var items = await query.GetItemsAsync(0, 0).ConfigureAwait(false);
+                var rows = items.Where(r => r != null).ToList();
+                return OpResult<(List<QueryResultItem>, int, int)>.Success((rows, query.TotalItems, rows.Count));
+            }
+
+            var m = await MatchRowsByColumnAsync(query, column, value, loc).ConfigureAwait(false);
+            if (!m.Ok) return OpResult<(List<QueryResultItem>, int, int)>.Fail(m.Error!);
+            var (_, _, matches) = m.Value;
+            // LoadedCount is the number of rows resident after the load (query.Count), NOT matches.Count —
+            // the truncation warning asks "did the server hold rows we never loaded?", which a WHERE filter
+            // reducing the match set must not answer yes. Using matches.Count here would falsely warn
+            // "iterating 5 of 500" on a fully-loaded query where only 5 rows matched the filter.
+            return OpResult<(List<QueryResultItem>, int, int)>.Success((matches, query.TotalItems, query.Count));
+        }
+        catch (Exception ex)
+        {
+            return OpResult<(List<QueryResultItem>, int, int)>.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    /// <summary>Resolves the query a <c>FOR-EACH ROW</c> iterates: the named detail query when
+    /// <paramref name="detailName"/> is set, otherwise the current Query. Mirrors the OPEN-ROW resolution so
+    /// the loop scans the same query a positional OPEN-ROW would.</summary>
+    public OpResult<Query> ResolveForEachQuery(string? detailName, SourceLocation loc) =>
+        ResolveRowQuery(detailName, loc);
+
     /// <summary><c>FOLLOW &lt;attr&gt; [AS @handle]</c> — navigate from a reference attribute on the current
     /// PO to the PersistentObject it points at, pushing a PO frame. This is the .visc equivalent of the web
     /// client's "open" affordance next to a reference field: it honors the same <c>CanOpen</c> gate
@@ -783,6 +850,24 @@ public sealed class VidyanoSession : IDisposable
             return OpResult.Fail(new Diagnostic(ErrorKind.GuardInEdit,
                 "GO-BACK can't leave a PO with unsaved edits — SAVE or CANCEL first.", loc));
         _navStack.RemoveAt(_navStack.Count - 1);
+        return OpResult.Success;
+    }
+
+    /// <summary>Pops navigation frames until the stack is back to <paramref name="entryDepth"/> — the depth
+    /// recorded when a loop iteration began — so a loop body may drill in (OPEN-ROW / FOLLOW) without manual
+    /// GO-BACK bookkeeping. Refuses (loud fail, <see cref="ErrorKind.StateLoopEditLeftOpen"/>) if any frame
+    /// it would pop, or the resting top, is a PersistentObject still in edit — the same in-edit rule
+    /// <see cref="GoBack"/> enforces. A no-op when the body left the depth unchanged.</summary>
+    public OpResult RestoreNavDepth(int entryDepth, SourceLocation loc)
+    {
+        while (_navStack.Count > entryDepth)
+        {
+            if (_navStack[^1] is PoEntry { Po.IsInEdit: true })
+                return OpResult.Fail(new Diagnostic(ErrorKind.StateLoopEditLeftOpen,
+                    "A loop iteration ended with a PersistentObject still in edit — SAVE or CANCEL it inside the body before the iteration ends.",
+                    loc));
+            _navStack.RemoveAt(_navStack.Count - 1);
+        }
         return OpResult.Success;
     }
 

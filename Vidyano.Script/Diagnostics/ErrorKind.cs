@@ -24,6 +24,8 @@ public static class ErrorKind
     public const string ParseExpected            = "parse-expected";
     public const string ParseInvalidValue        = "parse-invalid-value";
     public const string ParseInvalidMode         = "parse-invalid-mode";
+    /// <summary>A <c>REPEAT</c> / <c>FOR-EACH</c> block reached end-of-file with no matching <c>END</c>.</summary>
+    public const string ParseMissingBlockEnd     = "parse-missing-block-end";
 
     // Resolution — name not found
     public const string ResolveVariable          = "resolve-variable";
@@ -68,6 +70,15 @@ public static class ErrorKind
     public const string StateRetryPending        = "state-retry-pending";
     /// <summary><c>CONFIRM</c> was issued with no retry dialog open to answer.</summary>
     public const string StateNoRetryPending      = "state-no-retry-pending";
+    /// <summary>A <c>REPEAT</c> count resolved to a negative or non-integer value — the bound is
+    /// unevaluable, so the loop can't run.</summary>
+    public const string StateInvalidBound        = "state-invalid-bound";
+    /// <summary>A loop iteration ended with a PersistentObject still in edit, so the nav stack can't be
+    /// safely restored to the loop's entry depth (SAVE or CANCEL inside the body first).</summary>
+    public const string StateLoopEditLeftOpen    = "state-loop-edit-left-open";
+    /// <summary>A <c>FOR-EACH ROW</c> over a paged query visited only the loaded rows because the server
+    /// holds more than were resident — a warning, not a failure (the loop still ran, no silent truncation).</summary>
+    public const string StateForeachTruncated    = "state-foreach-truncated";
 
     // Assertions
     public const string AssertFailed             = "assert-failed";

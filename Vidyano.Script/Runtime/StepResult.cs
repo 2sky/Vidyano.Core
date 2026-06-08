@@ -74,6 +74,14 @@ public sealed record ScriptResult(
                     AppendDiagnostic(sb, d, "    ");
         }
 
+        // Warnings ride on *passing* statements (e.g. FOR-EACH truncation) — they carry a diagnostic
+        // without failing the run. Surface them unconditionally so "no silent truncation" holds even
+        // when the overall result is ok; skipped statements (which also carry an informational
+        // diagnostic) stay summarized in the tally, not expanded.
+        foreach (var stmt in statements.Where(s => s.Ok && !s.Skipped && s.Diagnostics.Count > 0))
+            foreach (var d in stmt.Diagnostics)
+                AppendDiagnostic(sb, d, "  ");
+
         return sb.ToString().TrimEnd();
     }
 
