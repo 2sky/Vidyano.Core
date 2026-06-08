@@ -617,7 +617,11 @@ public sealed class VidyanoSession : IDisposable
             var m = await MatchRowsByColumnAsync(query, column, value, loc).ConfigureAwait(false);
             if (!m.Ok) return OpResult<(List<QueryResultItem>, int, int)>.Fail(m.Error!);
             var (_, _, matches) = m.Value;
-            return OpResult<(List<QueryResultItem>, int, int)>.Success((matches, query.TotalItems, matches.Count));
+            // LoadedCount is the number of rows resident after the load (query.Count), NOT matches.Count —
+            // the truncation warning asks "did the server hold rows we never loaded?", which a WHERE filter
+            // reducing the match set must not answer yes. Using matches.Count here would falsely warn
+            // "iterating 5 of 500" on a fully-loaded query where only 5 rows matched the filter.
+            return OpResult<(List<QueryResultItem>, int, int)>.Success((matches, query.TotalItems, query.Count));
         }
         catch (Exception ex)
         {
