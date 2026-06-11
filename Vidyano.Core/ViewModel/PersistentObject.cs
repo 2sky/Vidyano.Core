@@ -350,7 +350,7 @@ namespace Vidyano.ViewModel
             {
                 // First-wins map by Id; null Ids tracked separately so the lookup below stays
                 // byte-equivalent to FirstOrDefault(a => a.Id == attr.Id), including null == null.
-                var serviceAttributesById = new Dictionary<string, PersistentObjectAttribute>();
+                var serviceAttributesById = new Dictionary<string, PersistentObjectAttribute>(result.Attributes.Length);
                 PersistentObjectAttribute firstNullIdServiceAttribute = null;
                 foreach (var a in result.Attributes)
                 {
