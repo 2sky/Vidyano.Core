@@ -19,6 +19,7 @@ namespace Vidyano.ViewModel
     {
         private readonly ObservableCollection<QueryResultItem> _SelectedItems = new ObservableCollection<QueryResultItem>();
         private readonly SortedDictionary<int, QueryResultItem> items = new SortedDictionary<int, QueryResultItem>();
+        private int maxKey = -1; // Highest populated index in items, so Count stays O(1).
         private readonly List<int> queriedPages = new List<int>();
         private QueryColumn[] _Columns;
         private Dictionary<string, QueryColumn> columnsByName;
@@ -358,6 +359,7 @@ namespace Vidyano.ViewModel
                     Skip = 0;
                     Top = PageSize;
                     items.Clear();
+                    maxKey = -1;
                     queriedPages.Clear();
                     AllSelected = false;
                     SelectedItems.Clear();
@@ -431,6 +433,8 @@ namespace Vidyano.ViewModel
                     }
                     catch {}
                 }
+
+                maxKey = Math.Max(maxKey, startIndex + items.Length - 1);
 
                 if (PageSize > 0)
                     queriedPages.AddRange(Enumerable.Range(startIndex / PageSize.Value, Math.Max(1, items.Length / PageSize.Value)));
@@ -624,7 +628,7 @@ namespace Vidyano.ViewModel
             }
         }
 
-        public int Count => items.Count > 0 ? items.Keys.Max() + 1 : 0;
+        public int Count => maxKey + 1;
 
         public event EventHandler<OpenQueryItemEventArgs> OpenItem = delegate { };
         public event EventHandler<NotificationChangedEventArgs> NotificationChanged = delegate { };

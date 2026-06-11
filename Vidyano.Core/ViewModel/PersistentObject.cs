@@ -348,9 +348,26 @@ namespace Vidyano.ViewModel
 
             if (Attributes != null && result.Attributes != null)
             {
+                // First-wins map by Id; null Ids tracked separately so the lookup below stays
+                // byte-equivalent to FirstOrDefault(a => a.Id == attr.Id), including null == null.
+                var serviceAttributesById = new Dictionary<string, PersistentObjectAttribute>(result.Attributes.Length);
+                PersistentObjectAttribute firstNullIdServiceAttribute = null;
+                foreach (var a in result.Attributes)
+                {
+                    var id = a.Id;
+                    if (id == null)
+                    {
+                        if (firstNullIdServiceAttribute == null)
+                            firstNullIdServiceAttribute = a;
+                    }
+                    else if (!serviceAttributesById.ContainsKey(id))
+                        serviceAttributesById[id] = a;
+                }
+
                 foreach (var attr in Attributes)
                 {
-                    var serviceAttribute = result.Attributes.FirstOrDefault(a => a.Id == attr.Id);
+                    var attrId = attr.Id;
+                    var serviceAttribute = attrId != null ? (serviceAttributesById.TryGetValue(attrId, out var sa) ? sa : null) : firstNullIdServiceAttribute;
                     if (serviceAttribute != null)
                     {
                         attr.OptionsDirect = serviceAttribute.OptionsDirect;
