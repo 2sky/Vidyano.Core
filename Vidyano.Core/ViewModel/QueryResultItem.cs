@@ -1,4 +1,4 @@
-﻿using System.Linq;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
@@ -7,6 +7,7 @@ namespace Vidyano.ViewModel
     public class QueryResultItem : ViewModelBase
     {
         private readonly JArray values;
+        private Dictionary<string, JToken> valuesByKey;
 
         public QueryResultItem(Client client, string id)
             : base(client, new JObject(new JProperty("id", id)))
@@ -34,23 +35,51 @@ namespace Vidyano.ViewModel
         {
             get
             {
-                var column = Query.Columns.FirstOrDefault(c => c.Name == key);
-
-                var value = values.FirstOrDefault(v => (string)v["key"] == key);
+                var value = GetValue(key);
                 if (value != null)
-                    return Client.FromServiceString((string)value["value"], column.Type);
+                {
+                    var column = Query?.GetColumn(key);
+                    return Client.FromServiceString((string)value["value"], column?.Type);
+                }
 
                 return null;
             }
             set
             {
-                var val = values.FirstOrDefault(v => (string)v["key"] == key);
+                var val = GetValue(key);
                 if (val != null)
                 {
                     val["value"] = Client.ToServiceString(value);
                     OnPropertyChanged("Item[]");
                 }
             }
+        }
+
+        // The setter only mutates elements in place (never adds/removes), so the map stays valid once built.
+        private JToken GetValue(string key)
+        {
+            if (key == null)
+                return null;
+
+            if (valuesByKey == null)
+            {
+                // First-wins on duplicate keys, matching the FirstOrDefault semantics this map replaces.
+                var map = new Dictionary<string, JToken>();
+                if (values != null)
+                {
+                    foreach (var value in values)
+                    {
+                        var valueKey = (string)value["key"];
+                        if (valueKey != null && !map.ContainsKey(valueKey))
+                            map[valueKey] = value;
+                    }
+                }
+
+                valuesByKey = map;
+            }
+
+            valuesByKey.TryGetValue(key, out var result);
+            return result;
         }
 
         #endregion
