@@ -1126,16 +1126,9 @@ public sealed class VidyanoSession : IDisposable
             if (string.IsNullOrEmpty(rawId))
                 return await ClearReferenceAsync(attr, loc).ConfigureAwait(false);
 
-            // SelectInPlace refs carry their choices in Options[]; the setter routes the key through
-            // ChangeReference for us. For popup/lookup refs (SelectInPlace == false) the
-            // SelectedReferenceValue setter is a NO-OP, so assigning rawId silently leaves the
-            // attribute null — call ChangeReference directly (a backend call) so the server resolves
-            // the row by Id, bridged to async like the lookup path below.
-            if (attr.SelectInPlace)
-            {
-                attr.SelectedReferenceValue = rawId;
-                return OpResult.Success;
-            }
+            // Both ref kinds commit through the awaited SetReferenceByIdAsync. The SelectedReferenceValue
+            // setter is a NO-OP for popup refs and fires ChangeReference un-awaited for SelectInPlace, so
+            // neither lands the row by Id before the next verb / SAVE — ChangeReference must be awaited.
             return await SetReferenceByIdAsync(attr, rawId, loc).ConfigureAwait(false);
         }
 
@@ -1148,11 +1141,12 @@ public sealed class VidyanoSession : IDisposable
         if (attr.SelectInPlace)
         {
             // Set-in-place reference: pick a key from Options[] using the same matching policy as
-            // non-reference Options attrs (see ResolveOption).
+            // non-reference Options attrs (see ResolveOption), then commit it through the awaited
+            // SetReferenceByIdAsync — assigning SelectedReferenceValue fires ChangeReference un-awaited,
+            // so the value may not land before the next verb / SAVE.
             var resolved = ResolveOption(attr.Options, text, hint?.Kind, loc, attr.Name);
             if (!resolved.Ok) return OpResult.Fail(resolved.Error!);
-            attr.SelectedReferenceValue = resolved.Value;
-            return OpResult.Success;
+            return await SetReferenceByIdAsync(attr, resolved.Value, loc).ConfigureAwait(false);
         }
 
         // Non-set-in-place: open the Lookup, search by the supplied value (or the explicit Lookup hint),
@@ -1167,9 +1161,9 @@ public sealed class VidyanoSession : IDisposable
         return await SetReferenceViaLookupAsync(attr, search, loc).ConfigureAwait(false);
     }
 
-    /// <summary>Clears a reference attribute, honoring the required guard. For popup/lookup refs
-    /// (SelectInPlace == false) the SelectedReferenceValue setter is a no-op, so the clear must go
-    /// through ChangeReference(null) — a backend call — exactly like setting one by Id does.</summary>
+    /// <summary>Clears a reference attribute, honoring the required guard. Both ref kinds clear through
+    /// the awaited ChangeReference(null) — the SelectedReferenceValue setter is a no-op for popup refs
+    /// and un-awaited for SelectInPlace, so neither reliably lands the clear before the next verb.</summary>
     private async Task<OpResult> ClearReferenceAsync(PersistentObjectAttributeWithReference attr, SourceLocation loc)
     {
         if (!attr.CanRemoveReference)
@@ -1177,11 +1171,6 @@ public sealed class VidyanoSession : IDisposable
                 ErrorKind.GuardAttributeReadOnly,
                 $"Attribute '{attr.Name}' is required and cannot be cleared.",
                 loc));
-        if (attr.SelectInPlace)
-        {
-            attr.SelectedReferenceValue = null;
-            return OpResult.Success;
-        }
         return await SetReferenceByIdAsync(attr, null, loc).ConfigureAwait(false);
     }
 
