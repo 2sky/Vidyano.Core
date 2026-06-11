@@ -21,6 +21,7 @@ namespace Vidyano.ViewModel
         private readonly SortedDictionary<int, QueryResultItem> items = new SortedDictionary<int, QueryResultItem>();
         private readonly List<int> queriedPages = new List<int>();
         private QueryColumn[] _Columns;
+        private Dictionary<string, QueryColumn> columnsByName;
         private bool _AllSelected;
         private bool _HasSearched;
         private bool _HasSelectedItems;
@@ -197,7 +198,35 @@ namespace Vidyano.ViewModel
         public QueryColumn[] Columns
         {
             get => _Columns;
-            private set => SetProperty(ref _Columns, value);
+            private set
+            {
+                // First-wins on duplicate names, matching the FirstOrDefault semantics this map replaces.
+                var map = new Dictionary<string, QueryColumn>();
+                if (value != null)
+                {
+                    foreach (var column in value)
+                    {
+                        var name = column.Name;
+                        if (name != null && !map.ContainsKey(name))
+                            map[name] = column;
+                    }
+                }
+
+                // Assign before SetProperty: PropertyChanged fires synchronously, and a handler reading
+                // cells during the notification must never see the new columns paired with the stale map.
+                columnsByName = map;
+
+                SetProperty(ref _Columns, value);
+            }
+        }
+
+        internal QueryColumn GetColumn(string name)
+        {
+            if (name == null)
+                return null;
+
+            columnsByName.TryGetValue(name, out var column);
+            return column;
         }
 
         public QueryAction[] Actions { get; }
@@ -316,11 +345,11 @@ namespace Vidyano.ViewModel
 
         private async Task<bool> SearchAsync(bool resetItems = false)
         {
-            if (searchCancellationTokenSource != null)
-                searchCancellationTokenSource.Cancel();
+            searchCancellationTokenSource?.Cancel();
 
-            searchCancellationTokenSource = new CancellationTokenSource();
-            var token = searchCancellationTokenSource.Token;
+            var cts = new CancellationTokenSource();
+            searchCancellationTokenSource = cts;
+            var token = cts.Token;
 
             try
             {
@@ -352,7 +381,8 @@ namespace Vidyano.ViewModel
             }
             finally
             {
-                searchCancellationTokenSource = null;
+                // Only clear our own CTS; a finishing older search must not clobber a newer search's.
+                Interlocked.CompareExchange(ref searchCancellationTokenSource, null, cts);
             }
 
             return false;

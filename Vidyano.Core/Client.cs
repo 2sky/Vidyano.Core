@@ -4,9 +4,11 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -92,6 +94,11 @@ namespace Vidyano
                 {
                     CookieContainer = new(),
                     UseCookies = true,
+#if !NETSTANDARD2_0
+                    AutomaticDecompression = DecompressionMethods.All,
+#else
+                    AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+#endif
                 };
 
                 httpClient = new HttpClient(handler)
@@ -298,7 +305,7 @@ namespace Vidyano
             HttpResponseMessage responseMsg;
             try
             {
-                var requestMessage = new HttpRequestMessage(HttpMethod.Post, new Uri(Uri) + method) { Content = new StringContent(data.ToString(Formatting.None)) };
+                using var requestMessage = new HttpRequestMessage(HttpMethod.Post, new Uri(Uri) + method) { Content = new StringContent(data.ToString(Formatting.None)) };
                 if (AuthorizationHeader != null)
                     requestMessage.Headers.Authorization = AuthorizationHeader;
                 responseMsg = await httpClient.SendAsync(requestMessage).ConfigureAwait(false);
@@ -312,14 +319,22 @@ namespace Vidyano
                 return Log(new JObject(new JProperty("exception", GetNoInternetMessage().Message + "\n\nException: " + responseEx)));
             }
 
-            if (!responseMsg.IsSuccessStatusCode)
-                return Log(new JObject(new JProperty("exception", "error, status: " + responseMsg.StatusCode)));
+            JObject response;
+            using (responseMsg)
+            {
+                if (!responseMsg.IsSuccessStatusCode)
+                    return Log(new JObject(new JProperty("exception", "error, status: " + responseMsg.StatusCode)));
 
-            var content = await responseMsg.Content.ReadAsStringAsync().ConfigureAwait(false);
-            if (string.IsNullOrEmpty(content))
-                return Log(new JObject(new JProperty("exception", GetNoInternetMessage().Title)));
+                using var stream = await responseMsg.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                using var streamReader = CreateResponseReader(stream, responseMsg.Content);
+                using var jsonReader = new JsonTextReader(streamReader);
 
-            var response = JObject.Parse(content);
+                // ContentLength is unreliable for chunked responses; an empty body is detected by the reader.
+                if (!await jsonReader.ReadAsync().ConfigureAwait(false))
+                    return Log(new JObject(new JProperty("exception", GetNoInternetMessage().Title)));
+
+                response = await JObject.LoadAsync(jsonReader).ConfigureAwait(false);
+            }
 
             var ex = (string)response["exception"];
             if (!string.IsNullOrEmpty(ex) && ex == "Session expired")
@@ -329,8 +344,11 @@ namespace Vidyano
                     data.Remove("password");
                     data.Remove("authToken");
 
-                    responseMsg = await httpClient.PostAsync(new Uri(Uri) + method, new StringContent(data.ToString(Formatting.None))).ConfigureAwait(false);
-                    response = JObject.Parse(await responseMsg.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    using var retryResponseMsg = await httpClient.PostAsync(new Uri(Uri) + method, new StringContent(data.ToString(Formatting.None))).ConfigureAwait(false);
+                    using var retryStream = await retryResponseMsg.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                    using var retryStreamReader = CreateResponseReader(retryStream, retryResponseMsg.Content);
+                    using var retryJsonReader = new JsonTextReader(retryStreamReader);
+                    response = await JObject.LoadAsync(retryJsonReader).ConfigureAwait(false);
                 }
                 else
                 {
@@ -342,6 +360,25 @@ namespace Vidyano
             DispatchClientOperations(response);
 
             return Log(response);
+        }
+
+        // ReadAsStringAsync honored the Content-Type charset; keep that for non-UTF-8 servers.
+        // An unknown/invalid charset falls back to UTF-8 (with BOM detection) instead of throwing.
+        private static StreamReader CreateResponseReader(Stream stream, HttpContent content)
+        {
+            var charSet = content.Headers.ContentType?.CharSet?.Trim('"');
+            if (!string.IsNullOrEmpty(charSet))
+            {
+                try
+                {
+                    return new StreamReader(stream, Encoding.GetEncoding(charSet));
+                }
+                catch (ArgumentException)
+                {
+                }
+            }
+
+            return new StreamReader(stream);
         }
 
         private void DispatchClientOperations(JObject response)
