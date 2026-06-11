@@ -630,6 +630,11 @@ namespace Vidyano
             }
         }
 
+        /// <summary>
+        ///     Downloads a registered stream from the server. The returned stream reads directly from
+        ///     the live HTTP response: dispose it promptly when done — an undisposed stream keeps the
+        ///     underlying connection open, and faults during reading surface at the reader.
+        /// </summary>
         public async Task<Tuple<Stream, string>> GetStreamAsync(PersistentObject registeredStream) //, string action = null, PersistentObject parent = null, Query query = null, QueryResultItem[] selectedItems = null, Dictionary<string, string> parameters = null)
         {
             try
@@ -645,10 +650,19 @@ namespace Vidyano
                     { new StringContent(data.ToString(Formatting.None)), "data" },
                 };
 
-                var responseMsg = await httpClient.PostAsync(new Uri(Uri) + "GetStream", req).ConfigureAwait(false);
+                using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(Uri) + "GetStream") { Content = req };
+                var responseMsg = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+                if (!responseMsg.IsSuccessStatusCode)
+                {
+                    var error = $"GetStream failed: {(int)responseMsg.StatusCode} ({responseMsg.ReasonPhrase})";
+                    responseMsg.Dispose();
+                    throw new Exception(error);
+                }
 
+                // The returned stream reads directly from the live response (ResponseHeadersRead);
+                // disposing responseMsg here would close it, so it is deliberately left undisposed.
                 var stream = await responseMsg.Content.ReadAsStreamAsync().ConfigureAwait(false);
-                return Tuple.Create(stream, responseMsg.Content.Headers.ContentDisposition.FileName ?? responseMsg.Content.Headers.ContentDisposition.FileNameStar);
+                return Tuple.Create(stream, responseMsg.Content.Headers.ContentDisposition?.FileName ?? responseMsg.Content.Headers.ContentDisposition?.FileNameStar);
             }
             catch (Exception e)
             {
