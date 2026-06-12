@@ -9,12 +9,14 @@ using Xunit;
 namespace Vidyano.Script.Tests;
 
 /// <summary>
-/// Interpreter behavior for bounded iteration, exercised WITHOUT a live server. Only the parts of
-/// REPEAT reachable before any navigation/server call are covered here: the entry-time bound check
-/// (resolved from the count expression alone) and the zero-iteration case (an empty body that never
-/// talks to the server). FOR-EACH and a populated REPEAT body need a live Query / signed-in session
-/// to reach, so those stay at the parse level in <see cref="BoundedIterationLintTests"/> — there is
-/// no mock server (VidyanoSession drives a real Client).
+/// Interpreter behavior for bounded iteration, exercised WITHOUT a live server. Only the parts
+/// reachable before any navigation/server call are covered here: the REPEAT entry-time bound check
+/// (resolved from the count expression alone), the zero-iteration case, and populated REPEAT bodies
+/// whose statements are themselves server-free (TOOL calls, assignments). FOR-EACH needs a live
+/// Query to reach its body — its loop-scoped row binding (including the variable-table mirror that
+/// TOOLs read via <c>ctx.Variables[rowVar]</c>) follows the exact REPEAT-index save/restore pattern
+/// pinned below — so FOR-EACH stays at the parse level in <see cref="BoundedIterationLintTests"/>;
+/// there is no mock server (VidyanoSession drives a real Client).
 /// </summary>
 public sealed class BoundedIterationRuntimeTests
 {
@@ -34,8 +36,11 @@ public sealed class BoundedIterationRuntimeTests
     private static VidyanoSession NewSession() =>
         new("https://127.0.0.1:1", acceptAnyServerCertificate: true);
 
-    private static Interpreter NewInterpreter(VidyanoSession session) =>
-        new(TestSessionBook.Wrap(session), initialVars: null, mode: GuardMode.Navigation, tools: null, cancellationToken: default);
+    private static Interpreter NewInterpreter(
+        VidyanoSession session,
+        IReadOnlyDictionary<string, object?>? initialVars = null,
+        IReadOnlyDictionary<string, ScriptToolHandler>? tools = null) =>
+        new(TestSessionBook.Wrap(session), initialVars: initialVars, mode: GuardMode.Navigation, tools: tools, cancellationToken: default);
 
     private static List<StatementResult> Statements(ScriptResult result) =>
         result.Steps.SelectMany(s => s.Statements).ToList();
@@ -133,6 +138,46 @@ public sealed class BoundedIterationRuntimeTests
         Assert.False(repeat.Ok, "An out-of-int-range REPEAT count must fail, not wrap.");
         Assert.Contains(repeat.Diagnostics, d => d.Kind == "state-invalid-bound");
         Assert.DoesNotContain(Statements(result), s => s.Statement is EditStmt);
+    }
+
+    // --- loop-scoped variable bindings as seen by TOOLs ----------------------------------------
+    // FOR-EACH mirrors its row into the variable table with this exact save/restore pattern; the
+    // row binding itself needs a live Query, so the REPEAT index is the server-free stand-in that
+    // pins the shared surface: loop bindings are visible through ctx.Variables and restored after.
+
+    [Fact]
+    public async Task Repeat_ToolInBody_SeesLoopIndexViaContextVariables()
+    {
+        using var session = NewSession();
+        var seen = new List<object?>();
+        var tools = new Dictionary<string, ScriptToolHandler>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["probe"] = (ctx, args, ct) =>
+            {
+                seen.Add(ctx.Variables.TryGetValue("i", out var v) ? v : "<unbound>");
+                return Task.FromResult(ScriptToolResult.Ok);
+            },
+        };
+        var interp = NewInterpreter(session, tools: tools);
+        var ast = Parse("REPEAT 3 AS @i\n  TOOL probe\nEND");
+        var result = await interp.RunAsync(ast);
+
+        Assert.True(result.Ok, "The loop and its TOOL calls should succeed.");
+        Assert.Equal(new object?[] { 0L, 1L, 2L }, seen);
+        Assert.False(interp.Variables.ContainsKey("i"), "The loop must not leave the index var bound.");
+    }
+
+    [Fact]
+    public async Task Repeat_IndexVar_RestoresPriorBinding_AfterLoop()
+    {
+        using var session = NewSession();
+        var initialVars = new Dictionary<string, object?> { ["i"] = "keep" };
+        var interp = NewInterpreter(session, initialVars: initialVars);
+        var ast = Parse("REPEAT 2 AS @i\n  EXPECT {{i}} MATCHES \"^[01]$\"\nEND");
+        var result = await interp.RunAsync(ast);
+
+        Assert.True(result.Ok, "The loop body should see the numeric index, not the prior value.");
+        Assert.Equal("keep", interp.Variables["i"]);
     }
 
     // --- REPEAT AST shape (parse only) --------------------------------------------------------

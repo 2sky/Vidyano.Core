@@ -167,7 +167,7 @@ OPEN-ROW 0
 TOOL capture            ## stash the current PO into the host
 ```
 
-`ctx.Session.CurrentPo` / `CurrentQuery` are the same instances the verbs operate on. To pass a value *into the script* instead of the host, return `ScriptToolResult.Value(obj)` and bind it with `TOOL capture -> @snapshot`; the variable table holds arbitrary objects, so a later tool in the same run can read `ctx.Variables["snapshot"]`.
+`ctx.Session.CurrentPo` / `CurrentQuery` are the same instances the verbs operate on. To pass a value *into the script* instead of the host, return `ScriptToolResult.Value(obj)` and bind it with `TOOL capture -> @snapshot`; the variable table holds arbitrary objects, so a later tool in the same run can read `ctx.Variables["snapshot"]`. Inside a `FOR-EACH ROW … AS @row` body the current loop row is mirrored into that table, so a tool reads the whole `QueryResultItem` as `ctx.Variables["row"]` — the way to collect rows host-side without enumerating every column as a `TOOL` argument.
 
 Two limits worth knowing:
 

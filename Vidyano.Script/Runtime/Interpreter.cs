@@ -197,9 +197,10 @@ public sealed class Interpreter
     /// <summary>Runs <c>FOR-EACH ROW [Detail …] [WHERE …] [AS @row] … END</c>. The matching row set is
     /// snapshotted once at entry from the currently-loaded rows (by identity, so body mutations can't shift
     /// the iteration); a query holding more rows on the server than were loaded emits a WARNING diagnostic
-    /// (no silent truncation). Each iteration binds the row handle (if requested), records the entry nav
-    /// depth, runs the body, then restores the nav stack (loud-fail if a PO is left in edit). The row binding
-    /// is loop-scoped.</summary>
+    /// (no silent truncation). Each iteration binds the row handle (if requested) and mirrors the row into
+    /// the variable table — so a TOOL handler reads the whole <see cref="Vidyano.ViewModel.QueryResultItem"/>
+    /// via <c>ctx.Variables[rowVar]</c> — records the entry nav depth, runs the body, then restores the nav
+    /// stack (loud-fail if a PO is left in edit). Both bindings are loop-scoped.</summary>
     private async Task RunForEachRowAsync(ForEachRowStmt stmt, List<StatementResult> sink)
     {
         if (TryGateStatement(stmt, out var gated)) { sink.Add(gated!); return; }
@@ -236,11 +237,17 @@ public sealed class Interpreter
 
         Vidyano.ViewModel.QueryResultItem? priorRow = null;
         var hadPrior = stmt.RowVar != null && _rowHandles.TryGetValue(stmt.RowVar, out priorRow);
+        object? priorVar = null;
+        var hadPriorVar = stmt.RowVar != null && _vars.TryGetValue(stmt.RowVar, out priorVar);
         try
         {
             foreach (var row in rows)
             {
-                if (stmt.RowVar != null) _rowHandles[stmt.RowVar] = row;
+                if (stmt.RowVar != null)
+                {
+                    _rowHandles[stmt.RowVar] = row;
+                    _vars[stmt.RowVar] = row; // expose the whole row to TOOLs via ctx.Variables[rowVar]
+                }
                 var entryDepth = Current.NavStackDepth;
                 await RunStatementsAsync(stmt.Body, sink).ConfigureAwait(false);
                 var restore = Current.RestoreNavDepth(entryDepth, stmt.Location);
@@ -253,6 +260,9 @@ public sealed class Interpreter
             {
                 if (hadPrior) _rowHandles[stmt.RowVar] = priorRow!;
                 else _rowHandles.Remove(stmt.RowVar);
+
+                if (hadPriorVar) _vars[stmt.RowVar] = priorVar;
+                else _vars.Remove(stmt.RowVar);
             }
         }
     }

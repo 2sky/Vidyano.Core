@@ -137,7 +137,9 @@ the first nesting in the language.
 3. **No silent truncation:** if `TotalItems > loaded count`, emit a warning diagnostic naming the gap
    ("iterating N of M loaded; SEARCH/page to cover the rest") — honors the no-silent-caps rule.
    Full server-side paging is explicit future scope, not v1.
-4. Per row: bind `@row` (if set) to a row reference, record `entryDepth`, run `Body`, restore depth.
+4. Per row: bind `@row` (if set) to a row reference and mirror the row into the variable table — a
+   `TOOL` in the body reads the whole `QueryResultItem` as `ctx.Variables["row"]` — record
+   `entryDepth`, run `Body`, restore depth. Both bindings are loop-scoped (prior values restored).
 
 **`@row` reads** — generalize the existing `@scope.Member` path (`VariableAttributeExpr`, today only
 `@session`) so a loop-bound row variable resolves `@row.Column` to a cell value (string-service form,
