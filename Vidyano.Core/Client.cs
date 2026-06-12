@@ -33,6 +33,50 @@ namespace Vidyano
 
         private static readonly Dictionary<Type, object> defaultValues = new Dictionary<Type, object>();
 
+        private static readonly UTF8Encoding utf8NoBom = new UTF8Encoding(false);
+
+        private static readonly Dictionary<string, Type> clrTypes = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["INT32"] = typeof(int),
+            ["NULLABLEINT32"] = typeof(int?),
+            ["UINT32"] = typeof(uint),
+            ["NULLABLEUINT32"] = typeof(uint?),
+            ["INT16"] = typeof(short),
+            ["NULLABLEINT16"] = typeof(short?),
+            ["UINT16"] = typeof(ushort),
+            ["NULLABLEUINT16"] = typeof(ushort?),
+            ["INT64"] = typeof(long),
+            ["NULLABLEINT64"] = typeof(long?),
+            ["UINT64"] = typeof(ulong),
+            ["NULLABLEUINT64"] = typeof(ulong?),
+            ["DECIMAL"] = typeof(decimal),
+            ["NULLABLEDECIMAL"] = typeof(decimal?),
+            ["DOUBLE"] = typeof(double),
+            ["NULLABLEDOUBLE"] = typeof(double?),
+            ["SINGLE"] = typeof(float),
+            ["NULLABLESINGLE"] = typeof(float?),
+            ["BYTE"] = typeof(byte),
+            ["NULLABLEBYTE"] = typeof(byte?),
+            ["SBYTE"] = typeof(sbyte),
+            ["NULLABLESBYTE"] = typeof(sbyte?),
+            ["TIME"] = typeof(TimeSpan),
+            ["NULLABLETIME"] = typeof(TimeSpan?),
+            ["DATETIME"] = typeof(DateTime),
+            ["DATE"] = typeof(DateTime),
+            ["NULLABLEDATETIME"] = typeof(DateTime?),
+            ["NULLABLEDATE"] = typeof(DateTime?),
+            ["DATETIMEOFFSET"] = typeof(DateTimeOffset),
+            ["NULLABLEDATETIMEOFFSET"] = typeof(DateTimeOffset?),
+            ["BOOLEAN"] = typeof(bool),
+            ["YESNO"] = typeof(bool),
+            ["NULLABLEBOOLEAN"] = typeof(bool?),
+            ["ENUM"] = typeof(Enum), // NOTE: Can't know correct Enum type
+            ["FLAGSENUM"] = typeof(Enum),
+            ["IMAGE"] = typeof(byte[]),
+            ["GUID"] = typeof(Guid),
+            ["NULLABLEGUID"] = typeof(Guid?),
+        };
+
         private static readonly Dictionary<string, NoInternetMessage> noInternetMessages = new Dictionary<string, NoInternetMessage>
         {
             { "en", new NoInternetMessage("Unable to connect to the server.", "Please check your internet connection settings and try again.", "Try again") },
@@ -78,6 +122,9 @@ namespace Vidyano
         private PersistentObject _Application, _Session, _Initial;
         private bool _IsBusy, _IsConnected, _IsUsingDefaultCredentials;
         private KeyValueList<string, string> _Messages;
+        // (source Uri, normalized base) — one immutable pair so the cache swap is a single
+        // atomic reference write; paired fields could be observed torn on weak memory models.
+        private Tuple<string, string> serviceUriCache;
 
         #endregion
 
@@ -246,13 +293,41 @@ namespace Vidyano
             httpClient.CancelPendingRequests();
         }
 
+        // new Uri(...) preserves the pre-change normalization; the appended "/" makes a missing
+        // trailing slash work instead of silently producing https://host/appMethod (404).
+        private string GetServiceUri(string method)
+        {
+            var uri = Uri;
+            var cache = serviceUriCache;
+            if (cache == null || !ReferenceEquals(uri, cache.Item1))
+            {
+                var normalized = new Uri(uri).ToString();
+                cache = Tuple.Create(uri, normalized.EndsWith("/", StringComparison.Ordinal) ? normalized : normalized + "/");
+                serviceUriCache = cache;
+            }
+
+            return cache.Item2 + method;
+        }
+
+        private static HttpContent CreateRequestContent(JObject data)
+        {
+            var stream = new MemoryStream();
+            using (var writer = new JsonTextWriter(new StreamWriter(stream, utf8NoBom, 1024, leaveOpen: true)) { Formatting = Formatting.None })
+                data.WriteTo(writer);
+
+            stream.Position = 0;
+            var content = new StreamContent(stream);
+            content.Headers.ContentType = new MediaTypeHeaderValue("text/plain") { CharSet = "utf-8" };
+            return content;
+        }
+
         public async Task<ClientData> GetClientData(string environment = null)
         {
             try
             {
                 IsBusy = true;
 
-                return new ClientData(JObject.Parse(await httpClient.GetStringAsync(new Uri(Uri) + "GetClientData?environment=" + (environment ?? Hooks.Environment)).ConfigureAwait(false)));
+                return new ClientData(JObject.Parse(await httpClient.GetStringAsync(GetServiceUri("GetClientData?environment=" + System.Uri.EscapeDataString(environment ?? Hooks.Environment ?? string.Empty))).ConfigureAwait(false)));
             }
             catch
             {
@@ -305,15 +380,26 @@ namespace Vidyano
             HttpResponseMessage responseMsg;
             try
             {
-                using var requestMessage = new HttpRequestMessage(HttpMethod.Post, new Uri(Uri) + method) { Content = new StringContent(data.ToString(Formatting.None)) };
+                using var requestMessage = new HttpRequestMessage(HttpMethod.Post, GetServiceUri(method)) { Content = CreateRequestContent(data) };
                 if (AuthorizationHeader != null)
                     requestMessage.Headers.Authorization = AuthorizationHeader;
                 responseMsg = await httpClient.SendAsync(requestMessage).ConfigureAwait(false);
             }
+#if !NETSTANDARD2_0
+            catch (TaskCanceledException tce) when (tce.InnerException is TimeoutException)
+            {
+                return Log(new JObject(new JProperty("exception", "Timeout: request took longer than " + httpClient.Timeout)));
+            }
+            catch (TaskCanceledException)
+            {
+                return Log(new JObject(new JProperty("exception", "Cancelled: the request was cancelled")));
+            }
+#else
             catch (TaskCanceledException)
             {
                 return Log(new JObject(new JProperty("exception", "Timeout: request took longer than " + httpClient.Timeout)));
             }
+#endif
             catch (Exception responseEx)
             {
                 return Log(new JObject(new JProperty("exception", GetNoInternetMessage().Message + "\n\nException: " + responseEx)));
@@ -344,7 +430,7 @@ namespace Vidyano
                     data.Remove("password");
                     data.Remove("authToken");
 
-                    using var retryResponseMsg = await httpClient.PostAsync(new Uri(Uri) + method, new StringContent(data.ToString(Formatting.None))).ConfigureAwait(false);
+                    using var retryResponseMsg = await httpClient.PostAsync(GetServiceUri(method), CreateRequestContent(data)).ConfigureAwait(false);
                     using var retryStream = await retryResponseMsg.Content.ReadAsStreamAsync().ConfigureAwait(false);
                     using var retryStreamReader = CreateResponseReader(retryStream, retryResponseMsg.Content);
                     using var retryJsonReader = new JsonTextReader(retryStreamReader);
@@ -647,10 +733,10 @@ namespace Vidyano
 
                 var req = new MultipartFormDataContent("VidyanoBoundary")
                 {
-                    { new StringContent(data.ToString(Formatting.None)), "data" },
+                    { CreateRequestContent(data), "data" },
                 };
 
-                using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(Uri) + "GetStream") { Content = req };
+                using var request = new HttpRequestMessage(HttpMethod.Post, GetServiceUri("GetStream")) { Content = req };
                 var responseMsg = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
                 if (!responseMsg.IsSuccessStatusCode)
                 {
@@ -718,7 +804,7 @@ namespace Vidyano
                 data["action"] = action;
                 data["query"] = query?.ToServiceObject();
                 data["parent"] = parent?.ToServiceObject();
-                data["selectedItems"] = selectedItems != null ? JArray.FromObject(selectedItems.Select(i => i?.ToServiceObject())) : null;
+                data["selectedItems"] = selectedItems != null ? new JArray(selectedItems.Select(i => i?.ToServiceObject())) : null;
                 var jParameters = parameters != null ? JObject.FromObject(parameters) : null;
                 data["parameters"] = jParameters;
 
@@ -875,117 +961,7 @@ namespace Vidyano
             if (string.IsNullOrEmpty(type))
                 return typeof(string);
 
-            switch (type.ToUpperInvariant())
-            {
-                case "INT32":
-                    return typeof(int);
-
-                case "NULLABLEINT32":
-                    return typeof(int?);
-
-                case "UINT32":
-                    return typeof(uint);
-
-                case "NULLABLEUINT32":
-                    return typeof(uint?);
-
-                case "INT16":
-                    return typeof(short);
-
-                case "NULLABLEINT16":
-                    return typeof(short?);
-
-                case "UINT16":
-                    return typeof(ushort);
-
-                case "NULLABLEUINT16":
-                    return typeof(ushort?);
-
-                case "INT64":
-                    return typeof(long);
-
-                case "NULLABLEINT64":
-                    return typeof(long?);
-
-                case "UINT64":
-                    return typeof(ulong);
-
-                case "NULLABLEUINT64":
-                    return typeof(ulong?);
-
-                case "DECIMAL":
-                    return typeof(decimal);
-
-                case "NULLABLEDECIMAL":
-                    return typeof(decimal?);
-
-                case "DOUBLE":
-                    return typeof(double);
-
-                case "NULLABLEDOUBLE":
-                    return typeof(double?);
-
-                case "SINGLE":
-                    return typeof(float);
-
-                case "NULLABLESINGLE":
-                    return typeof(float?);
-
-                case "BYTE":
-                    return typeof(byte);
-
-                case "NULLABLEBYTE":
-                    return typeof(byte?);
-
-                case "SBYTE":
-                    return typeof(sbyte);
-
-                case "NULLABLESBYTE":
-                    return typeof(sbyte?);
-
-                case "TIME":
-                    return typeof(TimeSpan);
-
-                case "NULLABLETIME":
-                    return typeof(TimeSpan?);
-
-                case "DATETIME":
-                case "DATE":
-                    return typeof(DateTime);
-
-                case "NULLABLEDATETIME":
-                case "NULLABLEDATE":
-                    return typeof(DateTime?);
-
-                case "DATETIMEOFFSET":
-                    return typeof(DateTimeOffset);
-
-                case "NULLABLEDATETIMEOFFSET":
-                    return typeof(DateTimeOffset?);
-
-                case "BOOLEAN":
-                case "YESNO":
-                    return typeof(bool);
-
-                case "NULLABLEBOOLEAN":
-                    return typeof(bool?);
-
-                case "ENUM":
-                case "FLAGSENUM":
-                    return typeof(Enum); // NOTE: Can't know correct Enum type
-
-                case "IMAGE":
-                    return typeof(byte[]);
-
-                case "GUID":
-                    return typeof(Guid);
-
-                case "NULLABLEGUID":
-                    return typeof(Guid?);
-
-                default:
-                    return typeof(string);
-            }
+            return clrTypes.TryGetValue(type, out var clrType) ? clrType : typeof(string);
         }
 
         public static object FromServiceString(string value, string typeName)

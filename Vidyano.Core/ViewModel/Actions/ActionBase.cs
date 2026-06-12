@@ -185,7 +185,9 @@ namespace Vidyano.ViewModel.Actions
 
         internal static ActionBase GetAction(Client client, Definition definition, PersistentObject parent, Query query = null)
         {
-            var constructor = actionConstructors.GetOrAdd(definition.Name + ";" + (query == null), n =>
+            // The hooks type is part of the key: resolution walks client.Hooks.GetType()'s assembly
+            // chain, so Hooks subclasses from different assemblies must not share a cached constructor.
+            var constructor = actionConstructors.GetOrAdd(definition.Name + ";" + (query == null) + ";" + client.Hooks.GetType().AssemblyQualifiedName, n =>
             {
                 var hooksType = client.Hooks.GetType();
                 var actionType = hooksType.GetTypeInfo().Assembly.GetType("Vidyano.ViewModel.Actions." + definition.Name);

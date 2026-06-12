@@ -12,6 +12,11 @@ namespace Vidyano.ViewModel
     [DebuggerDisplay("PersistentObject {Type}")]
     public class PersistentObject : ViewModelBase
     {
+        private readonly Dictionary<string, PersistentObjectAttribute> attributesByName;
+        private readonly Dictionary<string, ActionBase> actionsByName, pinnedActionsByName;
+        private NotificationType? notificationType;
+        private StateBehavior? stateBehavior;
+
         internal PersistentObject(Client client, JObject model)
             : base(client, model)
         {
@@ -31,6 +36,17 @@ namespace Vidyano.ViewModel
             }
             else
                 Attributes = Array.Empty<PersistentObjectAttribute>();
+
+            // First-wins on duplicate names, matching the FirstOrDefault semantics this map replaces.
+            // Built as soon as Attributes is final: hooks firing during the Query/Tab construction
+            // below may already resolve attributes through GetAttribute.
+            attributesByName = new Dictionary<string, PersistentObjectAttribute>(Attributes.Length);
+            foreach (var attribute in Attributes)
+            {
+                var name = attribute.Name;
+                if (name != null && !attributesByName.ContainsKey(name))
+                    attributesByName[name] = attribute;
+            }
 
             if (model.TryGetValue("queries", out var queriesToken))
             {
@@ -77,6 +93,24 @@ namespace Vidyano.ViewModel
             }
             else
                 Actions = PinnedActions = Array.Empty<ActionBase>();
+
+            // First-wins on duplicate names, matching the FirstOrDefault semantics these maps replace.
+            // Built before the IsInEdit assignment below: its setter resolves actions through GetAction.
+            actionsByName = new Dictionary<string, ActionBase>(Actions.Length);
+            foreach (var action in Actions)
+            {
+                var name = action.Name;
+                if (name != null && !actionsByName.ContainsKey(name))
+                    actionsByName[name] = action;
+            }
+
+            pinnedActionsByName = new Dictionary<string, ActionBase>(PinnedActions.Length);
+            foreach (var action in PinnedActions)
+            {
+                var name = action.Name;
+                if (name != null && !pinnedActionsByName.ContainsKey(name))
+                    pinnedActionsByName[name] = action;
+            }
 
             // Also check IsInEdit (Object could have been reconstructed after suspend/resume)
             IsInEdit = IsInEdit || IsNew || StateBehavior.HasFlag(StateBehavior.OpenInEdit) || StateBehavior.HasFlag(StateBehavior.StayInEdit);
@@ -141,8 +175,14 @@ namespace Vidyano.ViewModel
 
         public NotificationType NotificationType
         {
-            get { return (NotificationType)Enum.Parse(typeof(NotificationType), GetProperty<string>()); }
-            private set { SetProperty(value.ToString()); }
+            get { return notificationType ??= (NotificationType)Enum.Parse(typeof(NotificationType), GetProperty<string>()); }
+            private set
+            {
+                // Cache before SetProperty: PropertyChanged fires synchronously and a handler
+                // reading this property during the notification must see the new value.
+                notificationType = value;
+                SetProperty(value.ToString());
+            }
         }
 
         public bool HasNotification
@@ -153,7 +193,7 @@ namespace Vidyano.ViewModel
 
         public StateBehavior StateBehavior
         {
-            get { return (StateBehavior)Enum.Parse(typeof(StateBehavior), GetProperty<string>()); }
+            get { return stateBehavior ??= (StateBehavior)Enum.Parse(typeof(StateBehavior), GetProperty<string>()); }
         }
 
         public string Type
@@ -463,12 +503,23 @@ namespace Vidyano.ViewModel
 
         public ActionBase GetAction(string actionName)
         {
-            return Actions.FirstOrDefault(a => a.Name == actionName) ?? PinnedActions.FirstOrDefault(a => a.Name == actionName);
+            if (actionName == null)
+                return null;
+
+            if (actionsByName.TryGetValue(actionName, out var action))
+                return action;
+
+            pinnedActionsByName.TryGetValue(actionName, out action);
+            return action;
         }
 
         public PersistentObjectAttribute GetAttribute(string attributeName)
         {
-            return Attributes.FirstOrDefault(a => a.Name == attributeName);
+            if (attributeName == null)
+                return null;
+
+            attributesByName.TryGetValue(attributeName, out var attribute);
+            return attribute;
         }
 
         public object GetAttributeValue(string attributeName)
@@ -503,7 +554,7 @@ namespace Vidyano.ViewModel
             if (Parent != null)
                 jObj["parent"] = Parent.ToServiceObject();
 
-            jObj["attributes"] = JArray.FromObject(Attributes.Select(attr => attr.ToServiceObject()));
+            jObj["attributes"] = new JArray(Attributes.Select(attr => attr.ToServiceObject()));
 
             return jObj;
         }

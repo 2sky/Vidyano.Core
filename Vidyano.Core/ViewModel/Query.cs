@@ -28,6 +28,7 @@ namespace Vidyano.ViewModel
         private bool _HasSelectedItems;
         private bool _HasTextSearch;
         private int _TotalItems;
+        private NotificationType? notificationType;
         private CancellationTokenSource searchCancellationTokenSource;
         private Task<bool> searchingTask;
         private PersistentObjectTabQuery[] semanticZoomTabs;
@@ -113,8 +114,14 @@ namespace Vidyano.ViewModel
 
         public NotificationType NotificationType
         {
-            get => (NotificationType)Enum.Parse(typeof(NotificationType), GetProperty<string>());
-            private set => SetProperty(value.ToString());
+            get => notificationType ??= (NotificationType)Enum.Parse(typeof(NotificationType), GetProperty<string>());
+            private set
+            {
+                // Cache before SetProperty: PropertyChanged fires synchronously and a handler
+                // reading this property during the notification must see the new value.
+                notificationType = value;
+                SetProperty(value.ToString());
+            }
         }
 
         public bool HasNotification
@@ -398,14 +405,14 @@ namespace Vidyano.ViewModel
                 Columns = columns.Select(jCol =>
                 {
                     var column = new QueryColumn((JObject)jCol, this);
-                    if (Columns != null)
+                    var name = column.Name;
+                    // columnsByName still holds the previous columns here; the new array is only
+                    // assigned (and the map rebuilt) after this Select completes.
+                    var sourceColumn = GetColumn(name);
+                    if (sourceColumn != null)
                     {
-                        var sourceColumn = Columns.FirstOrDefault(c => c.Name == column.Name);
-                        if (sourceColumn != null)
-                        {
-                            column.Includes = sourceColumn.Includes;
-                            column.Excludes = sourceColumn.Excludes;
-                        }
+                        column.Includes = sourceColumn.Includes;
+                        column.Excludes = sourceColumn.Excludes;
                     }
                     return column;
                 }).ToArray();
@@ -604,7 +611,7 @@ namespace Vidyano.ViewModel
                 jObj["persistentObject"] = PersistentObject.ToServiceObject();
 
             if (Columns != null)
-                jObj["columns"] = JArray.FromObject(Columns.Select(col => col.ToServiceObject()));
+                jObj["columns"] = new JArray(Columns.Select(col => col.ToServiceObject()));
 
             // Emit only when set (mirrors the server's EmitDefaultValue=false): allSelected=true tells the
             // server to operate on the full result set, treating any posted selectedItems as exclusions.
