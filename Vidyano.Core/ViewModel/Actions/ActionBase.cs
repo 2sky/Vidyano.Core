@@ -150,6 +150,11 @@ namespace Vidyano.ViewModel.Actions
         internal static ActionBase[] GetActions(Client client, JToken actionsToken, PersistentObject parent, Query query = null)
         {
             var actions = new List<ActionBase>();
+
+            // client.Actions may be null while a PO is constructed during sign-in; treat as no definitions.
+            if (client.Actions == null)
+                return actions.ToArray();
+
             var actionDefinitions = actionsToken.Select(action =>
             {
                 var actionName = (string)action;
