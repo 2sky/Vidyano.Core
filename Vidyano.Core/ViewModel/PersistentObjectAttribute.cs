@@ -18,6 +18,7 @@ namespace Vidyano.ViewModel
 
         private Option[] _Options;
         private volatile KeyValueList<string, string> _TypeHints;
+        private AttributeVisibility? visibility;
         protected string[] propertiesToBackup = { "value", "isReadOnly", "isValueChanged", "options", "validationError" };
 
         private static readonly Task<bool> getFalse;
@@ -201,9 +202,12 @@ namespace Vidyano.ViewModel
 
         internal AttributeVisibility Visibility
         {
-            get => (AttributeVisibility)Enum.Parse(typeof(AttributeVisibility), GetProperty<string>());
+            get => visibility ??= (AttributeVisibility)Enum.Parse(typeof(AttributeVisibility), GetProperty<string>());
             set
             {
+                // Cache before SetProperty: PropertyChanged fires synchronously and a handler
+                // reading this property during the notification must see the new value.
+                visibility = value;
                 if (SetProperty(value.ToString()))
                     OnPropertyChanged("IsVisible");
             }
