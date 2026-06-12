@@ -96,6 +96,18 @@ Client.cs contains translations for 30+ languages. When modifying error messages
 ### NuGet Package Generation
 The project automatically generates NuGet packages on Release builds. Package metadata is defined in the .csproj file.
 
+## Documentation
+
+Human-facing docs live in `docs/` and are the **canonical** reference — keep them current when behavior changes:
+- `docs/README.md` — hub: the three packages and when to use each.
+- `docs/core.md` — Vidyano.Core usage (client, persistent objects, queries, actions).
+- `docs/visc-language.md` — **the single source of truth for the `.visc` language** (every verb, `EXPECT` subject, control flow, determinism model). The quick-reference table below mirrors it.
+- `docs/cli.md` — the `vidyano` CLI (commands, flags, exit codes, tool packs).
+- `docs/embedding.md` — embedding `Vidyano.Script` in-process (options, `TOOL` handlers, capturing run artifacts).
+- `docs/design/` — historical design RFCs (record *why* a feature looks the way it does; may predate later refinements).
+
+Each package's README (root `README.md` for Core, `Vidyano.Script/README.md`, `Vidyano.Script.Tool/README.md`) is a **slim pointer**: what the package is, install, a tiny example, and links into `docs/`. Do NOT put language/CLI detail in a package README — it belongs in `docs/`. Relative links don't render on nuget.org, so README links into the docs must be absolute (`https://github.com/2sky/Vidyano.Core/blob/main/docs/...`).
+
 ## Companion packages: Vidyano.Script + Vidyano.Script.Tool
 
 The repository also ships two scripting packages built on top of Vidyano.Core. They live in this solution and ship from this repo.
@@ -115,6 +127,8 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 - Exit codes: `0` ok, `1` failed, `2` parse error, `3` connection error, `64` usage.
 
 ### `.visc` quick reference
+
+> Mirrors `docs/visc-language.md` (the canonical reference). When a verb's grammar or semantics change, update this table, that doc, and `vidyano help verbs` (`Diagnostics/VerbCatalog.cs`) in the same change.
 
 | Verb | Effect |
 |---|---|
@@ -172,4 +186,5 @@ dotnet run --project Vidyano.Script.Tool -c Debug -- run Vidyano.Script.Tool/sam
 - The script projects pin to `Vidyano.Core` via `ProjectReference`, not `PackageReference` — they always build against the same-tree Core. After cutting a Core release, bump the script projects' versions in lockstep.
 - `ScriptHooks.OnClientOperation` and `ScriptHooks.OnRetryAction` override Core `Hooks` virtuals living on `Hooks.cs` in Vidyano.Core. Changes to either signature need a coordinated update in `ScriptHooks.cs`. `OnRetryAction` returns the chosen option string Core posts back as `RetryActionOption` (the web client posts `options[idx] || idx`); the `VidyanoSession` retry coroutine drives it and serializes any `SET`s on the retry PO through Core's `data["retryPersistentObject"]`.
 - Round-trip metadata: `PersistentObject`/`Query`/`PersistentObjectAttribute` `GetServiceProperties` include `metadata`/`tag`/`navigationHints` so server-side action handlers see the same shape a browser would post. Don't strip these.
-- `PackageReadmeFile` and `PackageIcon` are wired for both packages — the per-project `README.md` and the shared `Vidyano.png` ship inside the nupkg.
+- `PackageReadmeFile` and `PackageIcon` are wired for all three packages — each project's `README.md` (the root `README.md` for Core) and the shared `Vidyano.png` ship inside the nupkg. These READMEs are slim pointers into `docs/` (see **Documentation** above); keep their doc links absolute so they render on nuget.org.
+- **Docs are canonical.** When you add or change a `.visc` verb, CLI flag, or other user-facing behavior, update the relevant `docs/` page (`visc-language.md` / `cli.md` / `embedding.md` / `core.md`), the `.visc` quick-reference table above, and `vidyano help verbs` (`Diagnostics/VerbCatalog.cs`) together. The `KnownVerbs ⊆ VerbCatalog.Names` guard test catches a missing catalog entry; nothing automatically catches stale docs, so treat it as part of the change.
