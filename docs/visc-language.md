@@ -280,7 +280,7 @@ SET Name = "Acme {{id}}"              ## read with {{name}} — resolves inside 
 SET Code = "ACME-{{@random}}"
 ```
 
-- **User variables** are assigned `@name = …` and read `{{name}}` (no `@`). Loop indices/rows (`@i`, `@row`) follow the same read form.
+- **User variables** are assigned `@name = …` and read `{{name}}` (no `@`). A loop index (`AS @i`) reads the same — `{{i}}` — but a loop **row** keeps the `@`: read a cell as `{{@row.<col>}}` (or use the bare handle `@row` for `OPEN-ROW @row`).
 - **Built-ins** `{{@today}} {{@now}} {{@uuid}} {{@random}}` are evaluated **on each reference** (like `DateTime.Now` / `rng.Next()`), so capture into a variable to freeze a value for reuse. `--seed`/`Seed` fixes the `@uuid`/`@random` sequence (independent streams); `--now`/`Now` anchors the clock, which then flows by real elapsed time.
 - **In-string interpolation** — `{{…}}` holes resolve inside `"…"` literals using the same machinery, so values compose. Escape a literal brace as `\{`.
 

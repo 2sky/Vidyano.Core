@@ -30,7 +30,7 @@ EOF
 vidyano run hello.visc
 ```
 
-Expected: `8/8 ok` — one tick per verb plus each `EXPECT`.
+Expected: `7/7 ok` — a tick for the `@app` assignment, one per verb, and each `EXPECT`.
 
 ## Commands
 
