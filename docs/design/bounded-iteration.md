@@ -1,6 +1,10 @@
 # Bounded iteration for `.visc` — design
 
-> Status: **design only** (not implemented). Captured 2026-06.
+> Status: **partially shipped.** `REPEAT … END` and `FOR-EACH ROW … END` were implemented
+> (see [`docs/visc-language.md`](../visc-language.md#control-flow-and-why-it-stays-bounded) and the
+> `loops.visc` sample); `EXPECT … EVENTUALLY` was **deferred** (it's the one construct that bends the
+> determinism property — open decision (e) below). This is the original design RFC, kept as a historical
+> record — some details predate the shipped behavior; the language reference is authoritative.
 >
 > This is a proposal for adding looping/retry to `.visc` *without* making the language
 > Turing complete. Read §0 first — it is the constraint everything else serves.
