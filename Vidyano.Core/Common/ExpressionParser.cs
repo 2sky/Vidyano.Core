@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Vidyano.Common
 {
@@ -74,7 +75,7 @@ namespace Vidyano.Common
                         }
                     }
 
-                    var number = int.Parse(expression);
+                    var number = int.Parse(expression, CultureInfo.InvariantCulture);
                     switch (op)
                     {
                         case "<":
