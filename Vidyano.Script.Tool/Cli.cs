@@ -108,5 +108,7 @@ public static class Cli
         AnsiConsole.MarkupLine("  [green]--insecure[/]               Bypass TLS validation (local dev certs only).");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Exit codes:[/]  0 ok, 1 failed, 2 parse error, 3 connection error, 64 usage.");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[bold]Docs:[/] [blue]https://github.com/2sky/Vidyano.Core/blob/main/docs[/]   ([grey]vidyano help verbs[/] for the grammar)");
     }
 }

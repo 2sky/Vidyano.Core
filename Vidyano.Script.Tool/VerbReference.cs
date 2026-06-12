@@ -29,5 +29,7 @@ public static class VerbReference
         AnsiConsole.MarkupLine("[grey]Strings: \"...\" with \\\" \\n \\t escapes; {{...}} interpolates inside strings (escape a literal brace as \\{).[/]");
         AnsiConsole.MarkupLine("[grey]Built-in vars: {{@today}} {{@now}} {{@uuid}} {{@random}} — evaluated per reference (capture into a var to freeze); --seed fixes the @uuid/@random sequence, --now anchors the clock.[/]");
         AnsiConsole.MarkupLine("[grey]Env values: {{env:NAME}} loud-fails when unset; {{env:NAME ?? \"fallback\"}} supplies a default. --env-file loads a .env (shadows process env); --env-prefix bulk-binds matching env vars (--var wins).[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[bold]Full reference:[/] [blue]https://github.com/2sky/Vidyano.Core/blob/main/docs/visc-language.md[/]");
     }
 }
