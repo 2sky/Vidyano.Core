@@ -299,7 +299,7 @@ namespace Vidyano
         {
             var uri = Uri;
             var cache = serviceUriCache;
-            if (cache == null || !ReferenceEquals(uri, cache.Item1))
+            if (cache == null || uri != cache.Item1)
             {
                 var normalized = new Uri(uri).ToString();
                 cache = Tuple.Create(uri, normalized.EndsWith("/", StringComparison.Ordinal) ? normalized : normalized + "/");
@@ -386,16 +386,16 @@ namespace Vidyano
                 responseMsg = await httpClient.SendAsync(requestMessage).ConfigureAwait(false);
             }
 #if !NETSTANDARD2_0
-            catch (TaskCanceledException tce) when (tce.InnerException is TimeoutException)
+            catch (OperationCanceledException oce) when (oce.InnerException is TimeoutException)
             {
                 return Log(new JObject(new JProperty("exception", "Timeout: request took longer than " + httpClient.Timeout)));
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
                 return Log(new JObject(new JProperty("exception", "Cancelled: the request was cancelled")));
             }
 #else
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
                 return Log(new JObject(new JProperty("exception", "Timeout: request took longer than " + httpClient.Timeout)));
             }
