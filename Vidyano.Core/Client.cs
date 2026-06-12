@@ -547,6 +547,20 @@ namespace Vidyano
 
                 Application = po;
 
+                // Populate Actions before constructing the Initial PO below: that PO can carry
+                // actions, which GetActions resolves against this table during construction.
+                Messages = new KeyValueList<string, string>(Application.Queries["ClientMessages"].ToDictionary(item => (string)item["Key"], item => (string)item["Value"]), true);
+                Actions = Application.Queries["Actions"].ToDictionary(item => (string)item["Name"], item => new ActionBase.Definition
+                {
+                    Name = (string)item["Name"],
+                    DisplayName = (string)item["DisplayName"],
+                    IsPinned = (bool)item["IsPinned"],
+                    RefreshQueryOnCompleted = (bool)item["RefreshQueryOnCompleted"],
+                    Offset = (int)item["Offset"],
+                    Options = ((string)item["Options"] ?? string.Empty).Trim().Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(str => str.Trim()).ToArray(),
+                    SelectionRule = ExpressionParser.Get((string)item["SelectionRule"]),
+                });
+
                 if (response["initial"] is JObject initialJson)
                 {
                     var initialPo = Hooks.OnConstruct(this, initialJson);
@@ -560,18 +574,6 @@ namespace Vidyano
                 var cultureInfo = new CultureInfo(Application["Culture"].ValueDirect);
                 CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
                 CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
-
-                Messages = new KeyValueList<string, string>(Application.Queries["ClientMessages"].ToDictionary(item => (string)item["Key"], item => (string)item["Value"]), true);
-                Actions = Application.Queries["Actions"].ToDictionary(item => (string)item["Name"], item => new ActionBase.Definition
-                {
-                    Name = (string)item["Name"],
-                    DisplayName = (string)item["DisplayName"],
-                    IsPinned = (bool)item["IsPinned"],
-                    RefreshQueryOnCompleted = (bool)item["RefreshQueryOnCompleted"],
-                    Offset = (int)item["Offset"],
-                    Options = ((string)item["Options"] ?? string.Empty).Trim().Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(str => str.Trim()).ToArray(),
-                    SelectionRule = ExpressionParser.Get((string)item["SelectionRule"]),
-                });
 
                 await UpdateSession(response).ConfigureAwait(false);
 
