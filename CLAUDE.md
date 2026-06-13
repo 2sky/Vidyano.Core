@@ -122,9 +122,11 @@ The repository also ships two scripting packages built on top of Vidyano.Core. T
 ### Vidyano.Script.Tool (CLI)
 - Path: `Vidyano.Script.Tool/`
 - Packs as a dotnet tool: `<PackAsTool>true</PackAsTool>`, command name `vidyano`.
-- Subcommands: `run` (execute), `lint` (parse-only), `repl` (interactive), `help` (`help verbs` lists every `.visc` verb).
-- Shared options: `--app`, `--var k=v`, `--mode navigation|audit|direct`, `--tools <path.dll>` (repeatable; loads `IVidyanoScriptToolPack` plugins), `--json` (NDJSON), `--verbose`, `--insecure` (dev TLS only).
-- Exit codes: `0` ok, `1` failed, `2` parse error, `3` connection error, `64` usage.
+- Subcommands: `run` (execute one file), `test` (run a suite), `lint` (parse-only), `repl` (interactive), `lsp` (language server over stdio), `help` (`help verbs` lists every `.visc` verb).
+- Shared options: `--app`, `--var k=v`, `--mode navigation|audit|direct`, `--tools <path.dll>` (repeatable; loads `IVidyanoScriptToolPack` plugins), `--json` (NDJSON; now honored by `lint` too), `--verbose`, `--insecure` (dev TLS only).
+- `run`/`test` add `--timeout <30s|2m|0>` (per-file; off by default). `test` adds positional files/dirs/globs, `--report junit|tap|sarif[:path]` (repeatable), and `--jobs <n>` (parallelism; serial by default). `test` rolls per-file outcomes into one exit code via the pure `SuiteExit.CodeFor`; `run` classifies its single file through the same `SuiteRunner.Classify`, so a no-base-URI script now exits `3` (was `2`).
+- Suite engine lives in `Vidyano.Script/Runtime/`: `SuiteRunner` (per-file executor seam + bounded parallelism + per-file timeout), `SuiteResult`/`FileResult`/`FileOutcome`, pure `SuiteExit.CodeFor`, and `Reporting/` formatters (`IReportFormatter` + JUnit/TAP/SARIF — pure, deterministic, unit-tested in `Vidyano.Script.Tests`). Timing rides additively on `ScriptResult`/`StepResult.Duration` (observational; never in golden compares).
+- Exit codes: `0` ok, `1` failed (incl. timeout), `2` parse error, `3` connection error, `64` usage (incl. no files discovered).
 
 ### `.visc` quick reference
 

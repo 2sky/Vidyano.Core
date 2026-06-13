@@ -105,22 +105,26 @@ public sealed class Interpreter
 
         var steps = new List<StepResult>();
         var anyFail = false;
+        var runStart = Stopwatch.GetTimestamp();
         foreach (var step in script.Steps)
         {
             var (stepRes, ok) = await RunStepAsync(step).ConfigureAwait(false);
             steps.Add(stepRes);
             if (!ok) anyFail = true;
         }
-        return new ScriptResult(script.Location.SourcePath, !anyFail, steps, Array.Empty<Diagnostic>());
+        return new ScriptResult(script.Location.SourcePath, !anyFail, steps, Array.Empty<Diagnostic>(),
+            Stopwatch.GetElapsedTime(runStart));
     }
 
     private async Task<(StepResult Result, bool Ok)> RunStepAsync(Step step)
     {
         var stmtResults = new List<StatementResult>(step.Statements.Count);
+        var stepStart = Stopwatch.GetTimestamp();
         await RunStatementsAsync(step.Statements, stmtResults).ConfigureAwait(false);
+        var elapsed = Stopwatch.GetElapsedTime(stepStart);
         var anyFail = stmtResults.Any(s => !s.Ok);
         var skipped = stmtResults.Count > 0 && stmtResults.All(s => s.Skipped);
-        return (new StepResult(step.Label, step.Location, !anyFail, stmtResults, skipped), !anyFail);
+        return (new StepResult(step.Label, step.Location, !anyFail, stmtResults, skipped, elapsed), !anyFail);
     }
 
     /// <summary>Runs a statement sequence (a step's body, or a loop's body for one iteration), appending one

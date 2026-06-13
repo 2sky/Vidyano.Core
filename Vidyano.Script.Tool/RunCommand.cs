@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Spectre.Console;
 using Vidyano.Script;
@@ -26,6 +27,12 @@ public static class RunCommand
         if (a.File is null)
         {
             AnsiConsole.MarkupLine("[red]error:[/] missing <file>. Usage: [yellow]vidyano run <file.visc>[/]");
+            return Cli.ExitUsage;
+        }
+
+        if (a.Paths.Count > 1)
+        {
+            AnsiConsole.MarkupLine("[red]error:[/] [yellow]run[/] takes a single file. Use [yellow]vidyano test <path...>[/] to run a suite.");
             return Cli.ExitUsage;
         }
 
@@ -56,14 +63,33 @@ public static class RunCommand
             }
         }
 
-        var result = await VidyanoScript.RunFileAsync(a.File, options).ConfigureAwait(false);
+        using var cts = new CancellationTokenSource();
+        if (a.Timeout is { } t && t > TimeSpan.Zero) cts.CancelAfter(t);
+
+        ScriptResult result;
+        try
+        {
+            result = await VidyanoScript.RunFileAsync(a.File, options, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            AnsiConsole.MarkupLine($"[red]error:[/] timed out after {a.Timeout!.Value.TotalSeconds:0.#}s");
+            return Cli.ExitFail;
+        }
 
         if (a.Json)
             JsonReporter.Write(result);
         else
             ConsoleReporter.Write(result, a.Verbose);
 
-        if (result.ParseDiagnostics.Count > 0) return Cli.ExitLint;
-        return result.Ok ? Cli.ExitOk : Cli.ExitFail;
+        // Map the result through the same classifier the suite uses, so exit 3 (connection — including the
+        // no-base-URI case that used to surface as parse error 2) is finally returned for `run` too.
+        return SuiteRunner.Classify(result) switch
+        {
+            FileOutcome.Connection => Cli.ExitConnect,
+            FileOutcome.Parse      => Cli.ExitLint,
+            FileOutcome.Failed     => Cli.ExitFail,
+            _                      => Cli.ExitOk,
+        };
     }
 }

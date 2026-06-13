@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Vidyano.Script.Diagnostics;
 using Vidyano.Script.Parsing;
@@ -17,7 +18,7 @@ namespace Vidyano.Script;
 public static class VidyanoScript
 {
     /// <summary>Parses and executes a .visc file from disk.</summary>
-    public static Task<ScriptResult> RunFileAsync(string path, VidyanoScriptOptions? options = null)
+    public static Task<ScriptResult> RunFileAsync(string path, VidyanoScriptOptions? options = null, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(path))
             return Task.FromResult(MakeParseOnlyResult(path, new Diagnostic(
@@ -27,11 +28,12 @@ public static class VidyanoScript
         var source = File.ReadAllText(path);
         var opts = options ?? new VidyanoScriptOptions();
         opts.SourcePath = path;
-        return RunAsync(source, opts);
+        return RunAsync(source, opts, cancellationToken);
     }
 
-    /// <summary>Parses and executes a .visc body. <paramref name="options"/> can override the source path.</summary>
-    public static async Task<ScriptResult> RunAsync(string body, VidyanoScriptOptions? options = null)
+    /// <summary>Parses and executes a .visc body. <paramref name="options"/> can override the source path.
+    /// <paramref name="cancellationToken"/> aborts execution — the suite runner uses it for per-file timeouts.</summary>
+    public static async Task<ScriptResult> RunAsync(string body, VidyanoScriptOptions? options = null, CancellationToken cancellationToken = default)
     {
         var opts = options ?? new VidyanoScriptOptions();
         var lexer = new Lexer(body, opts.SourcePath);
@@ -69,7 +71,7 @@ public static class VidyanoScript
 
         try
         {
-            var conn = await adapter.StartAsync().ConfigureAwait(false);
+            var conn = await adapter.StartAsync(cancellationToken).ConfigureAwait(false);
             // The default ("") slot reuses the runner-owned transport (conn.HttpClient); named SIGN-INs
             // mint their OWN cookie jar via the VidyanoSession own-jar ctor branch (the `httpClient: null`
             // path) so each named identity is isolated. mintFresh must never close over conn.HttpClient.
@@ -80,7 +82,7 @@ public static class VidyanoScript
                 initial: initialSession,
                 mintFresh: () => new ValueTask<VidyanoSession>(
                     new VidyanoSession(conn.BaseUri, acceptAnyServerCertificate: opts.AcceptAnyServerCertificate)));
-            var interpreter = new Interpreter(sessions, opts.Variables, opts.Mode, opts.Tools, now: opts.Now, seed: opts.Seed, envLookup: opts.EnvLookup, envPrefix: opts.EnvironmentPrefix);
+            var interpreter = new Interpreter(sessions, opts.Variables, opts.Mode, opts.Tools, cancellationToken: cancellationToken, now: opts.Now, seed: opts.Seed, envLookup: opts.EnvLookup, envPrefix: opts.EnvironmentPrefix);
             return await interpreter.RunAsync(script).ConfigureAwait(false);
         }
         finally
@@ -111,6 +113,34 @@ public static class VidyanoScript
         opts.HttpClient = backend;
         opts.RemoteUri ??= backend.BaseAddress?.ToString();
         return opts;
+    }
+
+    /// <summary>
+    /// Runs a whole suite of .visc sources and aggregates the outcomes. The library entry point behind
+    /// <c>vidyano test</c>: it wires <see cref="SuiteRunner"/>'s per-file executor to <see cref="RunAsync(string, VidyanoScriptOptions, CancellationToken)"/>,
+    /// applying a fresh <see cref="VidyanoScriptOptions"/> per file from <paramref name="optionsFor"/>.
+    /// </summary>
+    /// <param name="optionsFor">Produces the options for each source. MUST return a fresh instance per call —
+    /// files run concurrently (per <paramref name="runOptions"/>) and a shared options object would race on its
+    /// <see cref="VidyanoScriptOptions.Variables"/> / <see cref="VidyanoScriptOptions.Tools"/> tables. The
+    /// source path is stamped automatically. Defaults to a fresh, empty options object per file.</param>
+    public static Task<SuiteResult> RunSuiteAsync(
+        IReadOnlyList<ViscSource> sources,
+        Func<ViscSource, VidyanoScriptOptions>? optionsFor = null,
+        SuiteRunOptions? runOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        optionsFor ??= _ => new VidyanoScriptOptions();
+        return SuiteRunner.RunAsync(
+            sources,
+            (src, ct) =>
+            {
+                var opts = optionsFor(src);
+                opts.SourcePath = src.Name;
+                return RunAsync(src.Body, opts, ct);
+            },
+            runOptions,
+            cancellationToken);
     }
 
     /// <summary>Lints only — returns diagnostics without executing. Parse errors take precedence; when

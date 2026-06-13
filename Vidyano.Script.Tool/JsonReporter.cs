@@ -12,7 +12,7 @@ namespace Vidyano.Script.Tool;
 /// </summary>
 public static class JsonReporter
 {
-    private static readonly JsonSerializerOptions Opts = new()
+    internal static readonly JsonSerializerOptions Opts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
@@ -53,7 +53,7 @@ public static class JsonReporter
         });
     }
 
-    private static void WriteEvent(object payload)
+    internal static void WriteEvent(object payload)
     {
         Console.Out.WriteLine(JsonSerializer.Serialize(payload, Opts));
     }
