@@ -113,9 +113,9 @@ public static class ReplCommand
         {
             case ":help":
                 AnsiConsole.MarkupLine("[bold]REPL commands:[/]");
-                AnsiConsole.MarkupLine("  [yellow]:save <path>[/]    Write the session history as a .visc file.");
+                AnsiConsole.MarkupLine("  [yellow]:save <path> [[--raw]][/]  Write history as .visc. Inline credentials are redacted to {{env:…}} unless --raw.");
                 AnsiConsole.MarkupLine("  [yellow]:load <path>[/]    Run a .visc file in this session.");
-                AnsiConsole.MarkupLine("  [yellow]:vars[/]           List current script variables.");
+                AnsiConsole.MarkupLine("  [yellow]:vars[/]           List current script variables (secret-looking values hidden).");
                 AnsiConsole.MarkupLine("  [yellow]:state[/]          Focused view of the current frame (nav, PO/query, actions, details).");
                 AnsiConsole.MarkupLine("  [yellow]:snapshot[/]       Raw JSON of the full session snapshot.");
                 AnsiConsole.MarkupLine("  [yellow]:verbs[/]          List every .visc verb.");
@@ -126,7 +126,14 @@ public static class ReplCommand
                 return Task.FromResult(false);
             case ":vars":
                 foreach (var v in interpreter.Variables.OrderBy(kv => kv.Key))
-                    AnsiConsole.MarkupLine($"  @{Markup.Escape(v.Key)} = {Markup.Escape(v.Value?.ToString() ?? "null")}");
+                {
+                    // Don't echo secret-looking values — a shoulder-surf / screen-share leak. The name is still
+                    // shown so the user knows it's set.
+                    var shown = ScriptSecrets.IsSecretName(v.Key)
+                        ? "[grey]<hidden — secret>[/]"
+                        : Markup.Escape(v.Value?.ToString() ?? "null");
+                    AnsiConsole.MarkupLine($"  @{Markup.Escape(v.Key)} = {shown}");
+                }
                 return Task.FromResult(true);
             case ":state":
                 ConsoleReporter.RenderState(sessions.Current.TakeSnapshot());
@@ -143,9 +150,32 @@ public static class ReplCommand
                 return Task.FromResult(true);
             case ":save":
                 {
-                    if (parts.Length < 2) { AnsiConsole.MarkupLine("[red]usage:[/] :save <path>"); return Task.FromResult(true); }
-                    File.WriteAllLines(parts[1].Trim(), history);
-                    AnsiConsole.MarkupLine($"[green]wrote[/] {Markup.Escape(parts[1].Trim())} ({history.Count} line(s))");
+                    if (parts.Length < 2) { AnsiConsole.MarkupLine("[red]usage:[/] :save <path> [[--raw]]"); return Task.FromResult(true); }
+                    var saveArgs = parts[1].Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    var raw = saveArgs.Contains("--raw");
+                    var path = string.Join(" ", saveArgs.Where(t => t != "--raw"));
+                    if (string.IsNullOrEmpty(path)) { AnsiConsole.MarkupLine("[red]usage:[/] :save <path> [[--raw]]"); return Task.FromResult(true); }
+
+                    if (raw)
+                    {
+                        // Explicit opt-in to persist literals as typed (e.g. a throwaway script on a trusted box).
+                        File.WriteAllLines(path, history);
+                        AnsiConsole.MarkupLine($"[yellow]wrote[/] {Markup.Escape(path)} ({history.Count} line(s)) [grey]— verbatim; may contain plaintext secrets[/]");
+                        return Task.FromResult(true);
+                    }
+
+                    var outLines = new List<string>(history.Count);
+                    var changed = 0;
+                    foreach (var l in history)
+                    {
+                        var (redacted, ch) = ScriptSecrets.RedactLine(l);
+                        outLines.Add(redacted);
+                        if (ch) changed++;
+                    }
+                    File.WriteAllLines(path, outLines);
+                    AnsiConsole.MarkupLine($"[green]wrote[/] {Markup.Escape(path)} ({outLines.Count} line(s))");
+                    if (changed > 0)
+                        AnsiConsole.MarkupLine("[grey]redacted " + changed + " inline secret(s) → {{env:…}}; set the env var(s) before running, or re-save with [/][yellow]--raw[/][grey] to keep literals.[/]");
                     return Task.FromResult(true);
                 }
             case ":load":
