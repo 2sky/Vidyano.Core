@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Vidyano.Script.Runtime;
 
 namespace Vidyano.Script.Tool;
@@ -36,14 +37,36 @@ internal static class SourceDiscovery
         if (wild < 0)
             return Array.Empty<string>(); // a non-existent literal path — caller reports "no files found"
 
+        // Split the glob at the last separator before the first wildcard: the prefix is a literal root to
+        // walk, the suffix is the match pattern. Walk the root recursively and filter on each file's path
+        // relative to it, so a wildcard in any segment (tests/*/*.visc, tests/**/sub/*.visc) works — we never
+        // hand a separator-bearing pattern to Directory.EnumerateFiles, which throws ArgumentException on one.
         var sep = path.LastIndexOfAny(new[] { '/', '\\' }, wild);
         var root = sep < 0 ? "." : path.Substring(0, sep);
-        var pattern = sep < 0 ? path : path.Substring(sep + 1);
-        var recursive = pattern.Contains("**");
-        var filePattern = pattern.Replace("**/", "").Replace("**\\", "").Replace("**", "");
-        if (filePattern.Length == 0) filePattern = "*.visc";
         if (!Directory.Exists(root)) return Array.Empty<string>();
-        return Directory.EnumerateFiles(root, filePattern,
-            recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly);
+        var pattern = sep < 0 ? path : path.Substring(sep + 1);
+
+        var regex = GlobToRegex(pattern);
+        var rootPrefix = Path.GetFullPath(root).Replace('\\', '/').TrimEnd('/') + "/";
+        return Directory.EnumerateFiles(root, "*.visc", SearchOption.AllDirectories)
+            .Where(f =>
+            {
+                var full = Path.GetFullPath(f).Replace('\\', '/');
+                return full.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+                    && regex.IsMatch(full.Substring(rootPrefix.Length));
+            });
+    }
+
+    // Compiles a glob pattern (already split off its literal root) to an anchored regex over the
+    // forward-slash relative path. `**/` spans any number of directories (including none), `**` spans
+    // anything, `*` stays within one segment, `?` matches one non-separator char.
+    private static Regex GlobToRegex(string glob)
+    {
+        var body = Regex.Escape(glob.Replace('\\', '/'))
+            .Replace(@"\*\*/", "(?:.*/)?")
+            .Replace(@"\*\*", ".*")
+            .Replace(@"\*", "[^/]*")
+            .Replace(@"\?", "[^/]");
+        return new Regex("^" + body + "$", RegexOptions.IgnoreCase);
     }
 }

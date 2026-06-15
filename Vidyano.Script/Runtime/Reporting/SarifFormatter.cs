@@ -38,11 +38,14 @@ public sealed class SarifFormatter : IReportFormatter
             }
         }
 
-        var sarif = new
+        // A dictionary root lets us emit the literal "$schema" key (System.Text.Json can't project it from a
+        // C# identifier) without string-patching the serialized JSON — patching could corrupt a diagnostic
+        // message that happened to contain the substring "schema":. Insertion order is the emit order.
+        var sarif = new Dictionary<string, object>
         {
-            version = "2.1.0",
-            schema = "https://json.schemastore.org/sarif-2.1.0.json",
-            runs = new[]
+            ["version"] = "2.1.0",
+            ["$schema"] = "https://json.schemastore.org/sarif-2.1.0.json",
+            ["runs"] = new[]
             {
                 new
                 {
@@ -60,9 +63,6 @@ public sealed class SarifFormatter : IReportFormatter
         };
 
         var json = JsonSerializer.Serialize(sarif, JsonOpts).Replace("\r\n", "\n");
-        // System.Text.Json can't emit a "$schema" property name from a C# identifier, so patch the
-        // placeholder key the anonymous type used. Done as a string fix to keep the model a plain literal.
-        json = json.Replace("\"schema\":", "\"$schema\":");
         return new ReportArtifact(Format, json, "vidyano.sarif");
     }
 

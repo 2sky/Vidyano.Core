@@ -151,9 +151,14 @@ public static class ReplCommand
             case ":save":
                 {
                     if (parts.Length < 2) { AnsiConsole.MarkupLine("[red]usage:[/] :save <path> [[--raw]]"); return Task.FromResult(true); }
-                    var saveArgs = parts[1].Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    var raw = saveArgs.Contains("--raw");
-                    var path = string.Join(" ", saveArgs.Where(t => t != "--raw"));
+                    // --raw only as a leading or trailing whitespace-delimited token; everything else is the
+                    // path, kept verbatim (paths with spaces — or a "--raw" dir segment — survive intact).
+                    var rest = parts[1].Trim();
+                    var raw = false;
+                    if (rest.Equals("--raw", StringComparison.OrdinalIgnoreCase)) rest = "";
+                    else if (rest.StartsWith("--raw ", StringComparison.OrdinalIgnoreCase)) { raw = true; rest = rest.Substring(6).Trim(); }
+                    else if (rest.EndsWith(" --raw", StringComparison.OrdinalIgnoreCase)) { raw = true; rest = rest.Substring(0, rest.Length - 6).Trim(); }
+                    var path = rest;
                     if (string.IsNullOrEmpty(path)) { AnsiConsole.MarkupLine("[red]usage:[/] :save <path> [[--raw]]"); return Task.FromResult(true); }
 
                     if (raw)
