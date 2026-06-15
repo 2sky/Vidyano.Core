@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -18,20 +19,25 @@ public sealed record StatementResult(
     bool Skipped = false);
 
 /// <summary>Aggregate of all <see cref="StatementResult"/>s in one <see cref="Step"/>.
-/// <see cref="Skipped"/> is <c>true</c> when the step had statements and every one was skipped.</summary>
+/// <see cref="Skipped"/> is <c>true</c> when the step had statements and every one was skipped.
+/// <see cref="Duration"/> is the host wall-clock spent in this step — observational, never part of the
+/// reproducible run identity (a JUnit <c>&lt;testcase time&gt;</c> reads it; golden comparisons ignore it).</summary>
 public sealed record StepResult(
     string Label,
     SourceLocation Location,
     bool Ok,
     IReadOnlyList<StatementResult> Statements,
-    bool Skipped = false);
+    bool Skipped = false,
+    TimeSpan Duration = default);
 
-/// <summary>Top-level outcome of running a whole .visc.</summary>
+/// <summary>Top-level outcome of running a whole .visc. <see cref="Duration"/> is the host wall-clock of the
+/// run's statement execution — observational only (see <see cref="StepResult.Duration"/>).</summary>
 public sealed record ScriptResult(
     string SourcePath,
     bool Ok,
     IReadOnlyList<StepResult> Steps,
-    IReadOnlyList<Diagnostic> ParseDiagnostics)
+    IReadOnlyList<Diagnostic> ParseDiagnostics,
+    TimeSpan Duration = default)
 {
     /// <summary>
     /// Renders a plain-text, human-readable report of this run: a header line with the source path

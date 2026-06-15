@@ -47,6 +47,7 @@ public static class Cli
         return sub switch
         {
             "run"   => await RunCommand.ExecuteAsync(rest).ConfigureAwait(false),
+            "test"  => await TestCommand.ExecuteAsync(rest).ConfigureAwait(false),
             "lint"  => await LintCommand.ExecuteAsync(rest).ConfigureAwait(false),
             "repl"  => await ReplCommand.ExecuteAsync(rest).ConfigureAwait(false),
             // `lsp` speaks LSP over stdio for an editor to drive. It intentionally IGNORES extra args:
@@ -62,7 +63,7 @@ public static class Cli
     private static int UnknownCommand(string sub)
     {
         AnsiConsole.MarkupLine($"[red]Unknown command:[/] [yellow]{Markup.Escape(sub)}[/]");
-        var hint = Diagnostics.Suggester.Hint(sub, new[] { "run", "lint", "repl", "lsp", "help" });
+        var hint = Diagnostics.Suggester.Hint(sub, new[] { "run", "test", "lint", "repl", "lsp", "help" });
         if (hint != null) AnsiConsole.MarkupLine($"[grey]{Markup.Escape(hint)}[/]");
         AnsiConsole.WriteLine();
         PrintUsage();
@@ -87,13 +88,14 @@ public static class Cli
         AnsiConsole.MarkupLine("[bold]vidyano[/] — run .visc scripts against a Vidyano service");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Usage:[/]");
-        AnsiConsole.MarkupLine("  vidyano [yellow]run[/]   <file.visc> [grey][[options]][/]   Execute a script.");
+        AnsiConsole.MarkupLine("  vidyano [yellow]run[/]   <file.visc> [grey][[options]][/]   Execute a single script.");
+        AnsiConsole.MarkupLine("  vidyano [yellow]test[/]  <path...> [grey][[options]][/]      Run a suite (files/dirs/globs); aggregate exit code.");
         AnsiConsole.MarkupLine("  vidyano [yellow]lint[/]  <file.visc>                  Parse-check without executing.");
         AnsiConsole.MarkupLine("  vidyano [yellow]repl[/]  [grey][[options]][/]                     Start an interactive .visc REPL.");
         AnsiConsole.MarkupLine("  vidyano [yellow]lsp[/]                            Run the .visc language server over stdio (for editors).");
         AnsiConsole.MarkupLine("  vidyano [yellow]help[/]  [grey][[verbs]][/]                      Show help. 'verbs' lists every .visc verb.");
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[bold]Options shared by run/repl:[/]");
+        AnsiConsole.MarkupLine("[bold]Options shared by run/test/repl:[/]");
         AnsiConsole.MarkupLine("  [green]--app[/] <uri>            Base URI of the Vidyano service (overrides script's @app).");
         AnsiConsole.MarkupLine("  [green]--var[/] key=value        Pre-seed a script variable. Repeatable.");
         AnsiConsole.MarkupLine("  [green]--mode[/] navigation|audit|direct");
@@ -103,9 +105,15 @@ public static class Cli
         AnsiConsole.MarkupLine("  [green]--now[/] <iso-datetime>   Anchor the run clock for {{@today}}/{{@now}} (then flows by real elapsed).");
         AnsiConsole.MarkupLine("  [green]--env-prefix[/] <prefix>  Bind matching env vars into the variable table, prefix stripped (VIDYANO_REGION -> {{REGION}}). --var wins.");
         AnsiConsole.MarkupLine("  [green]--env-file[/] <path>      Load KEY=VALUE pairs from a .env for {{env:NAME}} / SIGN-IN FROM ENV (shadows the process env). Repeatable; last wins.");
-        AnsiConsole.MarkupLine("  [green]--json[/]                   NDJSON output (one event per line).");
+        AnsiConsole.MarkupLine("  [green]--json[/]                   NDJSON output (one event per line). On lint, emits machine-readable diagnostics.");
         AnsiConsole.MarkupLine("  [green]--verbose[/]                Show per-statement snapshot detail.");
         AnsiConsole.MarkupLine("  [green]--insecure[/]               Bypass TLS validation (local dev certs only).");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[bold]Options for run/test:[/]");
+        AnsiConsole.MarkupLine("  [green]--timeout[/] <dur>        Per-file timeout: 30s, 2m, 1h, or 0 (off). Default: off.");
+        AnsiConsole.MarkupLine("[bold]Options for test:[/]");
+        AnsiConsole.MarkupLine("  [green]--report[/] <fmt>[grey][[:path]][/]  Emit a report. fmt = junit|tap|sarif. Repeatable; no :path writes to stdout.");
+        AnsiConsole.MarkupLine("  [green]--jobs[/] <n>             Run up to n files concurrently. Default: 1 (serial).");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Exit codes:[/]  0 ok, 1 failed, 2 parse error, 3 connection error, 64 usage.");
         AnsiConsole.WriteLine();

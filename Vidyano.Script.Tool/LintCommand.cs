@@ -34,14 +34,34 @@ public static class LintCommand
             return Task.FromResult(Cli.ExitUsage);
         }
 
+        if (parsed.Paths.Count > 1)
+        {
+            AnsiConsole.MarkupLine("[red]error:[/] [yellow]lint[/] takes a single file.");
+            return Task.FromResult(Cli.ExitUsage);
+        }
+
         var path = parsed.File;
         if (!File.Exists(path))
         {
-            AnsiConsole.MarkupLine($"[red]error:[/] file not found: [yellow]{Markup.Escape(path)}[/]");
+            if (parsed.Json)
+                JsonReporter.WriteEvent(new { type = "lint.summary", sourcePath = path, ok = false, problems = 1, error = "file-not-found" });
+            else
+                AnsiConsole.MarkupLine($"[red]error:[/] file not found: [yellow]{Markup.Escape(path)}[/]");
             return Task.FromResult(Cli.ExitUsage);
         }
 
         var diags = VidyanoScript.Lint(File.ReadAllText(path), path, ExpectedVariables(parsed));
+
+        // --json: machine-readable lint output (one event per diagnostic + a summary). Previously --json was
+        // silently ignored on lint; this honours it so CI can consume lint results without scraping ANSI.
+        if (parsed.Json)
+        {
+            foreach (var d in diags)
+                JsonReporter.WriteEvent(new { type = "lint.diagnostic", diagnostic = d });
+            JsonReporter.WriteEvent(new { type = "lint.summary", sourcePath = path, ok = diags.Count == 0, problems = diags.Count });
+            return Task.FromResult(diags.Count == 0 ? Cli.ExitOk : Cli.ExitLint);
+        }
+
         if (diags.Count == 0)
         {
             AnsiConsole.MarkupLine($"[green]ok[/] {Markup.Escape(path)} (no problems)");

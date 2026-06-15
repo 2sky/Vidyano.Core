@@ -5,10 +5,17 @@ using Vidyano.Script.Runtime;
 
 namespace Vidyano.Script.Tool;
 
-/// <summary>Parsed CLI options shared by run and repl. Hand-rolled to keep <c>--help</c> honest.</summary>
+/// <summary>One <c>--report &lt;format&gt;[:&lt;target&gt;]</c> request. <see cref="Target"/> is null when the
+/// format was given bare (write to stdout); otherwise it is the file path to write.</summary>
+public readonly record struct ReportSpec(string Format, string? Target);
+
+/// <summary>Parsed CLI options shared by run, test and repl. Hand-rolled to keep <c>--help</c> honest.</summary>
 public sealed class Args
 {
     public string? File { get; set; }
+    /// <summary>All positional arguments, in order. <c>run</c>/<c>lint</c> accept exactly one (they read
+    /// <see cref="File"/> and reject extras); <c>test</c> reads the whole list as files/dirs/globs.</summary>
+    public List<string> Paths { get; } = new();
     public string? AppUri { get; set; }
     public Dictionary<string, object?> Vars { get; } = new(StringComparer.OrdinalIgnoreCase);
     public GuardMode? Mode { get; set; }
@@ -21,7 +28,15 @@ public sealed class Args
     public string? EnvironmentPrefix { get; set; }
     public string? EnvFile { get; set; }
     public Dictionary<string, string?> EnvFileValues { get; } = new(StringComparer.Ordinal);
+    /// <summary><c>--report</c> requests (repeatable). Formats: junit | tap | sarif.</summary>
+    public List<ReportSpec> Reports { get; } = new();
+    /// <summary>Per-file timeout. Null = not set; <see cref="TimeSpan.Zero"/> = explicitly disabled.</summary>
+    public TimeSpan? Timeout { get; set; }
+    /// <summary>Suite parallelism (<c>--jobs</c>). Null = default (serial).</summary>
+    public int? Jobs { get; set; }
     public List<string> Unknown { get; } = new();
+
+    private static readonly string[] ReportFormats = { "junit", "tap", "sarif" };
 
     /// <summary>Parses positional + flag arguments. Unknown flags are collected; callers decide whether to error.</summary>
     public static Args Parse(string[] args)
@@ -93,13 +108,37 @@ public sealed class Args
                     }
                     catch (Exception ex) { result.Unknown.Add($"--env-file '{envPath}' could not be read: {ex.Message}"); }
                     break;
+                case "--report":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--report requires a format (junit|tap|sarif)[:path]"); break; }
+                    var spec = args[++i];
+                    var colon = spec.IndexOf(':');
+                    var fmt = (colon < 0 ? spec : spec.Substring(0, colon)).ToLowerInvariant();
+                    var target = colon < 0 ? null : spec.Substring(colon + 1);
+                    if (Array.IndexOf(ReportFormats, fmt) < 0)
+                    {
+                        result.Unknown.Add($"--report '{fmt}' is not junit, tap, or sarif");
+                        break;
+                    }
+                    result.Reports.Add(new ReportSpec(fmt, string.IsNullOrEmpty(target) ? null : target));
+                    break;
+                case "--timeout":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--timeout requires a duration (e.g. 30s, 2m, 0)"); break; }
+                    if (!TryParseDuration(args[++i], out var to)) { result.Unknown.Add($"--timeout '{args[i]}' is not a duration (try 30s, 2m, 1h, or 0)"); break; }
+                    result.Timeout = to; break;
+                case "--jobs":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--jobs requires a positive integer"); break; }
+                    if (!int.TryParse(args[++i], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var jobs) || jobs < 1)
+                    {
+                        result.Unknown.Add($"--jobs '{args[i]}' is not a positive integer");
+                        break;
+                    }
+                    result.Jobs = jobs; break;
                 case "--json":     result.Json = true; break;
                 case "--verbose":  result.Verbose = true; break;
                 case "--insecure": result.Insecure = true; break;
                 default:
                     if (a.StartsWith('-')) result.Unknown.Add($"Unknown flag: {a}");
-                    else if (result.File is null) result.File = a;
-                    else result.Unknown.Add($"Unexpected positional argument: {a}");
+                    else { result.Paths.Add(a); result.File ??= a; }
                     break;
             }
         }
@@ -128,5 +167,25 @@ public sealed class Args
             opts.EnvLookup = name => envValues.TryGetValue(name, out var v) ? v : Environment.GetEnvironmentVariable(name);
         }
         return opts;
+    }
+
+    /// <summary>Parses a duration: a bare number (seconds) or a number with an <c>s</c>/<c>m</c>/<c>h</c>
+    /// suffix. <c>0</c> yields <see cref="TimeSpan.Zero"/> (the caller treats non-positive as "no limit").</summary>
+    internal static bool TryParseDuration(string text, out TimeSpan value)
+    {
+        value = default;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var unit = char.ToLowerInvariant(text[text.Length - 1]);
+        var hasSuffix = unit is 's' or 'm' or 'h';
+        var number = hasSuffix ? text.Substring(0, text.Length - 1) : text;
+        if (!double.TryParse(number, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) || n < 0)
+            return false;
+        value = unit switch
+        {
+            'm' when hasSuffix => TimeSpan.FromMinutes(n),
+            'h' when hasSuffix => TimeSpan.FromHours(n),
+            _ => TimeSpan.FromSeconds(n),
+        };
+        return true;
     }
 }
