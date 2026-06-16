@@ -1,130 +1,103 @@
+using Demo;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Vidyano;
+using Vidyano.Service;
+using Vidyano.ViewModel;
 
 Console.WriteLine("Vidyano.Core Demo Application");
 Console.WriteLine("==============================");
-Console.WriteLine("Connecting to demo.vidyano.com...\n");
+Console.WriteLine("Booting a full Vidyano app in-process (Minimal API) — no config, no database, no demo.vidyano.com...\n");
+
+// 1) Stand up the Vidyano app on Kestrel, bound to a free localhost port. This is a real server
+//    process the client below reaches over real HTTP — exactly how a frontend would hit a deployment.
+var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls("http://127.0.0.1:0");           // 0 → the OS assigns a free port
+builder.Logging.SetMinimumLevel(LogLevel.Warning);       // keep the demo's own output legible
+builder.AddVidyanoMinimal<DemoContext>(vidyano => vidyano
+    .WithDefaultAdmin()                                  // an "admin" / "admin" user to sign in as
+    .WithSchemaRights()                                  // grant that user rights to the model
+    .WithMenuItem("Products")
+    .WithMenuItem("ProductCategories"));
+
+var app = builder.Build();
+app.UseVidyano(app.Environment, app.Configuration);
+await app.StartAsync();
+
+var baseUri = app.Services.GetRequiredService<IServer>()
+    .Features.Get<IServerAddressesFeature>()!.Addresses.First();
+Console.WriteLine($"Vidyano Minimal app listening at {baseUri}\n");
 
 try
 {
-    // Create client instance
-    var client = new Client()
+    // 2) Drive that in-process app with an ordinary Vidyano.Core client. `new Client()` builds its own
+    //    cookie-aware HttpClient, so this is identical to talking to any remote Vidyano service.
+    var client = new Client { Uri = baseUri.TrimEnd('/') + "/" };
+
+    await client.SignInUsingCredentialsAsync("admin", "admin");
+    Console.WriteLine("Signed in to the in-process Vidyano service!");
+    Console.WriteLine($"User: {client.User ?? "Guest"}\n");
+
+    // The navigation menu the model defined via WithMenuItem(...) — program units → query items.
+    Console.WriteLine("Navigation menu:");
+    Console.WriteLine("----------------");
+    var queryItems = new List<ProgramUnitItemQuery>();
+    void Collect(IReadOnlyList<ProgramUnitItem> items, int depth)
     {
-        Uri = "https://demo.vidyano.com/"
-    };
-
-    var clientData = await client.GetClientData();
-
-    // The demo service allows anonymous access
-    // Sign in without credentials (anonymous)
-    var application = await client.SignInUsingCredentialsAsync(clientData.DefaultUserName, null);
-
-    Console.WriteLine("Successfully connected to Vidyano demo service!");
-
-    if (application != null)
+        foreach (var item in items)
+        {
+            switch (item)
+            {
+                case ProgramUnitItemQuery q:
+                    queryItems.Add(q);
+                    Console.WriteLine($"{new string(' ', depth * 2)}- {q.Title ?? q.QueryName}");
+                    break;
+                case ProgramUnitItemGroup g:
+                    Console.WriteLine($"{new string(' ', depth * 2)}{g.Title ?? g.Name}");
+                    Collect(g.Items, depth + 1);
+                    break;
+            }
+        }
+    }
+    foreach (var unit in client.ProgramUnits)
     {
-        Console.WriteLine($"Application: {application.ObjectId ?? "Demo"}");
-        Console.WriteLine($"User: {client.User ?? "Guest"}");
+        Console.WriteLine($"  {unit.Title ?? unit.Name}");
+        Collect(unit.Items, depth: 2);
+    }
 
-        // Display application culture if available
-        var cultureAttr = application.Attributes.FirstOrDefault(a => a.Name == "Culture");
-        if (cultureAttr != null)
+    // Open the Products query (by the name the server emitted) and list its rows.
+    var productsItem = queryItems.FirstOrDefault(q =>
+        string.Equals(q.QueryName, "Products", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(q.Title, "Products", StringComparison.OrdinalIgnoreCase));
+    var products = await client.GetQueryAsync(productsItem?.QueryName ?? productsItem?.QueryId ?? "Products");
+    if (products is not null)
+    {
+        if (!products.HasSearched)
+            await products.SearchTextAsync(string.Empty);
+
+        Console.WriteLine($"\nQuery '{products.Name}': {products.TotalItems} item(s)");
+        Console.WriteLine("------------------");
+        for (var i = 0; i < products.Count; i++)
         {
-            Console.WriteLine($"Culture: {cultureAttr.Value}");
-        }
-
-        // List available queries
-        if (application.Queries != null && application.Queries.Count > 0)
-        {
-            Console.WriteLine("\nAvailable Queries:");
-            Console.WriteLine("------------------");
-
-            foreach (var query in application.Queries.Take(10))
-            {
-                Console.WriteLine($"  - {query.Key}");
-            }
-
-            // Execute the first available query as a demonstration
-            var firstQuery = application.Queries.Values.FirstOrDefault();
-            if (firstQuery != null)
-            {
-                Console.WriteLine($"\nExecuting query: {firstQuery.Name}");
-                Console.WriteLine("------------------");
-
-                // Search/execute the query
-                if (!firstQuery.HasSearched)
-                    await firstQuery.SearchTextAsync(string.Empty);
-
-                Console.WriteLine($"Total items: {firstQuery.TotalItems}");
-                Console.WriteLine($"Retrieved items: {firstQuery.Count}");
-
-                // Display first few items
-                if (firstQuery.Count > 0)
-                {
-                    Console.WriteLine("\nFirst few results:");
-                    int count = Math.Min(5, firstQuery.Count);
-
-                    for (int i = 0; i < count; i++)
-                    {
-                        var item = firstQuery[i];
-                        Console.WriteLine($"\nItem {i + 1}:");
-
-                        // Display ID if available
-                        Console.WriteLine($"  ID: {item.Id}");
-
-                        // Try to display some common field names that might exist
-                        var possibleFields = new[] { "Name", "Title", "Description", "Code", "Value" };
-                        foreach (var field in possibleFields)
-                        {
-                            try
-                            {
-                                var value = item[field];
-                                if (value != null)
-                                {
-                                    Console.WriteLine($"  {field}: {value}");
-                                }
-                            }
-                            catch
-                            {
-                                // Field doesn't exist, continue
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        else
-        {
-            Console.WriteLine("\nNo queries available or not accessible as guest.");
-        }
-
-        // Display some attributes from the application object
-        Console.WriteLine("\nApplication Attributes:");
-        Console.WriteLine("------------------------");
-        int displayedAttrs = 0;
-        foreach (var attr in application.Attributes)
-        {
-            if (displayedAttrs >= 5) break;
-            if (attr.Value != null)
-            {
-                Console.WriteLine($"  {attr.Name}: {attr.Value}");
-                displayedAttrs++;
-            }
+            var item = products[i];
+            Console.WriteLine($"  [{item.Id}] {item["Name"]} — Color: {item["Color"]}, Category: {item["Category"]}");
         }
     }
 
     Console.WriteLine("\n✅ Demo completed successfully!");
-    Console.WriteLine("\nThis demo shows basic connectivity to a Vidyano service.");
-    Console.WriteLine("For authenticated access and more features, use SignInUsingCredentialsAsync with actual credentials.");
-
+    Console.WriteLine("This demo boots a full Vidyano app from code and drives it with a Vidyano.Core client — no external server required.");
 }
 catch (Exception ex)
 {
     Console.WriteLine($"❌ Error: {ex.Message}");
     if (ex.InnerException != null)
-    {
         Console.WriteLine($"   Inner: {ex.InnerException.Message}");
-    }
 }
-
-Console.WriteLine("\nPress any key to exit...");
-Console.ReadKey();
+finally
+{
+    await app.StopAsync();
+}
