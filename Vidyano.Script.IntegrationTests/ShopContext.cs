@@ -1,0 +1,187 @@
+using System.ComponentModel.DataAnnotations;
+using Vidyano.Service;
+using Vidyano.Service.Repository;
+
+namespace Vidyano.Script.IntegrationTests;
+
+/// <summary>
+/// The in-memory Vidyano app the .visc integration tests run against. A real Vidyano server (full
+/// model sync, real action execution, real notifications) booted entirely from code via the Minimal
+/// API — no config files, no database. Fixtures are deterministic so assertions like
+/// <c>EXPECT TotalItems = 3</c> are stable. Shaped to exercise each .visc verb family: an editable PO
+/// (EDIT/SET/SAVE), a reference (SET/FOLLOW), a detail query (SEARCH/EXPECT Detail), a custom action
+/// returning a notification (ACTION), a save that fails on a sentinel (SAVE EXPECTING ERROR), a
+/// BinaryFile attribute (SET = FILE), and an action that raises a retry dialog (CONFIRM).
+/// </summary>
+public sealed class ShopContext : NullTargetContext
+{
+    /// <summary>The Color value <see cref="ProductActions.OnSave"/> rejects — gives SAVE EXPECTING ERROR
+    /// a deterministic server-side failure with no dependency on rule-engine semantics.</summary>
+    public const string ForbiddenColor = "Forbidden";
+
+    // NullTargetContext persists through these collections, which are process-global (the Minimal API
+    // has no per-app data store). Tests share one booted app, so each test re-seeds via Reset() to stay
+    // isolated; the seed is fresh instances so an edit/save in one test never leaks into the next.
+    private static readonly List<ProductCategory> categories = [];
+    private static readonly List<Product> products = [];
+    private static readonly List<Document> documents = [];
+
+    static ShopContext() => Reset();
+
+    public ShopContext()
+    {
+        Register(categories);
+        Register(products);
+        Register(documents);
+    }
+
+    /// <summary>Restores the seed data. Call before each test (the collection runs serially, so this is
+    /// race-free) to undo edits/saves/deletes from the previous test.</summary>
+    public static void Reset()
+    {
+        categories.Clear();
+        categories.AddRange(
+        [
+            new ProductCategory { Id = "1", Name = "Tools" },
+            new ProductCategory { Id = "2", Name = "Electronics" },
+        ]);
+
+        products.Clear();
+        products.AddRange(
+        [
+            new Product { Id = "1", Name = "Widget", Color = "Blue", Category = "1" },
+            new Product { Id = "2", Name = "Gadget", Color = "Red", Category = "2" },
+            new Product { Id = "3", Name = "Gizmo", Color = "Green", Category = "1" },
+        ]);
+
+        documents.Clear();
+        documents.AddRange(
+        [
+            new Document { Id = "1", Name = "Spec" },
+        ]);
+    }
+
+    public IQueryable<ProductCategory> ProductCategories => Query<ProductCategory>();
+
+    public IQueryable<Product> Products => Query<Product>();
+
+    public IQueryable<Document> Documents => Query<Document>();
+
+    public override void AddObject(PersistentObject obj, object entity)
+    {
+        switch (entity)
+        {
+            case Product product:
+                product.Id ??= (products.Count + 1).ToString();
+                break;
+            case ProductCategory category:
+                category.Id ??= (categories.Count + 1).ToString();
+                break;
+            case Document document:
+                document.Id ??= (documents.Count + 1).ToString();
+                break;
+        }
+
+        base.AddObject(obj, entity);
+    }
+}
+
+public sealed class Product
+{
+    public string Id { get; set; } = null!;
+    public string Name { get; set; } = string.Empty;
+    [MaxLength(20)]
+    public string Color { get; set; } = string.Empty;
+    [Reference(typeof(ProductCategory))]
+    public string? Category { get; set; }
+}
+
+public sealed class ProductCategory
+{
+    public string Id { get; set; } = null!;
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class Document
+{
+    public string Id { get; set; } = null!;
+    public string Name { get; set; } = string.Empty;
+    [DataType(DataTypes.BinaryFile)]
+    public string? File { get; set; }
+}
+
+public sealed class ProductActions(ShopContext context)
+    : PersistentObjectActions<ShopContext, Product>(context)
+{
+    public override void OnNew(PersistentObject obj, PersistentObject? parent, Query? query, Dictionary<string, string>? parameters)
+    {
+        base.OnNew(obj, parent, query, parameters);
+
+        obj.SetAttributeValue("Name", "New Product");
+        obj.SetAttributeValue("Color", "Blue");
+    }
+
+    public override void OnSave(PersistentObject obj)
+    {
+        if ((string?)obj["Color"] == ShopContext.ForbiddenColor)
+        {
+            obj.AddNotification($"Color '{ShopContext.ForbiddenColor}' is not allowed.", NotificationType.Error);
+            return;
+        }
+
+        base.OnSave(obj);
+    }
+
+    /// <summary>Detail query: the products belonging to one category. Auto-discovered by name and
+    /// wired as the <c>Products</c> detail panel on ProductCategory in <see cref="InProcessVidyanoBackend"/>.</summary>
+    public IEnumerable<Product> ProductCategory_Products(CustomQueryArgs args)
+    {
+        args.EnsureParent(nameof(ProductCategory));
+
+        var categoryId = args.Parent.ObjectId;
+        return Context.Products.Where(p => p.Category == categoryId);
+    }
+}
+
+public sealed class ProductCategoryActions(ShopContext context)
+    : PersistentObjectActions<ShopContext, ProductCategory>(context)
+{
+    // The .visc `Detail "<name>"` resolver reads CurrentPo.Queries (the PO's `queries` payload), which
+    // is populated by AddQuery — NOT by an as-detail attribute. So surface the per-category Products
+    // query as a PO-level related query, keyed by its query name.
+    public override void OnLoad(PersistentObject obj, PersistentObject? parent)
+    {
+        base.OnLoad(obj, parent);
+
+        obj.AddQuery(nameof(ProductActions.ProductCategory_Products));
+    }
+}
+
+/// <summary>PO-level custom action that sets a notification on the current PO — exercises
+/// <c>ACTION</c> + <c>EXPECT Notification</c>/<c>Notification.Type</c>. It returns the acting PO (not a
+/// <c>Notification(...)</c> result, which the .visc runtime drops from the nav stack), so the
+/// notification rides back on the current PO where EXPECT can read it.</summary>
+public sealed class HelloWorld(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public override PersistentObject? Execute(CustomActionArgs e)
+    {
+        e.Parent!.AddNotification("Hello, World!", NotificationType.OK);
+        return e.Parent;
+    }
+}
+
+/// <summary>Raises a server retry dialog the first time, then resumes with the chosen option and
+/// reports it as a notification on the current PO — exercises <c>CONFIRM</c>, the
+/// <c>EXPECT RetryDialog.*</c> subjects, and reading the post-resume notification.</summary>
+public sealed class AskFirst(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public override PersistentObject? Execute(CustomActionArgs e)
+    {
+        string? chosen = null;
+        if (e.Parameters == null || !e.Parameters.TryGetValue("RetryActionOption", out chosen))
+            Manager.Current.RetryAction("Are you sure?", "This will proceed.", "Yes", "No");
+
+        e.Parent!.AddNotification($"You chose: {chosen}", NotificationType.OK);
+        return e.Parent;
+    }
+}

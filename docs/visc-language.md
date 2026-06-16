@@ -201,7 +201,7 @@ EXPECT IsInEdit = true
 **Notifications & client operations**
 
 ```visc
-EXPECT NotificationType = "Error"
+EXPECT Notification.Type = "Error"
 EXPECT Notification MATCHES "already exists"
 EXPECT ClientOperation ShowMessageBox
 EXPECT ClientOperation ShowMessageBox CONTAINS "saved"

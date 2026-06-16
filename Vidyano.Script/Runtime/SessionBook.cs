@@ -21,10 +21,9 @@ namespace Vidyano.Script.Runtime;
 /// Three invariants the names alone don't carry:
 /// <list type="bullet">
 /// <item>The cookie-jar trap: every minted identity MUST get its OWN <c>HttpClient</c> +
-/// <c>CookieContainer</c>. That is why <c>mintFresh</c> is built from the
-/// <c>VidyanoSession(baseUri, acceptAnyServerCertificate)</c> own-jar ctor branch and must never
-/// close over a shared client — sharing a jar silently conflates two identities at runtime with no
-/// compile error.</item>
+/// <c>CookieContainer</c>. <c>mintFresh</c> obtains that isolated transport from the backend adapter
+/// (<c>IBackendAdapter.MintIsolatedAsync</c>) and must never close over a shared client — sharing a jar
+/// silently conflates two identities at runtime with no compile error.</item>
 /// <item>The <c>""</c> floor: the default (unnamed) slot has map key <c>""</c>, is unaddressable by
 /// <c>USE</c> (the parser requires <c>@name</c>), and is never removed or disposed. It keeps
 /// <see cref="Current"/> non-null for a script's whole life, so <c>SIGN-OUT</c> of the active slot
@@ -46,8 +45,9 @@ internal sealed class SessionBook : IDisposable
     /// <param name="initial">The default-slot (<c>""</c>) session the caller already built. Owned by
     /// the caller — the book never disposes it.</param>
     /// <param name="mintFresh">Mints a NEW identity with its OWN <c>HttpClient</c> +
-    /// <c>CookieContainer</c> rooted at the same base URI. Sessions the book mints are owned and
-    /// disposed by the book. Must NOT close over a shared/supplied client (the cookie-jar trap).</param>
+    /// <c>CookieContainer</c> (from the backend adapter) rooted at the same backend. The book owns and
+    /// disposes the <see cref="VidyanoSession"/> it mints; the adapter owns the underlying transport.
+    /// Must NOT close over a shared/supplied client (the cookie-jar trap).</param>
     public SessionBook(VidyanoSession initial, Func<ValueTask<VidyanoSession>> mintFresh)
     {
         _sessions[DefaultSlot] = initial;
