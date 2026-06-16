@@ -15,4 +15,15 @@ public readonly record struct BackendConnection(HttpClient HttpClient, string Ba
 public interface IBackendAdapter : IAsyncDisposable
 {
     ValueTask<BackendConnection> StartAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Mints an ADDITIONAL, cookie-isolated transport over the already-started backend — one
+    /// per named <c>SIGN-IN @name</c> identity, so named identities never share an auth/cookie jar. The
+    /// default delegates to <see cref="StartAsync"/>, which is already correct for any adapter whose
+    /// <c>StartAsync</c> yields a fresh isolated transport on each call (e.g. an in-process host minting
+    /// a new cookie jar over its in-memory server). An adapter that hands back a SHARED client from
+    /// <c>StartAsync</c> (e.g. a caller-supplied HttpClient) MUST override this to build a genuinely
+    /// isolated transport, or two named identities would silently conflate. The adapter owns every
+    /// transport it returns — from here and from <c>StartAsync</c> — and disposes them in DisposeAsync.</summary>
+    ValueTask<BackendConnection> MintIsolatedAsync(CancellationToken cancellationToken = default)
+        => StartAsync(cancellationToken);
 }

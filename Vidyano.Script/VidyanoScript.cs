@@ -73,15 +73,22 @@ public static class VidyanoScript
         {
             var conn = await adapter.StartAsync(cancellationToken).ConfigureAwait(false);
             // The default ("") slot reuses the runner-owned transport (conn.HttpClient); named SIGN-INs
-            // mint their OWN cookie jar via the VidyanoSession own-jar ctor branch (the `httpClient: null`
-            // path) so each named identity is isolated. mintFresh must never close over conn.HttpClient.
+            // mint their OWN cookie jar through the adapter (MintIsolatedAsync) so each named identity is
+            // isolated AND can reach whatever backend the adapter fronts — a real socket for a remote URL,
+            // a fresh cookie jar over the in-memory server for an in-process host. (mintFresh used to
+            // hard-build a socket client, which an in-process TestServer can't answer.) The adapter owns
+            // the minted transport; the session wraps it via the supplied-client ctor branch, so the book
+            // disposes only the session and the adapter disposes the transports.
             // initial reuses the runner-owned conn.HttpClient, so its Dispose is a no-op today; bind it
             // to `using` anyway for IDisposable hygiene (SessionBook never disposes the caller's initial).
             using var initialSession = new VidyanoSession(conn.BaseUri, conn.HttpClient, opts.AcceptAnyServerCertificate);
             using var sessions = new SessionBook(
                 initial: initialSession,
-                mintFresh: () => new ValueTask<VidyanoSession>(
-                    new VidyanoSession(conn.BaseUri, acceptAnyServerCertificate: opts.AcceptAnyServerCertificate)));
+                mintFresh: async () =>
+                {
+                    var fresh = await adapter.MintIsolatedAsync(cancellationToken).ConfigureAwait(false);
+                    return new VidyanoSession(fresh.BaseUri, fresh.HttpClient);
+                });
             var interpreter = new Interpreter(sessions, opts.Variables, opts.Mode, opts.Tools, cancellationToken: cancellationToken, now: opts.Now, seed: opts.Seed, envLookup: opts.EnvLookup, envPrefix: opts.EnvironmentPrefix, fileRoot: opts.FileRoot);
             return await interpreter.RunAsync(script).ConfigureAwait(false);
         }
