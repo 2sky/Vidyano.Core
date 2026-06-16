@@ -32,18 +32,18 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
     /// (static source holders), so a single long-lived server is also the only correct shape.</summary>
     public async ValueTask<BackendConnection> StartAsync(CancellationToken cancellationToken = default)
     {
-        if (_server is null)
+        // Serialize the one-time boot. WaitAsync is ~free when uncontended (and StartAsync is called
+        // only a handful of times), so a plain lock is simpler than double-checked locking and sidesteps
+        // any field-visibility concern.
+        await _bootLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            await _bootLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                if (_server is null)
-                    await BootAsync(cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                _bootLock.Release();
-            }
+            if (_server is null)
+                await BootAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _bootLock.Release();
         }
 
         return new BackendConnection(MintClient(_server!), _baseUri!);
@@ -101,5 +101,7 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
     {
         if (_app is not null)
             await _app.DisposeAsync().ConfigureAwait(false);
+
+        _bootLock.Dispose();
     }
 }

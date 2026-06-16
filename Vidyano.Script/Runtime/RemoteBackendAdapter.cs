@@ -57,8 +57,12 @@ internal sealed class RemoteBackendAdapter : IBackendAdapter
     public ValueTask DisposeAsync()
     {
         _ownedHttpClient?.Dispose();
+        _ownedHttpClient = null;
+
         foreach (var client in _mintedHttpClients)
             client.Dispose();
+        _mintedHttpClients.Clear();
+
         return default;
     }
 }
