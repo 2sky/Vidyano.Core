@@ -95,6 +95,7 @@ echo $?   # 0 ok · 1 failed/timeout · 2 parse · 3 connection · 64 no files
 | `--seed <int>` | Pin `{{@uuid}}` / `{{@random}}` for reproducible runs. |
 | `--env-file <path>` | Load `KEY=VALUE` pairs from a `.env`, backing `{{env:NAME}}` and `SIGN-IN FROM ENV`. Repeatable; last wins. |
 | `--env-prefix <prefix>` | Bind matching process env vars into the variable table, prefix stripped (`VIDYANO_REGION` → `{{REGION}}`). An explicit `--var` wins. |
+| `--file-root <dir>` | Root that `SET attr = FILE "<path>"` reads resolve against and are confined to (`..`, absolute, drive-qualified paths rejected). Default: the script's directory. |
 | `--json` | NDJSON output — one event per line. Pipe-friendly for CI / agents. `test` wraps each file in `file.start`/`file.end` and ends with a `suite.summary`; `lint` emits `lint.diagnostic`/`lint.summary` (previously `lint` ignored `--json`). |
 | `--verbose` | Print per-statement snapshot detail. |
 | `--insecure` | Bypass TLS validation. **Local dev certs only.** |

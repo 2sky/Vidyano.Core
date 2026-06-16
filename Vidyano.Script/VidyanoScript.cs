@@ -82,7 +82,7 @@ public static class VidyanoScript
                 initial: initialSession,
                 mintFresh: () => new ValueTask<VidyanoSession>(
                     new VidyanoSession(conn.BaseUri, acceptAnyServerCertificate: opts.AcceptAnyServerCertificate)));
-            var interpreter = new Interpreter(sessions, opts.Variables, opts.Mode, opts.Tools, cancellationToken: cancellationToken, now: opts.Now, seed: opts.Seed, envLookup: opts.EnvLookup, envPrefix: opts.EnvironmentPrefix);
+            var interpreter = new Interpreter(sessions, opts.Variables, opts.Mode, opts.Tools, cancellationToken: cancellationToken, now: opts.Now, seed: opts.Seed, envLookup: opts.EnvLookup, envPrefix: opts.EnvironmentPrefix, fileRoot: opts.FileRoot);
             return await interpreter.RunAsync(script).ConfigureAwait(false);
         }
         finally

@@ -36,6 +36,8 @@ public static class ErrorKind
     public const string ResolveQuery             = "resolve-query";
     public const string ResolveMenuItem          = "resolve-menu-item";
     public const string ResolveEnv               = "resolve-env";
+    /// <summary>A <c>SET attr = FILE "&lt;path&gt;"</c> path didn't resolve to a readable file.</summary>
+    public const string ResolveFile              = "resolve-file";
 
     // Tier-1 guard — operation invalid for the current PO/Query
     public const string GuardAttributeHidden     = "guard-attribute-hidden";

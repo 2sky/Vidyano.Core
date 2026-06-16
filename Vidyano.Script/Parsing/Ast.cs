@@ -124,14 +124,28 @@ public sealed record SaveStmt(string? Handle, SourceLocation Location, string? S
 /// <summary><c>REFRESH</c> — refresh attributes (calls <c>PersistentObject.Refresh</c>).</summary>
 public sealed record RefreshStmt(string? Handle, SourceLocation Location) : Statement(Location);
 
+/// <summary>How a <c>SET</c> turns its right-hand side into the attribute value.</summary>
+public enum SetValueKind
+{
+    /// <summary>The RHS is the value itself (a literal, interpolation, <c>null</c>, or a reference
+    /// resolved through <see cref="SetStmt.Hint"/>).</summary>
+    Value,
+    /// <summary><c>SET attr = FILE "&lt;path&gt;"</c>: the RHS is a file path. The interpreter reads the
+    /// file and assigns the Vidyano <c>"&lt;filename&gt;|&lt;base64&gt;"</c> service string a
+    /// <c>BinaryFile</c>/<c>Image</c> attribute expects.</summary>
+    File,
+}
+
 /// <summary>
 /// <c>SET Name = "value"</c> — set an attribute on the current PO. For reference attributes:
 /// <c>SET Name = LOOKUP "filter"</c> forces a lookup search; <c>SET Name = ID "guid"</c> sets the
-/// raw <c>SelectedReferenceValue</c> without going through Options or Lookup.
+/// raw <c>SelectedReferenceValue</c> without going through Options or Lookup. <c>SET Name = FILE
+/// "&lt;path&gt;"</c> (<see cref="ValueKind"/> = <see cref="SetValueKind.File"/>) reads a file off disk
+/// and assigns the <c>"&lt;filename&gt;|&lt;base64&gt;"</c> service string for a <c>BinaryFile</c>/<c>Image</c>.
 /// </summary>
 /// <param name="Scope">Reserved variable scope for the target PO (<c>"session"</c> for
 /// <c>@session.X</c>); <c>null</c> means the top of the navigation stack.</param>
-public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location, string? Scope = null) : Statement(Location);
+public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location, string? Scope = null, SetValueKind ValueKind = SetValueKind.Value) : Statement(Location);
 
 /// <summary><c>ACTION Approve [(Param=Value, ...)]</c> or <c>ACTION Delete = "Yes, delete"</c> /
 /// <c>ACTION Delete = ID 0</c>. The <c>= &lt;option&gt;</c> form picks an entry from
@@ -343,8 +357,11 @@ public enum ExpectSubjectKind
 /// metadata / navigation-hint / typehint forms, and the leaf-property name for column lookups.
 /// <see cref="DetailName"/> is set by the <c>EXPECT Detail "&lt;name&gt;" &lt;query-subject&gt;</c> form: when
 /// non-null, query-family subjects resolve against <c>CurrentPo.Queries[DetailName]</c> instead of the
-/// current-query walk.</summary>
-public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null, string? DetailName = null);
+/// current-query walk. <see cref="Hint"/> is set to <see cref="ReferenceHintKind.RawId"/> by the
+/// <c>EXPECT &lt;ref&gt; = ID "&lt;id&gt;"</c> form: an <see cref="ExpectSubjectKind.Attribute"/> subject then
+/// resolves to the referenced document id (<c>ObjectId</c>) instead of the display value, symmetric with
+/// <c>SET &lt;ref&gt; = ID "&lt;id&gt;"</c>.</summary>
+public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null, string? DetailName = null, ReferenceHintKind? Hint = null);
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.
 /// <see cref="Available"/> is <c>IsVisible &amp;&amp; !IsReadOnly</c> — the same guard

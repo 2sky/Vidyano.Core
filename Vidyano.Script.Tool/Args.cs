@@ -26,6 +26,7 @@ public sealed class Args
     public int? Seed { get; set; }
     public DateTimeOffset? Now { get; set; }
     public string? EnvironmentPrefix { get; set; }
+    public string? FileRoot { get; set; }
     public string? EnvFile { get; set; }
     public Dictionary<string, string?> EnvFileValues { get; } = new(StringComparer.Ordinal);
     /// <summary><c>--report</c> requests (repeatable). Formats: junit | tap | sarif.</summary>
@@ -87,6 +88,9 @@ public sealed class Args
                 case "--env-prefix":
                     if (i + 1 >= args.Length) { result.Unknown.Add("--env-prefix requires a prefix"); break; }
                     result.EnvironmentPrefix = args[++i]; break;
+                case "--file-root":
+                    if (i + 1 >= args.Length) { result.Unknown.Add("--file-root requires a directory"); break; }
+                    result.FileRoot = args[++i]; break;
                 case "--env-file":
                     if (i + 1 >= args.Length) { result.Unknown.Add("--env-file requires a path"); break; }
                     var envPath = args[++i];
@@ -155,6 +159,7 @@ public sealed class Args
             Seed = Seed,
             Now = Now,
             EnvironmentPrefix = EnvironmentPrefix,
+            FileRoot = FileRoot,
         };
         if (Mode is { } m) opts.Mode = m;
         foreach (var kv in Vars) opts.Variables[kv.Key] = kv.Value;
