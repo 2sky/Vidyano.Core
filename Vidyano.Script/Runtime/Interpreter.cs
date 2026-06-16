@@ -627,8 +627,11 @@ public sealed class Interpreter
         {
             bytes = File.ReadAllBytes(resolved);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            // Any read failure on a validated-contained, confirmed-existing path (I/O, ACL/SecurityException,
+            // NotSupportedException on an odd path, …) is a script-authoring condition, not an interpreter
+            // bug — surface it as resolve-file rather than letting it abort the run.
             return OpResult<(string, byte[])>.Fail(new Diagnostic(ErrorKind.ResolveFile,
                 $"FILE could not be read: {resolved} ({ex.Message})", loc));
         }

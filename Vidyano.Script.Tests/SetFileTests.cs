@@ -118,6 +118,17 @@ public sealed class SetFileTests
     }
 
     [Fact]
+    public void BinaryFile_NullData_DoesNotThrowOnContractMethods()
+    {
+        // Data has a public setter; Equals/GetHashCode/ToString must stay total even if it's nulled out.
+        var nulled = new BinaryFile("a.bin") { Data = null! };
+        Assert.Equal("a.bin|", nulled.ToString());
+        _ = nulled.GetHashCode();
+        Assert.False(nulled.Equals(new BinaryFile("a.bin", new byte[] { 1 })));
+        Assert.True(nulled.Equals(new BinaryFile("a.bin") { Data = null! }));
+    }
+
+    [Fact]
     public void BinaryFile_ImplicitString_IsServiceString()
     {
         string? s = new BinaryFile("a.bin", new byte[] { 1 });

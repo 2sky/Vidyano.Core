@@ -53,7 +53,12 @@ namespace Vidyano
         public override bool Equals(object? obj) => ReferenceEquals(this, obj) || (obj is BinaryFile other && Equals(other));
 
         /// <inheritdoc />
-        public bool Equals(BinaryFile? other) => other != null && other.FileName == FileName && other.Data.SequenceEqual(Data);
+        // Data has a public setter, so it can be null even though every constructor seeds it non-null;
+        // Equals/GetHashCode/ToString must never throw, so they all treat a null Data as "no bytes".
+        public bool Equals(BinaryFile? other) =>
+            other != null
+            && other.FileName == FileName
+            && (ReferenceEquals(other.Data, Data) || (other.Data != null && Data != null && other.Data.SequenceEqual(Data)));
 
         /// <inheritdoc />
         public override int GetHashCode()
@@ -63,16 +68,16 @@ namespace Vidyano
             // (cheap, and enough to spread keys — equality still compares the full byte sequence).
             unchecked
             {
-                return ((FileName?.GetHashCode() ?? 0) * 397) ^ Data.Length;
+                return ((FileName?.GetHashCode() ?? 0) * 397) ^ (Data?.Length ?? 0);
             }
 #else
-            return HashCode.Combine(FileName, Data.Length);
+            return HashCode.Combine(FileName, Data?.Length ?? 0);
 #endif
         }
 
         /// <summary>The Vidyano service string: <c>"&lt;fileName&gt;|&lt;base64&gt;"</c>, or
         /// <c>"&lt;fileName&gt;|"</c> when there is no data.</summary>
-        public override string ToString() => FileName + "|" + (Data.Length > 0 ? Convert.ToBase64String(Data) : string.Empty);
+        public override string ToString() => FileName + "|" + (Data != null && Data.Length > 0 ? Convert.ToBase64String(Data) : string.Empty);
 
         /// <summary>Parses a <c>"&lt;fileName&gt;|&lt;base64&gt;"</c> service string. Returns <c>null</c> for a
         /// null/empty input. A trailing <c>|</c> (name without data) yields a named, data-less instance.
