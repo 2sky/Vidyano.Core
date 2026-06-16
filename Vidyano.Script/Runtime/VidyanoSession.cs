@@ -1025,11 +1025,21 @@ public sealed class VidyanoSession : IDisposable
         return await SetAttributeOnAsync(CurrentPo, name, value, loc, hint).ConfigureAwait(false);
     }
 
+    /// <summary>Attaches a file to a <c>BinaryFile</c>/<c>Image</c> attribute on the current PO (the
+    /// <c>SET attr = FILE "..."</c> verb). The wire value depends on the attribute's data type — handled in
+    /// <see cref="SetAttributeOnAsync"/> — so callers pass the raw file name and bytes, not a pre-formatted
+    /// service string.</summary>
+    public async Task<OpResult> SetFileAttributeAsync(string name, string fileName, byte[] data, SourceLocation loc)
+    {
+        if (CurrentPo is null) return NoCurrentPo(loc);
+        return await SetAttributeOnAsync(CurrentPo, name, value: null, loc, hint: null, file: (fileName, data)).ConfigureAwait(false);
+    }
+
     /// <summary>Sets an attribute on an explicit PO. Shared body between the implicit current-PO
     /// path (<see cref="SetAttributeAsync"/>) and the scoped path (<see cref="SetScopedAttributeAsync"/>).
     /// The only difference between callers is which PO they target — the hidden/readonly guards,
     /// the auto-enter-edit behaviour, and the reference-resolution branch are identical.</summary>
-    private async Task<OpResult> SetAttributeOnAsync(PersistentObject po, string name, object? value, SourceLocation loc, ReferenceHint? hint)
+    private async Task<OpResult> SetAttributeOnAsync(PersistentObject po, string name, object? value, SourceLocation loc, ReferenceHint? hint, (string FileName, byte[] Data)? file = null)
     {
         var attr = po.GetAttribute(name);
         if (attr is null)
@@ -1060,6 +1070,16 @@ public sealed class VidyanoSession : IDisposable
 
         if (!po.IsInEdit)
             po.Edit();
+
+        // SET attr = FILE "..." — format the bytes for the attribute's data type and assign. A file is
+        // only meaningful for BinaryFile/Image; any other type fails loudly rather than writing garbage.
+        if (file is { } f)
+        {
+            var formatted = FormatFileValue(attr.Type, attr.Name, f.FileName, f.Data, loc);
+            if (!formatted.Ok) return OpResult.Fail(formatted.Error!);
+            attr.Value = formatted.Value;
+            return OpResult.Success;
+        }
 
         if (attr is PersistentObjectAttributeWithReference refAttr)
             return await SetReferenceAttributeAsync(refAttr, value, loc, hint).ConfigureAwait(false);
@@ -1115,6 +1135,28 @@ public sealed class VidyanoSession : IDisposable
                 ["attribute"] = attrName,
                 ["available"] = options.Select(o => new { o.Key, o.DisplayValue }).ToArray(),
             }));
+    }
+
+    /// <summary>Turns a file's name and bytes into the service string the target attribute's data type
+    /// expects: <c>BinaryFile</c> wants <c>"&lt;name&gt;|&lt;base64&gt;"</c> (via <see cref="Vidyano.BinaryFile"/>),
+    /// <c>Image</c> wants the bare base64 (no name, no pipe). Any other data type is a usage error — <c>FILE</c>
+    /// only attaches to file/image attributes. Pure (takes the type/name strings, not the live attribute) so
+    /// the data-type dispatch is unit-testable without a server.</summary>
+    internal static OpResult<string> FormatFileValue(string attributeType, string attributeName, string fileName, byte[] data, SourceLocation loc)
+    {
+        switch (attributeType)
+        {
+            case Vidyano.DataTypes.BinaryFile:
+                return OpResult<string>.Success(new Vidyano.BinaryFile(fileName, data).ToString());
+            case Vidyano.DataTypes.Image:
+                return OpResult<string>.Success(Convert.ToBase64String(data));
+            default:
+                return OpResult<string>.Fail(new Diagnostic(
+                    ErrorKind.ParseUnexpectedToken,
+                    $"`= FILE` attaches a file, but attribute '{attributeName}' is a {attributeType}, not a BinaryFile or Image.",
+                    loc,
+                    Hint: "Use FILE only on BinaryFile/Image attributes; set other types with a plain value."));
+        }
     }
 
     private async Task<OpResult> SetReferenceAttributeAsync(PersistentObjectAttributeWithReference attr, object? value, SourceLocation loc, ReferenceHint? hint)
@@ -1303,8 +1345,11 @@ public sealed class VidyanoSession : IDisposable
 
     /// <summary>Reads an attribute value from a scoped PO (e.g. <c>@session.CurrentYear</c>).
     /// Mirrors <see cref="ResolveExpectSubject"/>'s hidden-attribute guard so reads through this
-    /// path are subject to the same UI-visibility contract as the current-PO bare-name form.</summary>
-    public OpResult<object?> GetScopedAttributeValue(string scope, string attributeName, SourceLocation loc)
+    /// path are subject to the same UI-visibility contract as the current-PO bare-name form.
+    /// <paramref name="hint"/> = <see cref="ReferenceHintKind.RawId"/> (the <c>EXPECT @scope.Ref = ID "..."</c>
+    /// form) reads the referenced document id (<c>ObjectId</c>) instead of the display value; a non-reference
+    /// attribute then fails loudly rather than silently returning the display value.</summary>
+    public OpResult<object?> GetScopedAttributeValue(string scope, string attributeName, SourceLocation loc, ReferenceHintKind? hint = null)
     {
         var res = ResolveScopedAttribute(scope, attributeName, loc);
         if (!res.Ok) return OpResult<object?>.Fail(res.Error!);
@@ -1314,6 +1359,18 @@ public sealed class VidyanoSession : IDisposable
                 ErrorKind.GuardAttributeHidden,
                 $"Attribute '{attributeName}' exists on @{scope} ({res.Value!.Po.Type}) but is hidden — the UI cannot read it.",
                 loc));
+        if (hint == ReferenceHintKind.RawId)
+        {
+            // A non-reference here must NOT surface as resolve-attribute: the interpreter's scoped path
+            // treats that kind as "no such attribute" and falls back to PO-scalar lookup, which would
+            // mask the real "not a reference" mistake. parse-unexpected-token keeps the message intact.
+            if (attr is PersistentObjectAttributeWithReference reference)
+                return OpResult<object?>.Success(reference.ObjectId);
+            return OpResult<object?>.Fail(new Diagnostic(
+                ErrorKind.ParseUnexpectedToken,
+                $"`= ID` compares a reference's document id, but '{attributeName}' on @{scope} is not a reference.",
+                loc));
+        }
         return OpResult<object?>.Success(attr.Value);
     }
 
@@ -1325,6 +1382,15 @@ public sealed class VidyanoSession : IDisposable
         var poRes = ResolveScopePo(scope, loc);
         if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
         return await SetAttributeOnAsync(poRes.Value!, attributeName, value, loc, hint).ConfigureAwait(false);
+    }
+
+    /// <summary>Scoped counterpart of <see cref="SetFileAttributeAsync"/> — attaches a file to a
+    /// <c>BinaryFile</c>/<c>Image</c> attribute on a scoped PO (<c>SET @scope.attr = FILE "..."</c>).</summary>
+    public async Task<OpResult> SetScopedFileAttributeAsync(string scope, string attributeName, string fileName, byte[] data, SourceLocation loc)
+    {
+        var poRes = ResolveScopePo(scope, loc);
+        if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
+        return await SetAttributeOnAsync(poRes.Value!, attributeName, value: null, loc, hint: null, file: (fileName, data)).ConfigureAwait(false);
     }
 
     /// <summary>

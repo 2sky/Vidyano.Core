@@ -127,10 +127,24 @@ SELECT-ROWS Detail "Lines" ALL           ## optional leading Detail clause, orth
 EDIT
 SET Name  = "Acme Corp"
 SET Owner = LOOKUP "Email:alice@example.com"   ## reference SET resolves through a lookup
+SET Logo  = FILE "fixtures/acme-logo.png"      ## attach a file to a BinaryFile/Image attribute
 SAVE
 ```
 
 `EDIT` / `CANCEL` / `SAVE` are the standard PO edit lifecycle. `SAVE` pops the PO frame and lets owner-driven refresh fire (the underlying Query re-counts). `SET <attr> = <value>` changes an attribute; a reference attribute resolves its value through a lookup.
+
+### Attaching a file — `SET <attr> = FILE "<path>"`
+
+`SET <attr> = FILE "<path>"` reads a file off disk and assigns it to a `BinaryFile` or `Image` attribute, so a script author never hand-builds the wire format. The bytes are formatted for the attribute's data type automatically: a `BinaryFile` gets the `"<filename>|<base64>"` service string, an `Image` gets the bare base64 (no filename). Setting `FILE` on any other attribute type is a loud error.
+
+The path is **relative to the script's directory** (or to `--file-root` / `VidyanoScriptOptions.FileRoot` when set) and is **confined to that root** — `..` traversal, absolute, and drive-qualified paths are rejected with `resolve-file`, so a script can never read outside its root. Point `--file-root` at a shared fixtures directory when test data lives outside the script tree.
+
+```visc
+EDIT
+SET Photo = FILE "fixtures/avatar.png"   ## Image attr  → base64
+SET Doc   = FILE "fixtures/contract.pdf" ## BinaryFile  → "contract.pdf|<base64>"
+SAVE
+```
 
 ## Running actions
 
@@ -200,6 +214,13 @@ EXPECT ClientOperation Refresh IS NULL
 EXPECT RetryDialog.Title
 EXPECT RetryDialog.Message MATCHES "are you sure"
 EXPECT RetryDialog.Options CONTAINS "Cancel"
+```
+
+**References by document id** — `EXPECT <ref> = ID "<id>"` (and `!= ID`) asserts a reference attribute by the document it points at (its `ObjectId`), symmetric with `SET <ref> = ID "<id>"`. A plain `EXPECT <ref> = "..."` still compares the display value; `= ID` compares the underlying id, the stable identifier. Only `=` / `!=` accept `ID` (a document id has no ordering), and only reference attributes — `= ID` on a non-reference is a loud error, never a silent fall-through to the display value.
+
+```visc
+EXPECT Customer = ID "people/acme"     ## the reference points at exactly this document
+EXPECT Owner   != ID "people/old-rep"
 ```
 
 **Attributes & round-tripped metadata** — `EXPECT` reaches the server metadata (`Tag`, `Metadata`, `NavigationHints`, `TypeHints`) a browser would see:
@@ -338,11 +359,12 @@ A `@mode` directive (or `VidyanoScriptOptions.Mode`) selects how strictly the en
 | `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place. |
 | `SELECT-ROWS <ALL \| ALL EXCEPT … \| NONE \| <i> \| WHERE …>` | Set the selection for a selection-gated action. |
 | `EDIT` / `CANCEL` / `SAVE` | PO edit lifecycle. |
-| `SET <attr> = <value>` | Change an attribute (references resolve via lookup). |
+| `SET <attr> = <value> \| LOOKUP "…" \| ID "…" \| FILE "<path>" \| null` | Change an attribute. `FILE` attaches a file (root-confined) to a BinaryFile/Image. |
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `SAVE \| ACTION … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `CONFIRM "<label>" \| CONFIRM ID <i>` | Answer an open server retry dialog. |
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |
+| `EXPECT <ref> = ID "<id>"` | Assert a reference by its document id (`ObjectId`). |
 | `REQUIRES <expect> \| REQUIRES TOOL <n>` | Precondition gate (unmet → skip the body). |
 | `CLEANUP` | Marker; statements after it always run. |
 | `REPEAT <n> [AS @i] … END` | Bounded repetition. |

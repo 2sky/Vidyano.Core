@@ -133,12 +133,13 @@ public static class VerbCatalog
             "edit", []),
 
         new("SET",
-            "SET <attr> = <value>\nSET <attr> = LOOKUP \"<display>\"\nSET <attr> = ID \"<key>\"\nSET <attr> = null",
+            "SET <attr> = <value>\nSET <attr> = LOOKUP \"<display>\"\nSET <attr> = ID \"<key>\"\nSET <attr> = FILE \"<path>\"\nSET <attr> = null",
             "Change an attribute value.",
             "Writes an attribute. A bare value is a literal write (reference attrs auto-resolve via "
             + "Options/Lookup). `LOOKUP` matches `Options[].DisplayValue`; `ID` matches the raw key; "
-            + "`null` clears the attribute.",
-            ["SET Name = \"Acme Corp\"", "SET Status = LOOKUP \"Active\"", "SET Notes = null"],
+            + "`FILE` reads a file (relative to the script dir / --file-root, can't escape it) into a "
+            + "BinaryFile/Image attribute; `null` clears the attribute.",
+            ["SET Name = \"Acme Corp\"", "SET Status = LOOKUP \"Active\"", "SET Photo = FILE \"fixtures/avatar.png\"", "SET Notes = null"],
             "edit", []),
 
         new("ACTION",
@@ -180,13 +181,14 @@ public static class VerbCatalog
             "query", []),
 
         new("EXPECT",
-            "EXPECT <subject> <op> <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>",
+            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <subject> IS [NOT] <flag>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>",
             "Assert on session/PO/query state.",
             "Asserts on `NavStack.*`, `TotalItems`, `Selection.*`, `IsInEdit`, `ClientOperation`, "
             + "`RetryDialog.*` (Title / Message / Options of an open server retry), attributes, "
-            + "notifications, and round-tripped metadata. `MATCHES` is a regex assertion (1s ReDoS "
-            + "guard). `Detail \"<name>\"` redirects query-family subjects.",
-            ["EXPECT Status = \"Approved\"", "EXPECT TotalItems >= 1", "EXPECT Code MATCHES \"^[A-Z]{2}\\d+$\""],
+            + "notifications, and round-tripped metadata. `= ID \"<id>\"` / `!= ID` compares a reference "
+            + "attribute by its document id (ObjectId), symmetric with `SET <ref> = ID`. `MATCHES` is a "
+            + "regex assertion (1s ReDoS guard). `Detail \"<name>\"` redirects query-family subjects.",
+            ["EXPECT Status = \"Approved\"", "EXPECT Customer = ID \"people/acme\"", "EXPECT TotalItems >= 1", "EXPECT Code MATCHES \"^[A-Z]{2}\\d+$\""],
             "assert", []),
 
         new("TOOL",

@@ -31,6 +31,7 @@ public sealed class VidyanoScriptOptions
         Seed = source.Seed;
         EnvLookup = source.EnvLookup;
         EnvironmentPrefix = source.EnvironmentPrefix;
+        FileRoot = source.FileRoot;
         foreach (var kv in source.Variables) Variables[kv.Key] = kv.Value;
         foreach (var kv in source.Tools) Tools[kv.Key] = kv.Value;
     }
@@ -120,4 +121,14 @@ public sealed class VidyanoScriptOptions
     /// binding reads the live process environment, not <see cref="EnvLookup"/>.
     /// </summary>
     public string? EnvironmentPrefix { get; set; }
+
+    /// <summary>
+    /// Root directory that <c>SET attr = FILE "&lt;path&gt;"</c> paths resolve against and are confined to.
+    /// A relative FILE path is taken relative to this root; the resolved path must stay inside it
+    /// (<c>..</c> traversal, absolute, and drive-qualified paths are rejected with <c>resolve-file</c>), so
+    /// a script can never read outside the configured root. When unset, the root defaults to the directory
+    /// of the running script (<see cref="SourcePath"/>), falling back to the current directory for an inline
+    /// body. A relative <see cref="FileRoot"/> is itself resolved against the current directory.
+    /// </summary>
+    public string? FileRoot { get; set; }
 }

@@ -1,0 +1,33 @@
+### EXPECT <ref> = ID and SET <attr> = FILE
+###
+### This file lints cleanly with no backend. It demonstrates two write/assert ergonomics:
+###
+###   1. SET <attr> = FILE "<path>" — attach a file to a BinaryFile/Image attribute. The file is
+###      read off disk and formatted for the attribute's data type automatically (BinaryFile gets
+###      "<filename>|<base64>", Image gets bare base64). Paths are relative to the script's directory
+###      (or --file-root) and CANNOT escape that root — '..', absolute, and drive-qualified paths are
+###      rejected. No more hand-building the "filename|base64" wire string and injecting it via --var.
+###
+###   2. EXPECT <ref> = ID "<id>" — assert a reference attribute by the document it points at (its
+###      ObjectId), symmetric with SET <ref> = ID "<id>". A plain EXPECT <ref> = "..." compares the
+###      display value; = ID compares the stable underlying id. Only = / != accept ID, and only on a
+###      reference attribute.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+OPEN MenuItem Customers
+OPEN-ROW 0
+EDIT
+
+### Set a reference by id, then assert it resolved to exactly that document.
+SET Owner = ID "people/alice"
+EXPECT Owner = ID "people/alice"
+EXPECT Owner != ID "people/bob"
+
+### Attach a file. The path is relative to this script's directory (samples/), confined to the
+### --file-root (default: the script directory). The data type decides the wire format.
+SET Logo = FILE "fixtures/acme-logo.png"
+
+SAVE

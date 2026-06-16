@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +27,7 @@ public sealed class Interpreter
     private readonly CancellationToken _cancellationToken;
     private readonly DateTimeOffset? _now;
     private readonly int? _seed;
+    private readonly string? _fileRoot;
     private GuardMode _mode = GuardMode.Navigation;
     private bool _statementsExecuted;
 
@@ -56,7 +58,8 @@ public sealed class Interpreter
         DateTimeOffset? now = null,
         int? seed = null,
         Func<string, string?>? envLookup = null,
-        string? envPrefix = null)
+        string? envPrefix = null,
+        string? fileRoot = null)
     {
         _sessions = sessions;
         _vars = initialVars is null
@@ -70,6 +73,7 @@ public sealed class Interpreter
         _cancellationToken = cancellationToken;
         _now = now;
         _seed = seed;
+        _fileRoot = fileRoot;
         BindEnvPrefix(envPrefix);
         ResetRunState();
     }
@@ -573,11 +577,74 @@ public sealed class Interpreter
     {
         var v = EvaluateExpression(s.Value);
         if (!v.Ok) return Fail(s, v.Error!);
+
+        // SET attr = FILE "<path>" — the RHS is a path. Read the file (confined to the FILE root) and hand
+        // the (name, bytes) to the session, which formats it for the target attribute's data type
+        // (BinaryFile → "<name>|<base64>", Image → base64). FILE never combines with a reference hint (the
+        // parser enforces one keyword), so the regular hint path below only runs for non-FILE writes.
+        if (s.ValueKind == SetValueKind.File)
+        {
+            var file = ReadContainedFile(AsString(v.Value), s.Location);
+            if (!file.Ok) return Fail(s, file.Error!);
+            var (fileName, bytes) = file.Value;
+            var fileRes = s.Scope is null
+                ? await Current.SetFileAttributeAsync(s.Attribute, fileName, bytes, s.Location).ConfigureAwait(false)
+                : await Current.SetScopedFileAttributeAsync(s.Scope, s.Attribute, fileName, bytes, s.Location).ConfigureAwait(false);
+            return Wrap(s, fileRes);
+        }
+
         ReferenceHint? hint = s.Hint is null ? null : new ReferenceHint(s.Hint.Value, AsString(v.Value));
         var res = s.Scope is null
             ? await Current.SetAttributeAsync(s.Attribute, v.Value, s.Location, hint).ConfigureAwait(false)
             : await Current.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location).ConfigureAwait(false);
         return Wrap(s, res);
+    }
+
+    /// <summary>Reads the file named by <paramref name="rawPath"/> for a <c>SET … = FILE</c>, confined to the
+    /// FILE root: the path is resolved against (and must stay inside) <see cref="_fileRoot"/> when set,
+    /// otherwise the running script's directory, otherwise the current directory. A path that escapes the
+    /// root (<c>..</c> traversal, absolute, or drive-qualified) or names a missing/unreadable file fails
+    /// loudly with <see cref="ErrorKind.ResolveFile"/>. Returns the file's name and bytes; the data-type
+    /// formatting is the session's job.</summary>
+    private OpResult<(string FileName, byte[] Data)> ReadContainedFile(string? rawPath, SourceLocation loc)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
+            return OpResult<(string, byte[])>.Fail(new Diagnostic(ErrorKind.ResolveFile,
+                "SET … = FILE needs a file path.", loc, Hint: "SET Photo = FILE \"fixtures/avatar.png\""));
+
+        var root = FileRootDirectory(loc.SourcePath);
+        if (!SafePath.TryResolveContained(root, rawPath!, out var resolved))
+            return OpResult<(string, byte[])>.Fail(new Diagnostic(ErrorKind.ResolveFile,
+                $"FILE path '{rawPath}' is outside the allowed root ({root}).", loc,
+                Hint: "FILE paths are relative to the script directory (or --file-root); '..', absolute, and drive-qualified paths are rejected."));
+
+        if (!File.Exists(resolved))
+            return OpResult<(string, byte[])>.Fail(new Diagnostic(ErrorKind.ResolveFile,
+                $"FILE not found: {resolved}", loc));
+
+        byte[] bytes;
+        try
+        {
+            bytes = File.ReadAllBytes(resolved);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return OpResult<(string, byte[])>.Fail(new Diagnostic(ErrorKind.ResolveFile,
+                $"FILE could not be read: {resolved} ({ex.Message})", loc));
+        }
+
+        return OpResult<(string, byte[])>.Success((Path.GetFileName(resolved), bytes));
+    }
+
+    /// <summary>The directory FILE paths are confined to: the configured <see cref="_fileRoot"/> (resolved
+    /// against the current directory if relative), else the running script's directory, else the current
+    /// directory for an inline body.</summary>
+    private string FileRootDirectory(string? sourcePath)
+    {
+        if (!string.IsNullOrEmpty(_fileRoot))
+            return Path.GetFullPath(_fileRoot!);
+        var dir = string.IsNullOrEmpty(sourcePath) ? null : Path.GetDirectoryName(sourcePath);
+        return string.IsNullOrEmpty(dir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(dir!);
     }
 
     private async Task<StatementResult> DoAction(ActionStmt a)
@@ -902,6 +969,24 @@ public sealed class Interpreter
             ex.Location));
     }
 
+    /// <summary>The value an attribute assertion compares against. With <see cref="ReferenceHintKind.RawId"/>
+    /// (the <c>EXPECT &lt;ref&gt; = ID "..."</c> form) a reference attribute resolves to the referenced
+    /// document id (<c>ObjectId</c>), symmetric with <c>SET &lt;ref&gt; = ID "..."</c>; any other attribute
+    /// keeps its display value. <c>= ID</c> on a non-reference attribute is a usage error, not a silent
+    /// fall-through to the display value.</summary>
+    private static OpResult<object?> AttributeComparand(PersistentObjectAttribute attr, ReferenceHintKind? hint, SourceLocation loc)
+    {
+        if (hint != ReferenceHintKind.RawId)
+            return OpResult<object?>.Success(attr.Value);
+        if (attr is PersistentObjectAttributeWithReference reference)
+            return OpResult<object?>.Success(reference.ObjectId);
+        return OpResult<object?>.Fail(new Diagnostic(
+            ErrorKind.ParseUnexpectedToken,
+            $"`= ID` compares a reference's document id, but attribute '{attr.Name}' is not a reference.",
+            loc,
+            Hint: "Drop `ID` to compare the display value, or target a reference attribute."));
+    }
+
     private OpResult<object?> ResolveExpectSubject(ExpectSubject subj, SourceLocation loc)
     {
         var po = Current.CurrentPo;
@@ -948,7 +1033,7 @@ public sealed class Interpreter
                 {
                     if (subj.Scope is not null)
                     {
-                        var scopedAttr = Current.GetScopedAttributeValue(subj.Scope, subj.Name!, loc);
+                        var scopedAttr = Current.GetScopedAttributeValue(subj.Scope, subj.Name!, loc, subj.Hint);
                         if (scopedAttr.Ok) return scopedAttr;
                         // `@scope.Prop` may be a PO scalar (FullTypeName, Type, IsNew, …) rather
                         // than an attribute — common for @initial where the script wants to
@@ -990,7 +1075,7 @@ public sealed class Interpreter
                         return Fail<object?>(new Diagnostic(ErrorKind.GuardAttributeHidden,
                             $"Attribute '{subj.Name}' exists on {po.Type} but is hidden — the UI cannot read it.",
                             loc));
-                    return OpResult<object?>.Success(attr.Value);
+                    return AttributeComparand(attr, subj.Hint, loc);
                 }
             case ExpectSubjectKind.Action:
                 {

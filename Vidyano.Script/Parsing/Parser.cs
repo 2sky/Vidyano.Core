@@ -543,17 +543,21 @@ public sealed class Parser
             return null;
         }
 
-        // Optional reference-resolution hint: SET attr = LOOKUP "..." | ID "..."
+        // Optional RHS form keyword: SET attr = LOOKUP "..." | ID "..." | FILE "...".
+        // LOOKUP/ID are reference-resolution hints; FILE is a value source (read a file → service
+        // string). They are mutually exclusive, so one if/else chain covers all three.
         ReferenceHintKind? hint = null;
+        var valueKind = SetValueKind.Value;
         if (Peek().Kind == TokenKind.Identifier)
         {
             if (string.Equals(Peek().Lexeme, "LOOKUP", StringComparison.OrdinalIgnoreCase)) { Advance(); hint = ReferenceHintKind.Lookup; }
             else if (string.Equals(Peek().Lexeme, "ID",   StringComparison.OrdinalIgnoreCase)) { Advance(); hint = ReferenceHintKind.RawId; }
+            else if (string.Equals(Peek().Lexeme, "FILE", StringComparison.OrdinalIgnoreCase)) { Advance(); valueKind = SetValueKind.File; }
         }
 
         var value = ParseValueExpression();
         if (value == null) return null;
-        return new SetStmt(null, attrName, value, hint, loc, scope);
+        return new SetStmt(null, attrName, value, hint, loc, scope, valueKind);
     }
 
     /// <summary>Reads an attribute name token sequence of the form <c>Identifier (. Identifier)*</c>
@@ -1037,7 +1041,7 @@ public sealed class Parser
             return null;
         }
 
-        // <op> <value>
+        // <op> [ID] <value>
         if (!TryParseCompareOp(out var cmp))
         {
             Error(ErrorKind.ParseExpected,
@@ -1045,6 +1049,32 @@ public sealed class Parser
                 Peek().Location);
             return null;
         }
+
+        // Optional `ID` after the operator: compare a reference attribute by its document id,
+        // symmetric with `SET <ref> = ID "..."`. Consumed here because ParseValueExpression would
+        // otherwise swallow the bare `ID` token as an identifier and leave the string dangling.
+        if (Peek().Kind == TokenKind.Identifier &&
+            string.Equals(Peek().Lexeme, "ID", StringComparison.OrdinalIgnoreCase))
+        {
+            var idTok = Advance();
+            if (subject.Kind != ExpectSubjectKind.Attribute)
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "`ID` after the operator is only valid for a reference attribute subject.",
+                    idTok.Location,
+                    hint: "EXPECT Customer = ID \"people/acme\"");
+                return null;
+            }
+            if (cmp is not (ExpectOp.Eq or ExpectOp.NotEq))
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "`= ID` / `!= ID` are the only id comparisons — a document id has no ordering.",
+                    idTok.Location);
+                return null;
+            }
+            subject = subject with { Hint = ReferenceHintKind.RawId };
+        }
+
         var rhs = ParseValueExpression();
         if (rhs == null) return null;
         return (subject, cmp, rhs);
