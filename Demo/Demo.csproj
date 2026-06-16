@@ -5,9 +5,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RootNamespace>Demo</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The full Vidyano server library (brings the Minimal API + the Microsoft.AspNetCore.App
+         framework reference); Vidyano.Core supplies the client this demo drives the server with. -->
+    <PackageReference Include="Vidyano" Version="6.0.20260615.6438" />
     <ProjectReference Include="..\Vidyano.Core\Vidyano.Core.csproj" />
   </ItemGroup>
 

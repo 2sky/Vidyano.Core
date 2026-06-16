@@ -72,12 +72,12 @@ When updating versions:
 ## Development Notes
 
 ### Demo Application
-The solution includes a Demo console application that connects to https://demo.vidyano.com. Use this to:
-- Test library functionality
+The solution includes a Demo console application that boots a **full Vidyano app in-process** (via the `Vidyano` package's Minimal API) on a Kestrel localhost port, then drives it with a `Vidyano.Core` client over real HTTP. It is fully self-contained — no `demo.vidyano.com`, no database, no config — so it runs offline. Use this to:
+- Test library functionality (client + server in one process)
 - Verify API changes work correctly
-- Demonstrate usage patterns to developers
+- Demonstrate usage patterns to developers (Minimal API model in `DemoModel.cs`, client flow in `Program.cs`)
 
-To run the demo:
+The model is the same "shop" shape the `.visc` integration tests use (products in categories), minus their test-only hooks. To run the demo:
 ```bash
 cd Demo
 dotnet run
