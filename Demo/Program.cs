@@ -24,7 +24,7 @@ builder.AddVidyanoMinimal<DemoContext>(vidyano => vidyano
     .WithMenuItem("Products")
     .WithMenuItem("ProductCategories"));
 
-var app = builder.Build();
+await using var app = builder.Build();
 app.UseVidyano(app.Environment, app.Configuration);
 await app.StartAsync();
 
@@ -84,7 +84,8 @@ try
         for (var i = 0; i < products.Count; i++)
         {
             var item = products[i];
-            Console.WriteLine($"  [{item.Id}] {item["Name"]} — Color: {item["Color"]}, Category: {item["Category"]}");
+            if (item is not null)
+                Console.WriteLine($"  [{item.Id}] {item["Name"]} — Color: {item["Color"]}, Category: {item["Category"]}");
         }
     }
 
@@ -97,7 +98,5 @@ catch (Exception ex)
     if (ex.InnerException != null)
         Console.WriteLine($"   Inner: {ex.InnerException.Message}");
 }
-finally
-{
-    await app.StopAsync();
-}
+
+// `await using var app` above gracefully stops Kestrel and disposes the host at scope exit.
