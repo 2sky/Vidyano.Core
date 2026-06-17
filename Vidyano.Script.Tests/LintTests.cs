@@ -244,6 +244,19 @@ public sealed class LintTests
             $"expect-by-id-and-file.visc should lint clean, got: {string.Join("; ", diags.Select(d => $"{d.Kind}: {d.Message}"))}");
     }
 
+    [Fact]
+    public void ExpectsSample_LintsClean()
+    {
+        // The sample reads {{region}}/{{tenant}} but never assigns them — Lint() gets no expectedVariables,
+        // so this is clean ONLY because the sample's `@expects region, tenant` declares them.
+        var path = SamplePath("expects.visc");
+        Assert.True(File.Exists(path), $"Sample not found at {path}");
+        var body = File.ReadAllText(path);
+        var diags = VidyanoScript.Lint(body, path);
+        Assert.True(diags.Count == 0,
+            $"expects.visc should lint clean, got: {string.Join("; ", diags.Select(d => $"{d.Kind}: {d.Message}"))}");
+    }
+
     private static string SamplePath(string fileName)
     {
         // Walk up from the test assembly's location to the repo root, then into the tool samples.

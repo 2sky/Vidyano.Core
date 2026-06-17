@@ -1,0 +1,24 @@
+### @expects — declaring host-supplied variables
+###
+### This file lints cleanly with no backend. It demonstrates the @expects directive: a runtime-safe,
+### in-file declaration of variables the HOST injects at run time (VidyanoScriptOptions.Variables /
+### --var / --env-prefix) rather than the script assigning them.
+###
+### Without @expects, opening this file in an editor would flag every {{region}} / {{tenant}} as
+### "Variable is not defined" — the static lint can't see the host's bindings. @expects declares them:
+###   - the lint counts the names as declared, so the reads are clean;
+###   - the interpreter treats the line as a NO-OP — it never binds the variables, so the host value is
+###     still required and is NEVER overwritten (unlike the @a = "{{a}}" self-assign hack);
+###   - an unsupplied declared variable still loud-fails (resolve-variable) the moment it's first read.
+###
+### Run it with the values supplied: vidyano run expects.visc --var region=eu --var tenant=acme
+
+@app = "https://demo.vidyano.com"
+@expects region, tenant
+
+SIGN-IN admin / admin
+
+### {{region}} / {{tenant}} resolve to the host-supplied values; lint-clean thanks to @expects above.
+OPEN MenuItem Shop/{{region}}/Products
+SEARCH "{{tenant}}"
+EXPECT TotalItems >= 0

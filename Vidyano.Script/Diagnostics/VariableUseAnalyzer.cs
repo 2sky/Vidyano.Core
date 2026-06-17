@@ -37,10 +37,11 @@ internal static class VariableUseAnalyzer
                 if (name is not null) // public API param — an ordinal HashSet throws on a null element
                     declared.Add(name);
 
-        // First pass: every name the script binds. `@x =` assignments and TOOL `-> @result` captures
-        // populate the variable table at runtime; a REPEAT `AS @i` / FOR-EACH `AS @row` binds a
-        // loop-scoped name read in the body ({{i}} / {{row.…}}). All make a later read legal. Loop bodies
-        // are walked recursively so a binding inside a nested loop is seen too.
+        // First pass: every name the script binds or declares. `@x =` assignments and TOOL `-> @result`
+        // captures populate the variable table at runtime; a REPEAT `AS @i` / FOR-EACH `AS @row` binds a
+        // loop-scoped name read in the body ({{i}} / {{row.…}}); `@expects a, b` declares names the host
+        // supplies at run time (no binding, just a promise). All make a later read legal. Loop bodies are
+        // walked recursively so a binding inside a nested loop is seen too.
         foreach (var step in script.Steps)
             CollectDeclarations(step.Statements, declared);
 
@@ -68,13 +69,16 @@ internal static class VariableUseAnalyzer
 
     /// <summary>Walks a statement list (a step's body or a loop's body), adding every name it binds to
     /// <paramref name="declared"/> and recursing into loop bodies. A loop's <c>AS @i</c> / <c>AS @row</c>
-    /// binds a name the body may read, so it counts as a declaration the same as <c>@x = …</c>.</summary>
+    /// binds a name the body may read, so it counts as a declaration the same as <c>@x = …</c>; an
+    /// <c>@expects a, b</c> directive declares host-supplied names the same way (the host binds them at
+    /// run time, so a read is legal even though the script never assigns them).</summary>
     private static void CollectDeclarations(IReadOnlyList<Statement> statements, HashSet<string> declared)
     {
         foreach (var stmt in statements)
         {
             switch (stmt)
             {
+                case ExpectsDirective ed: foreach (var n in ed.Names) declared.Add(n); break;
                 case VariableAssignment va: declared.Add(va.Name); break;
                 case ToolCallStmt { ResultVariable: { } rv }: declared.Add(rv); break;
                 case RepeatStmt r:
