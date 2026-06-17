@@ -221,6 +221,21 @@ namespace Vidyano.ViewModel
             if (IsReadOnly)
                 return false;
 
+            // A TranslatedString carries its translations in OptionsDirect[0] — the channel the server reads
+            // back on save — not in Value. The normal value channel (UI bindings, SetValueAsync) must still
+            // work, so route it through UpdateTranslations or the edit is silently lost on save: a passed
+            // TranslatedString replaces the whole map; a plain value is the current-language translation,
+            // merged over the rest.
+            if (Type == DataTypes.TranslatedString)
+            {
+                if (value is TranslatedString translations)
+                    return UpdateTranslations(translations);
+
+                var merged = (TranslatedString)this ?? new TranslatedString();
+                merged[GetCurrentLanguage()] = value as string ?? Client.ToServiceString(value);
+                return UpdateTranslations(merged);
+            }
+
             if (SetProperty(Client.ToServiceString(value), "Value"))
             {
                 IsValueChanged = true;

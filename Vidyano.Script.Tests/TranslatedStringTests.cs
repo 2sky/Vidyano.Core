@@ -134,6 +134,15 @@ public sealed class TranslatedStringTests
     }
 
     [Fact]
+    public void FromJson_NestedNonStringValue_IsNullNotThrow()
+    {
+        // The contract is "error-free counterpart of ToString": a valid JSON object whose values aren't
+        // plain strings (a nested object/array) must yield null, not throw on the per-property cast.
+        Assert.Null(TranslatedString.FromJson("{\"en\":{\"nested\":\"value\"}}"));
+        Assert.Null(TranslatedString.FromJson("{\"en\":[1,2,3]}"));
+    }
+
+    [Fact]
     public void Indexer_MissingLanguage_IsEmptyString_AndCaseInsensitive()
     {
         var ts = TranslatedString.FromJson("{\"nl\":\"Hulpmiddel\"}")!;

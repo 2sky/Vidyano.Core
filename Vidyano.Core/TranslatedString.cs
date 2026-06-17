@@ -84,20 +84,21 @@ namespace Vidyano
             if (string.IsNullOrEmpty(json))
                 return null;
 
-            JObject obj;
+            // Lenient by contract: any parse/shape surprise (not a JSON object, a nested object/array value
+            // that can't cast to string, …) yields null rather than throwing. The map loop is inside the try
+            // because the per-property cast can throw on unexpected nested JSON.
             try
             {
-                obj = JObject.Parse(json!);
+                var obj = JObject.Parse(json!);
+                var result = new TranslatedString();
+                foreach (var property in obj.Properties())
+                    result.translations[property.Name] = (string?)property.Value ?? string.Empty;
+                return result;
             }
             catch
             {
                 return null;
             }
-
-            var result = new TranslatedString();
-            foreach (var property in obj.Properties())
-                result.translations[property.Name] = (string?)property.Value ?? string.Empty;
-            return result;
         }
 
         /// <summary>The Vidyano wire form: a JSON object of language→string, e.g.

@@ -222,6 +222,38 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task TranslatedString_SetValueAsync_PersistsThroughOptions()
+    {
+        // The .visc SET path routes a TranslatedString through SetCurrentTranslationAsync, so only a direct
+        // Core test covers the standard value channel (SetValueAsync -> UpdateValue) a UI binding uses. That
+        // channel MUST write the translation map (OptionsDirect[0], the server's save channel), not just
+        // Value — otherwise the save sends a stale map and the edit is silently lost (Gemini, PR #42). With
+        // the bug, the reloaded current-language Value would still read the seed; with the fix it round-trips.
+        var conn = await _app.Backend.StartAsync();
+        var client = new Client(conn.HttpClient) { Uri = conn.BaseUri };
+        await client.SignInUsingCredentialsAsync("admin", "admin");
+
+        var po = await client.GetPersistentObjectAsync("Product", "1"); // Widget: en=Widget, nl=Hulpmiddel, de=Werkzeug
+        po.Edit();
+        await po["Title"].SetValueAsync("Widget-via-value");            // the normal value channel
+        await po.Save();
+
+        var reloaded = await client.GetPersistentObjectAsync("Product", "1");
+        var title = reloaded["Title"];
+
+        // (a) the current-language edit persisted — fails if UpdateValue wrote only Value (stale Options[0]).
+        Assert.Equal("Widget-via-value", (string)title.Value);
+
+        // (b) the untouched languages survived — proof the whole map round-tripped through Options[0], not
+        //     just the one Value slot. Two of the three distinct seed values must remain.
+        var all = (TranslatedString)title;
+        Assert.NotNull(all);
+        var seedSurvivors = new[] { "Widget", "Hulpmiddel", "Werkzeug" }
+            .Count(seed => all!.Languages.Any(lang => all[lang] == seed));
+        Assert.Equal(2, seedSurvivors);
+    }
+
+    [Fact]
     public async Task Confirm_AnswersRetryDialog()
     {
         AssertOk(await Run("""
