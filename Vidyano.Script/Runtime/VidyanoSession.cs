@@ -1006,7 +1006,7 @@ public sealed class VidyanoSession : IDisposable
     ///   override the search text, or <see cref="ReferenceHint.RawId"/> to bypass the lookup entirely.</item>
     /// </list>
     /// </remarks>
-    public async Task<OpResult> SetAttributeAsync(string name, object? value, SourceLocation loc, GuardMode mode, ReferenceHint? hint = null)
+    public async Task<OpResult> SetAttributeAsync(string name, object? value, SourceLocation loc, GuardMode mode = GuardMode.Navigation, ReferenceHint? hint = null)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
         return await SetAttributeOnAsync(CurrentPo, name, value, loc, mode, hint).ConfigureAwait(false);
@@ -1016,7 +1016,7 @@ public sealed class VidyanoSession : IDisposable
     /// <c>SET attr = FILE "..."</c> verb). The wire value depends on the attribute's data type — handled in
     /// <see cref="SetAttributeOnAsync"/> — so callers pass the raw file name and bytes, not a pre-formatted
     /// service string.</summary>
-    public async Task<OpResult> SetFileAttributeAsync(string name, string fileName, byte[] data, SourceLocation loc, GuardMode mode)
+    public async Task<OpResult> SetFileAttributeAsync(string name, string fileName, byte[] data, SourceLocation loc, GuardMode mode = GuardMode.Navigation)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
         return await SetAttributeOnAsync(CurrentPo, name, value: null, loc, mode, hint: null, file: (fileName, data)).ConfigureAwait(false);
@@ -1052,13 +1052,9 @@ public sealed class VidyanoSession : IDisposable
         {
             switch (mode)
             {
-                case GuardMode.Navigation:
-                    return OpResult.Fail(new Diagnostic(
-                        ErrorKind.GuardAttributeHidden,
-                        $"Attribute '{name}' exists on {po.Type} but is hidden — the standard UI would not allow setting it.",
-                        loc,
-                        Hint: "A custom web component can still set a hidden attribute; use @mode = direct (or audit) to allow it.",
-                        Details: new Dictionary<string, object?> { ["attribute"] = name, ["isVisible"] = false }));
+                case GuardMode.Direct:
+                    // Allow silently — the documented escape hatch for the custom-component path.
+                    break;
                 case GuardMode.Audit:
                     hiddenWarning = new Diagnostic(
                         ErrorKind.GuardAttributeHidden,
@@ -1067,7 +1063,16 @@ public sealed class VidyanoSession : IDisposable
                         Hint: "Allowed because @mode = audit; direct mode allows it silently, navigation mode rejects it.",
                         Details: new Dictionary<string, object?> { ["attribute"] = name, ["isVisible"] = false });
                     break;
-                // GuardMode.Direct: allow silently — the documented escape hatch for the custom-component path.
+                case GuardMode.Navigation:
+                default:
+                    // Reject. The default arm fails safe: a future mode that hasn't opted into the hidden
+                    // escape hatch gets the strict behaviour rather than silently allowing a hidden write.
+                    return OpResult.Fail(new Diagnostic(
+                        ErrorKind.GuardAttributeHidden,
+                        $"Attribute '{name}' exists on {po.Type} but is hidden — the standard UI would not allow setting it.",
+                        loc,
+                        Hint: "A custom web component can still set a hidden attribute; use @mode = direct (or audit) to allow it.",
+                        Details: new Dictionary<string, object?> { ["attribute"] = name, ["isVisible"] = false }));
             }
         }
 
@@ -1394,7 +1399,7 @@ public sealed class VidyanoSession : IDisposable
     /// <summary>Sets an attribute on a scoped PO. Same edit/guard/reference-resolution semantics
     /// as <see cref="SetAttributeAsync"/>, but targeting <see cref="Vidyano.Client.Session"/> (or, in
     /// the future, <c>@user</c>/<c>@application</c>) instead of the navigation-stack top.</summary>
-    public async Task<OpResult> SetScopedAttributeAsync(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc, GuardMode mode)
+    public async Task<OpResult> SetScopedAttributeAsync(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc, GuardMode mode = GuardMode.Navigation)
     {
         var poRes = ResolveScopePo(scope, loc);
         if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
@@ -1403,7 +1408,7 @@ public sealed class VidyanoSession : IDisposable
 
     /// <summary>Scoped counterpart of <see cref="SetFileAttributeAsync"/> — attaches a file to a
     /// <c>BinaryFile</c>/<c>Image</c> attribute on a scoped PO (<c>SET @scope.attr = FILE "..."</c>).</summary>
-    public async Task<OpResult> SetScopedFileAttributeAsync(string scope, string attributeName, string fileName, byte[] data, SourceLocation loc, GuardMode mode)
+    public async Task<OpResult> SetScopedFileAttributeAsync(string scope, string attributeName, string fileName, byte[] data, SourceLocation loc, GuardMode mode = GuardMode.Navigation)
     {
         var poRes = ResolveScopePo(scope, loc);
         if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
