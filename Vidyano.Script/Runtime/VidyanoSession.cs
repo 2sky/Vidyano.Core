@@ -991,8 +991,9 @@ public sealed class VidyanoSession : IDisposable
 
     /// <summary>
     /// Sets an attribute. Distinguishes four cases and uses a different <see cref="ErrorKind"/> for each:
-    /// the attribute doesn't exist (typo → suggest), it exists but is hidden, it exists but is read-only,
-    /// and the PO isn't in edit mode (auto-enter, with a warning diagnostic so the script author sees it).
+    /// the attribute doesn't exist (typo → suggest), it exists but is hidden (mode-dependent — see
+    /// <see cref="SetAttributeOnAsync"/>), it exists but is read-only, and the PO isn't in edit mode
+    /// (auto-enter, with a warning diagnostic so the script author sees it).
     /// </summary>
     /// <remarks>
     /// For reference attributes (<see cref="PersistentObjectAttributeWithReference"/>) the runner does
@@ -1005,27 +1006,35 @@ public sealed class VidyanoSession : IDisposable
     ///   override the search text, or <see cref="ReferenceHint.RawId"/> to bypass the lookup entirely.</item>
     /// </list>
     /// </remarks>
-    public async Task<OpResult> SetAttributeAsync(string name, object? value, SourceLocation loc, ReferenceHint? hint = null)
+    public async Task<OpResult> SetAttributeAsync(string name, object? value, SourceLocation loc, GuardMode mode = GuardMode.Navigation, ReferenceHint? hint = null)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
-        return await SetAttributeOnAsync(CurrentPo, name, value, loc, hint).ConfigureAwait(false);
+        return await SetAttributeOnAsync(CurrentPo, name, value, loc, mode, hint).ConfigureAwait(false);
     }
 
     /// <summary>Attaches a file to a <c>BinaryFile</c>/<c>Image</c> attribute on the current PO (the
     /// <c>SET attr = FILE "..."</c> verb). The wire value depends on the attribute's data type — handled in
     /// <see cref="SetAttributeOnAsync"/> — so callers pass the raw file name and bytes, not a pre-formatted
     /// service string.</summary>
-    public async Task<OpResult> SetFileAttributeAsync(string name, string fileName, byte[] data, SourceLocation loc)
+    public async Task<OpResult> SetFileAttributeAsync(string name, string fileName, byte[] data, SourceLocation loc, GuardMode mode = GuardMode.Navigation)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
-        return await SetAttributeOnAsync(CurrentPo, name, value: null, loc, hint: null, file: (fileName, data)).ConfigureAwait(false);
+        return await SetAttributeOnAsync(CurrentPo, name, value: null, loc, mode, hint: null, file: (fileName, data)).ConfigureAwait(false);
     }
 
     /// <summary>Sets an attribute on an explicit PO. Shared body between the implicit current-PO
     /// path (<see cref="SetAttributeAsync"/>) and the scoped path (<see cref="SetScopedAttributeAsync"/>).
     /// The only difference between callers is which PO they target — the hidden/readonly guards,
     /// the auto-enter-edit behaviour, and the reference-resolution branch are identical.</summary>
-    private async Task<OpResult> SetAttributeOnAsync(PersistentObject po, string name, object? value, SourceLocation loc, ReferenceHint? hint, (string FileName, byte[] Data)? file = null)
+    /// <remarks>
+    /// The hidden guard tiers with reachability rather than with read-only: <see cref="AttributeVisibility.Never"/>
+    /// only hides the field from the <em>default</em> editor, so a custom web component can still set it — and
+    /// Core's <see cref="PersistentObjectAttribute.UpdateValue"/> gates on read-only alone, never visibility.
+    /// So <c>navigation</c> enforces the standard-UI path (fail), <c>audit</c> allows the set but warns (the
+    /// custom-component path is observable), and <c>direct</c> allows it silently. Read-only stays a hard guard
+    /// in every mode (it is genuinely not settable, even by a custom component).
+    /// </remarks>
+    private async Task<OpResult> SetAttributeOnAsync(PersistentObject po, string name, object? value, SourceLocation loc, GuardMode mode, ReferenceHint? hint, (string FileName, byte[] Data)? file = null)
     {
         var attr = po.GetAttribute(name);
         if (attr is null)
@@ -1038,13 +1047,34 @@ public sealed class VidyanoSession : IDisposable
                 Hint: Suggester.Hint(name, candidates)));
         }
 
+        Diagnostic? hiddenWarning = null;
         if (!attr.IsVisible)
-            return OpResult.Fail(new Diagnostic(
-                ErrorKind.GuardAttributeHidden,
-                $"Attribute '{name}' exists on {po.Type} but is hidden — the UI would not allow setting it.",
-                loc,
-                Hint: "Use mode=direct only if you intend to bypass the UI guard.",
-                Details: new Dictionary<string, object?> { ["attribute"] = name, ["isVisible"] = false }));
+        {
+            switch (mode)
+            {
+                case GuardMode.Direct:
+                    // Allow silently — the documented escape hatch for the custom-component path.
+                    break;
+                case GuardMode.Audit:
+                    hiddenWarning = new Diagnostic(
+                        ErrorKind.GuardAttributeHidden,
+                        $"Setting hidden attribute '{name}' on {po.Type} — the standard UI would not show it; only a custom web component would.",
+                        loc,
+                        Hint: "Allowed because @mode = audit; direct mode allows it silently, navigation mode rejects it.",
+                        Details: new Dictionary<string, object?> { ["attribute"] = name, ["isVisible"] = false });
+                    break;
+                case GuardMode.Navigation:
+                default:
+                    // Reject. The default arm fails safe: a future mode that hasn't opted into the hidden
+                    // escape hatch gets the strict behaviour rather than silently allowing a hidden write.
+                    return OpResult.Fail(new Diagnostic(
+                        ErrorKind.GuardAttributeHidden,
+                        $"Attribute '{name}' exists on {po.Type} but is hidden — the standard UI would not allow setting it.",
+                        loc,
+                        Hint: "A custom web component can still set a hidden attribute; use @mode = direct (or audit) to allow it.",
+                        Details: new Dictionary<string, object?> { ["attribute"] = name, ["isVisible"] = false }));
+            }
+        }
 
         if (attr.IsReadOnly)
             return OpResult.Fail(new Diagnostic(
@@ -1057,6 +1087,7 @@ public sealed class VidyanoSession : IDisposable
         if (!po.IsInEdit)
             po.Edit();
 
+        OpResult result;
         // SET attr = FILE "..." — format the bytes for the attribute's data type and assign. A file is
         // only meaningful for BinaryFile/Image; any other type fails loudly rather than writing garbage.
         if (file is { } f)
@@ -1064,26 +1095,31 @@ public sealed class VidyanoSession : IDisposable
             var formatted = FormatFileValue(attr.Type, attr.Name, f.FileName, f.Data, loc);
             if (!formatted.Ok) return OpResult.Fail(formatted.Error!);
             await attr.SetValueAsync(formatted.Value).ConfigureAwait(false);
-            return OpResult.Success;
+            result = OpResult.Success;
         }
-
-        if (attr is PersistentObjectAttributeWithReference refAttr)
-            return await SetReferenceAttributeAsync(refAttr, value, loc, hint).ConfigureAwait(false);
-
+        else if (attr is PersistentObjectAttributeWithReference refAttr)
+        {
+            result = await SetReferenceAttributeAsync(refAttr, value, loc, hint).ConfigureAwait(false);
+        }
         // Non-reference Options-bearing attrs (KeyValueList / Dropdown / ComboBox) accept the same
         // LOOKUP/ID hints — resolve the value against Options[] and assign the matching Key. A bare
         // `SET X = "y"` (hint == null) keeps the literal-write behaviour for back-compat.
-        if (hint is not null && attr.Options is { Length: > 0 } options)
+        else if (hint is not null && attr.Options is { Length: > 0 } options)
         {
             var text = value as string ?? value?.ToString() ?? "";
             var resolved = ResolveOption(options, text, hint.Kind, loc, attr.Name);
             if (!resolved.Ok) return OpResult.Fail(resolved.Error!);
             await attr.SetValueAsync(resolved.Value).ConfigureAwait(false);
-            return OpResult.Success;
+            result = OpResult.Success;
+        }
+        else
+        {
+            await attr.SetValueAsync(value).ConfigureAwait(false);
+            result = OpResult.Success;
         }
 
-        await attr.SetValueAsync(value).ConfigureAwait(false);
-        return OpResult.Success;
+        // Carry the audit-mode hidden warning on the (successful) set, so it surfaces without failing the run.
+        return hiddenWarning is not null && result.Ok ? result.WithWarning(hiddenWarning) : result;
     }
 
     /// <summary>Resolves a user-supplied option text against an <c>Options[]</c> array, returning
@@ -1363,20 +1399,20 @@ public sealed class VidyanoSession : IDisposable
     /// <summary>Sets an attribute on a scoped PO. Same edit/guard/reference-resolution semantics
     /// as <see cref="SetAttributeAsync"/>, but targeting <see cref="Vidyano.Client.Session"/> (or, in
     /// the future, <c>@user</c>/<c>@application</c>) instead of the navigation-stack top.</summary>
-    public async Task<OpResult> SetScopedAttributeAsync(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc)
+    public async Task<OpResult> SetScopedAttributeAsync(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc, GuardMode mode = GuardMode.Navigation)
     {
         var poRes = ResolveScopePo(scope, loc);
         if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
-        return await SetAttributeOnAsync(poRes.Value!, attributeName, value, loc, hint).ConfigureAwait(false);
+        return await SetAttributeOnAsync(poRes.Value!, attributeName, value, loc, mode, hint).ConfigureAwait(false);
     }
 
     /// <summary>Scoped counterpart of <see cref="SetFileAttributeAsync"/> — attaches a file to a
     /// <c>BinaryFile</c>/<c>Image</c> attribute on a scoped PO (<c>SET @scope.attr = FILE "..."</c>).</summary>
-    public async Task<OpResult> SetScopedFileAttributeAsync(string scope, string attributeName, string fileName, byte[] data, SourceLocation loc)
+    public async Task<OpResult> SetScopedFileAttributeAsync(string scope, string attributeName, string fileName, byte[] data, SourceLocation loc, GuardMode mode = GuardMode.Navigation)
     {
         var poRes = ResolveScopePo(scope, loc);
         if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
-        return await SetAttributeOnAsync(poRes.Value!, attributeName, value: null, loc, hint: null, file: (fileName, data)).ConfigureAwait(false);
+        return await SetAttributeOnAsync(poRes.Value!, attributeName, value: null, loc, mode, hint: null, file: (fileName, data)).ConfigureAwait(false);
     }
 
     /// <summary>
