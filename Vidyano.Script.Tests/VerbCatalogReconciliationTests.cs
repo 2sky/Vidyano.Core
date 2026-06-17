@@ -18,7 +18,7 @@ public sealed class VerbCatalogReconciliationTests
     private static readonly string[] HistoricalKnownVerbs =
     [
         "SIGN-IN", "SIGN-OUT", "USE", "OPEN", "OPEN-ROW", "GO-BACK", "FOLLOW",
-        "EDIT", "CANCEL", "SAVE", "REFRESH",
+        "EDIT", "CANCEL", "SAVE",
         "SET", "ACTION", "CONFIRM", "SEARCH", "SELECT-ROWS",
         "EXPECT",
         "TOOL",

@@ -106,6 +106,23 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task TriggersRefresh_OnRefresh_UpdatesOtherAttribute()
+    {
+        // Setting Product.Trigger (marked TriggersRefresh) round-trips through ProductActions.OnRefresh,
+        // which mirrors it into the unrelated Product.Echo. Regression for the client refresh path:
+        // SET -> SetValueAsync -> RefreshAttributesAsync, with the server-modified Echo flowing back so
+        // EXPECT sees a value the SET itself never wrote.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EDIT
+            SET Trigger = "Purple"
+            EXPECT Echo = "echo:Purple"
+            """));
+    }
+
+    [Fact]
     public async Task Follow_Reference_OpensTarget()
     {
         AssertOk(await Run("""

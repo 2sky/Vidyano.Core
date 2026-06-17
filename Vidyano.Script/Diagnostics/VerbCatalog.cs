@@ -23,8 +23,8 @@ public sealed record VerbInfo(
 /// can never drift between those surfaces again.
 /// </summary>
 /// <remarks>
-/// Historically there were two diverging lists: <c>Parser.KnownVerbs</c> (which carried
-/// <c>FOLLOW</c>/<c>REFRESH</c>) and the Tool's
+/// Historically there were two diverging lists: <c>Parser.KnownVerbs</c> (which carried verbs such as
+/// <c>FOLLOW</c>) and the Tool's
 /// syntax-form-keyed help table (which did not). This catalog reconciles them: it is keyed by bare
 /// verb name and MUST contain every verb the parser recognizes. The catalog-reconciliation guard test
 /// asserts that <c>Parser.KnownVerbs ⊆ VerbCatalog.Names</c>.
@@ -123,13 +123,6 @@ public static class VerbCatalog
             "Saves pending edits. `SAVE EXPECTING ERROR` asserts the negative path: it passes only if the "
             + "server returns an error notification, and fails if the save unexpectedly succeeds.",
             ["SAVE", "SAVE EXPECTING ERROR"],
-            "edit", []),
-
-        new("REFRESH",
-            "REFRESH",
-            "Re-fetch the current PO/query from the server.",
-            null,
-            ["REFRESH"],
             "edit", []),
 
         new("SET",

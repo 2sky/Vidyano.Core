@@ -76,7 +76,10 @@ namespace Vidyano.ViewModel
         public Option SelectedOption
         {
             get { return Options.FirstOrDefault(o => o.Key == ValueDirect); }
-            set => Value = value?.Key;
+
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            [Obsolete("Use SetValueAsync instead to ensure the UI is properly refreshed when the value changes. This method will not trigger a refresh and may cause the UI to be out of sync with the underlying data.", true)]
+            set => _ = SetValueAsync(value?.Key);
         }
 
         public string GroupName => GetProperty<string>("Group");
@@ -159,14 +162,12 @@ namespace Vidyano.ViewModel
         public object Value
         {
             get { return Client.FromServiceString(GetProperty<string>(), Type); }
+
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            [Obsolete("Use SetValueAsync instead to ensure the UI is properly refreshed when the value changes. This method will not trigger a refresh and may cause the UI to be out of sync with the underlying data.", true)]
             set
             {
-                if (UpdateValue(value) && Parent != null && TriggersRefresh)
-                {
-#pragma warning disable 4014
-                    Parent.RefreshAttributesAsync(this);
-#pragma warning restore 4014
-                }
+                _ = SetValueAsync(value);
             }
         }
 

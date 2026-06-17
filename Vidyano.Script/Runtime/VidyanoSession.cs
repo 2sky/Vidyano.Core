@@ -42,10 +42,10 @@ public sealed class VidyanoSession : IDisposable
     // The "is a retry from MY action?" gate is _withinInflight, an AsyncLocal set only inside the parkable
     // body (StartInflight). It flows into the action's async tree — and into the resumed continuation after
     // CONFIRM, since ExecutionContext is captured at each await — so a retry the action itself raises parks.
-    // It is NOT seen by the interpreter's own context, so an out-of-band server call started off that
-    // context — notably the FIRE-AND-FORGET PersistentObject.Refresh that a SET of a TriggersRefresh
-    // attribute kicks off (PersistentObjectAttribute.Value setter) while the dialog is open — auto-cancels
-    // ("-1") instead of racing into the hook and hijacking the park. A plain bool gate could not tell the
+    // It is NOT seen by the interpreter's own context, so a server call made off that context — notably
+    // the PersistentObject.Refresh that a SET of a TriggersRefresh attribute awaits
+    // (PersistentObjectAttribute.SetValueAsync) while the dialog is open — auto-cancels ("-1") if it
+    // raises its own retry, instead of hijacking the parked dialog. A plain bool gate could not tell the
     // two apart; AsyncLocal is also flow-isolated, so no volatile/barrier is needed on the gate.
     private readonly AsyncLocal<bool> _withinInflight = new();
     private volatile bool _disposing;                    // set in Dispose so a drained action's further retries cancel
@@ -987,20 +987,6 @@ public sealed class VidyanoSession : IDisposable
         }
     }
 
-    public async Task<OpResult> RefreshAsync(SourceLocation loc)
-    {
-        if (CurrentPo is null) return NoCurrentPo(loc);
-        try
-        {
-            await CurrentPo.RefreshAttributesAsync().ConfigureAwait(false);
-            return OpResult.Success;
-        }
-        catch (Exception ex)
-        {
-            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
-        }
-    }
-
     // --- set / action -------------------------------------------------------------------------
 
     /// <summary>
@@ -1077,7 +1063,7 @@ public sealed class VidyanoSession : IDisposable
         {
             var formatted = FormatFileValue(attr.Type, attr.Name, f.FileName, f.Data, loc);
             if (!formatted.Ok) return OpResult.Fail(formatted.Error!);
-            attr.Value = formatted.Value;
+            await attr.SetValueAsync(formatted.Value).ConfigureAwait(false);
             return OpResult.Success;
         }
 
@@ -1092,11 +1078,11 @@ public sealed class VidyanoSession : IDisposable
             var text = value as string ?? value?.ToString() ?? "";
             var resolved = ResolveOption(options, text, hint.Kind, loc, attr.Name);
             if (!resolved.Ok) return OpResult.Fail(resolved.Error!);
-            attr.Value = resolved.Value;
+            await attr.SetValueAsync(resolved.Value).ConfigureAwait(false);
             return OpResult.Success;
         }
 
-        attr.Value = value;
+        await attr.SetValueAsync(value).ConfigureAwait(false);
         return OpResult.Success;
     }
 

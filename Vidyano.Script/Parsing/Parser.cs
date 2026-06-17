@@ -146,7 +146,6 @@ public sealed class Parser
             "EDIT"        => new EditStmt(null, tok.Location),
             "CANCEL"      => new CancelStmt(null, tok.Location),
             "SAVE"        => ParseSave(tok.Location),
-            "REFRESH"     => new RefreshStmt(null, tok.Location),
             "SET"         => ParseSet(tok.Location),
             "ACTION"      => ParseAction(tok.Location),
             "CONFIRM"     => ParseConfirm(tok.Location),

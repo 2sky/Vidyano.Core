@@ -88,7 +88,6 @@ public static class ConsoleReporter
             EditStmt                   => "EDIT",
             CancelStmt                 => "CANCEL",
             SaveStmt sv                => sv.ExpectError ? "SAVE EXPECTING ERROR" : "SAVE",
-            RefreshStmt                => "REFRESH",
             SetStmt s                  => $"SET {Markup.Escape(s.Attribute)} = …",
             ActionStmt a               => $"ACTION {Markup.Escape(a.ActionName)}{(a.ExpectError ? " EXPECTING ERROR" : "")}",
             SearchStmt q               => q.DetailName is null ? "SEARCH …" : $"SEARCH Detail \"{Markup.Escape(q.DetailName)}\" …",
@@ -212,8 +211,6 @@ public static class ConsoleReporter
                 return $"error as expected{Notif(snap)}";
             case SaveStmt:
                 return $"saved{Notif(snap)}";
-            case RefreshStmt:
-                return snap?.Po is { } por ? $"refreshed {PoLine(por)}" : "refreshed";
             case SetStmt set:
                 return SetLine(set, snap);
             case ActionStmt { ExpectError: true }:

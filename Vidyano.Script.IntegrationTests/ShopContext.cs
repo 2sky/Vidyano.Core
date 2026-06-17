@@ -94,6 +94,17 @@ public sealed class Product
     public string Color { get; set; } = string.Empty;
     [Reference(typeof(ProductCategory))]
     public string? Category { get; set; }
+
+    // Nullable (like Category) so they're optional — a non-nullable string would be a required
+    // attribute and the empty seed value would fail SAVE validation in the other Product tests.
+
+    /// <summary>Marked <c>TriggersRefresh</c> in the model (see <see cref="InProcessVidyanoBackend"/>);
+    /// setting it fires <see cref="ProductActions.OnRefresh"/>.</summary>
+    public string? Trigger { get; set; }
+
+    /// <summary>The "different attribute" the refresh writes: <see cref="ProductActions.OnRefresh"/>
+    /// mirrors <see cref="Trigger"/> into it, so a SET of Trigger surfaces here after the round-trip.</summary>
+    public string? Echo { get; set; }
 }
 
 public sealed class ProductCategory
@@ -130,6 +141,18 @@ public sealed class ProductActions(ShopContext context)
         }
 
         base.OnSave(obj);
+    }
+
+    /// <summary>Fires when a <c>TriggersRefresh</c> attribute changes. When it's <see cref="Product.Trigger"/>,
+    /// mirror the new value into the unrelated <see cref="Product.Echo"/> attribute. This is the server
+    /// half of the client refresh round-trip: a SET of Trigger calls PersistentObject.Refresh, OnRefresh
+    /// mutates a *different* attribute, and the refreshed Echo flows back so EXPECT can read it.</summary>
+    public override void OnRefresh(RefreshArgs args)
+    {
+        base.OnRefresh(args);
+
+        if (args.Attribute?.Name == nameof(Product.Trigger))
+            args.PersistentObject.SetAttributeValue(nameof(Product.Echo), $"echo:{(string?)args.PersistentObject[nameof(Product.Trigger)]}");
     }
 
     /// <summary>Detail query: the products belonging to one category. Auto-discovered by name and
