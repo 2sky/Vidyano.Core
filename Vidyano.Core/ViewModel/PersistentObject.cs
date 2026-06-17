@@ -486,6 +486,8 @@ namespace Vidyano.ViewModel
             try
             {
                 var result = await Client.ExecuteActionAsync("PersistentObject.Refresh", this, null, null, parameters).ConfigureAwait(false);
+                if (result == null)
+                    return;
 
                 SetNotification(result.Notification, result.NotificationType);
 
