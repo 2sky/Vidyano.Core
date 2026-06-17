@@ -112,6 +112,12 @@ public sealed class Product
     /// so the .visc SET guard tiers by mode (navigation rejects; audit warns-but-allows; direct allows).
     /// Nullable/optional so it doesn't affect SAVE validation in the other Product tests.</summary>
     public string? Secret { get; set; }
+
+    /// <summary>A visible-but-read-only attribute: <see cref="ProductActions.OnLoad"/> sets its
+    /// <c>IsReadOnly</c>. Read-only is a hard guard the mode tier never relaxes (unlike visibility), so a
+    /// SET of this fails with <c>guard-attribute-read-only</c> even in <c>direct</c> mode. Visible so the
+    /// read-only guard is what's exercised, not the hidden one.</summary>
+    public string? Locked { get; set; }
 }
 
 public sealed class ProductCategory
@@ -147,6 +153,7 @@ public sealed class ProductActions(ShopContext context)
         base.OnLoad(obj, parent);
 
         obj[nameof(Product.Secret)].Visibility = AttributeVisibility.Never;
+        obj[nameof(Product.Locked)].IsReadOnly = true;
     }
 
     public override void OnSave(PersistentObject obj)

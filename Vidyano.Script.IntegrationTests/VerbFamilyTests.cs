@@ -260,6 +260,25 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task ReadOnlyAttribute_DirectMode_StillRejected()
+    {
+        // Read-only is the hard guard the mode tier never relaxes: a read-only attribute is genuinely not
+        // settable (even by a custom component), so direct — the most permissive mode — still rejects it.
+        // This pins that the hidden-attribute escape hatch did not also widen the read-only guard.
+        var result = await Run("""
+            @mode = direct
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EDIT
+            SET Locked = "tampered"
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.GuardAttributeReadOnly);
+    }
+
+    [Fact]
     public async Task NamedSessions_AreIsolated()
     {
         // Two named identities over the SAME in-process server, each with its own cookie jar (minted via
