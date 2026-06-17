@@ -235,6 +235,116 @@ namespace Vidyano.ViewModel
             return false;
         }
 
+        #region TranslatedString
+
+        /// <summary>Reads a <see cref="DataTypes.TranslatedString"/> attribute's full per-language value.
+        /// The server carries every translation in the attribute options; <see cref="Value"/> holds only the
+        /// current-language string. Returns <c>null</c> for a non-translated attribute or one with no
+        /// options, mirroring the server-side <c>(TranslatedString)attribute</c> conversion.</summary>
+        public static explicit operator TranslatedString(PersistentObjectAttribute attribute)
+        {
+            if (attribute == null || attribute.Type != DataTypes.TranslatedString)
+                return null;
+
+            var options = attribute.OptionsDirect;
+            return options != null && options.Length > 0 ? TranslatedString.FromJson(options[0]) : null;
+        }
+
+        /// <summary>Sets the translation for one language of a <see cref="DataTypes.TranslatedString"/>
+        /// attribute, merging it over the existing translations (other languages are untouched). For the
+        /// session's current language use <see cref="SetCurrentTranslationAsync"/>, which names it for you.</summary>
+        public Task SetTranslationAsync(string language, string value)
+        {
+            var translations = (TranslatedString)this ?? new TranslatedString();
+            translations[language] = value;
+            return SetTranslationsCoreAsync(translations);
+        }
+
+        /// <summary>Sets the translation for the session's current language (the one the server marked
+        /// current for this attribute) without the caller having to name the code.</summary>
+        public Task SetCurrentTranslationAsync(string value) => SetTranslationAsync(GetCurrentLanguage(), value);
+
+        /// <summary>Merges a set of translations over the attribute's existing ones — languages present in
+        /// <paramref name="translations"/> are overwritten, the rest are left as the server sent them.</summary>
+        public Task SetTranslationsAsync(TranslatedString translations)
+        {
+            var merged = (TranslatedString)this ?? new TranslatedString();
+            if (translations != null)
+                foreach (var language in translations.Languages)
+                    merged[language] = translations[language];
+            return SetTranslationsCoreAsync(merged);
+        }
+
+        /// <summary>Merges a language→value map over the attribute's existing translations.</summary>
+        public Task SetTranslationsAsync(IDictionary<string, string> translations)
+        {
+            var ts = new TranslatedString();
+            if (translations != null)
+                foreach (var kvp in translations)
+                    ts[kvp.Key] = kvp.Value;
+
+            return SetTranslationsAsync(ts);
+        }
+
+        private Task SetTranslationsCoreAsync(TranslatedString translations)
+        {
+            if (UpdateTranslations(translations) && Parent != null && TriggersRefresh)
+                return Parent.RefreshAttributesAsync(this);
+
+            return getFalse;
+        }
+
+        // Writes the full translation map to OptionsDirect[0] — the channel the server reads translations
+        // back from on save (Value carries only the current-language string, which the save path ignores for
+        // a TranslatedString) — and mirrors the current-language translation into Value for display + dirty
+        // tracking. Returns whether anything actually changed.
+        internal bool UpdateTranslations(TranslatedString translations)
+        {
+            if (Type != DataTypes.TranslatedString)
+                throw new InvalidOperationException(
+                    "SetTranslation(s) requires a " + DataTypes.TranslatedString + " attribute; '" + Name + "' is a " + Type + ".");
+
+            if (IsReadOnly)
+                return false;
+
+            var json = translations.ToString();
+            var options = (OptionsDirect ?? Array.Empty<string>()).ToArray();
+            if (options.Length == 0)
+                options = new[] { json };
+            else
+                options[0] = json;
+
+            var optionsChanged = OptionsDirect == null || !OptionsDirect.SequenceEqual(options);
+            OptionsDirect = options;
+
+            var current = translations.GetTranslation(GetCurrentLanguage());
+            var valueChanged = SetProperty(Client.ToServiceString(current), "Value");
+
+            if (optionsChanged || valueChanged)
+            {
+                IsValueChanged = true;
+                Parent.IsDirty = true;
+                HasValue = !translations.IsEmpty;
+                OnPropertyChanged("DisplayValue");
+
+                return true;
+            }
+
+            return false;
+        }
+
+        // The language the server marked current for this attribute (OptionsDirect[1] of a TranslatedString),
+        // falling back to the current UI culture when the attribute carries no such slot.
+        private string GetCurrentLanguage()
+        {
+            var options = OptionsDirect;
+            return options != null && options.Length > 1 && !string.IsNullOrEmpty(options[1])
+                ? options[1]
+                : CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+        }
+
+        #endregion
+
         internal void BackupBeforeEdit()
         {
             Model["Backup"] = Model.CopyProperties(propertiesToBackup);

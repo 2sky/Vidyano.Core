@@ -146,6 +146,23 @@ SET Doc   = FILE "fixtures/contract.pdf" ## BinaryFile  → "contract.pdf|<base6
 SAVE
 ```
 
+### Multi-lingual attributes — `SET <attr> [LANGUAGE <lang>]`
+
+A `TranslatedString` attribute holds a per-language map of strings. The **set of supported languages is decided by the server, per attribute** — a client connected to a different deployment may see a different set — so `.visc` never carries a global language list; you just name the language you want to write.
+
+- `SET <attr> = "<value>"` sets the **session's current language** (the common case — same syntax as any other attribute).
+- `SET <attr> LANGUAGE <lang> = "<value>"` sets **one specific language**, merged over the rest — languages you don't touch keep their server value.
+
+```visc
+EDIT
+SET Title = "Widget"                   ## current language
+SET Title LANGUAGE nl = "Hulpmiddel"   ## a specific language
+SET Title LANGUAGE de = "Werkzeug"
+SAVE
+```
+
+`LANGUAGE` only applies to a `TranslatedString` attribute (using it on any other type is a loud error) and can't combine with `LOOKUP` / `ID` / `FILE`.
+
 ## Running actions
 
 ```visc
@@ -221,6 +238,13 @@ EXPECT RetryDialog.Options CONTAINS "Cancel"
 ```visc
 EXPECT Customer = ID "people/acme"     ## the reference points at exactly this document
 EXPECT Owner   != ID "people/old-rep"
+```
+
+**Translations by language** — `EXPECT <attr> LANGUAGE <lang> = "..."` asserts one translation of a `TranslatedString` attribute, symmetric with `SET <attr> LANGUAGE <lang>`. A plain `EXPECT <attr> = "..."` compares the current-language value.
+
+```visc
+EXPECT Title = "Widget"                ## current-language value
+EXPECT Title LANGUAGE nl = "Hulpmiddel"
 ```
 
 **Attributes & round-tripped metadata** — `EXPECT` reaches the server metadata (`Tag`, `Metadata`, `NavigationHints`, `TypeHints`) a browser would see:
@@ -385,11 +409,13 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SELECT-ROWS <ALL \| ALL EXCEPT … \| NONE \| <i> \| WHERE …>` | Set the selection for a selection-gated action. |
 | `EDIT` / `CANCEL` / `SAVE` | PO edit lifecycle. |
 | `SET <attr> = <value> \| LOOKUP "…" \| ID "…" \| FILE "<path>" \| null` | Change an attribute. `FILE` attaches a file (root-confined) to a BinaryFile/Image. |
+| `SET <attr> LANGUAGE <lang> = <value>` | Set one translation of a TranslatedString attribute (bare `SET` = current language). |
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `SAVE \| ACTION … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `CONFIRM "<label>" \| CONFIRM ID <i>` | Answer an open server retry dialog. |
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |
 | `EXPECT <ref> = ID "<id>"` | Assert a reference by its document id (`ObjectId`). |
+| `EXPECT <attr> LANGUAGE <lang> = "…"` | Assert one translation of a TranslatedString attribute. |
 | `REQUIRES <expect> \| REQUIRES TOOL <n>` | Precondition gate (unmet → skip the body). |
 | `CLEANUP` | Marker; statements after it always run. |
 | `REPEAT <n> [AS @i] … END` | Bounded repetition. |

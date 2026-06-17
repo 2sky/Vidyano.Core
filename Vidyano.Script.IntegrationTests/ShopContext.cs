@@ -11,7 +11,9 @@ namespace Vidyano.Script.IntegrationTests;
 /// <c>EXPECT TotalItems = 3</c> are stable. Shaped to exercise each .visc verb family: an editable PO
 /// (EDIT/SET/SAVE), a reference (SET/FOLLOW), a detail query (SEARCH/EXPECT Detail), a custom action
 /// returning a notification (ACTION), a save that fails on a sentinel (SAVE EXPECTING ERROR), a
-/// BinaryFile attribute (SET = FILE), and an action that raises a retry dialog (CONFIRM).
+/// BinaryFile attribute (SET = FILE), an action that raises a retry dialog (CONFIRM), and a
+/// multi-lingual <see cref="Product.Title"/> (SET/EXPECT … LANGUAGE; languages live in
+/// <see cref="InProcessVidyanoBackend"/>).
 /// </summary>
 public sealed class ShopContext : NullTargetContext
 {
@@ -49,9 +51,9 @@ public sealed class ShopContext : NullTargetContext
         products.Clear();
         products.AddRange(
         [
-            new Product { Id = "1", Name = "Widget", Color = "Blue", Category = "1" },
-            new Product { Id = "2", Name = "Gadget", Color = "Red", Category = "2" },
-            new Product { Id = "3", Name = "Gizmo", Color = "Green", Category = "1" },
+            new Product { Id = "1", Name = "Widget", Color = "Blue", Category = "1", Title = _L("Widget", "Hulpmiddel", "Werkzeug") },
+            new Product { Id = "2", Name = "Gadget", Color = "Red", Category = "2", Title = _L("Gadget", "Apparaat", "Gerät") },
+            new Product { Id = "3", Name = "Gizmo", Color = "Green", Category = "1", Title = _L("Gizmo", "Ding", "Dingsda") },
         ]);
 
         documents.Clear();
@@ -60,6 +62,15 @@ public sealed class ShopContext : NullTargetContext
             new Document { Id = "1", Name = "Spec" },
         ]);
     }
+
+    // English / Dutch / German title — the languages must match the WithLanguage(...) set in the backend.
+    // NOTE: fully qualified. This file's namespace (Vidyano.Script.IntegrationTests) makes `Vidyano` an
+    // enclosing namespace, so an unqualified `TranslatedString` would bind to Core's `Vidyano.TranslatedString`
+    // (enclosing-namespace types outrank `using`-imported ones) — and the SERVER's schema sync only maps a
+    // property typed as the server's `Vidyano.Service.TranslatedString`, so the unqualified form silently
+    // produces a plain String attribute. (The Demo, in namespace `Demo`, doesn't hit this.)
+    private static global::Vidyano.Service.TranslatedString _L(string en, string nl, string de) =>
+        new() { ["en"] = en, ["nl"] = nl, ["de"] = de };
 
     public IQueryable<ProductCategory> ProductCategories => Query<ProductCategory>();
 
@@ -94,6 +105,12 @@ public sealed class Product
     public string Color { get; set; } = string.Empty;
     [Reference(typeof(ProductCategory))]
     public string? Category { get; set; }
+
+    /// <summary>A multi-lingual title — surfaced to the client as a <c>TranslatedString</c> attribute, so
+    /// the .visc <c>SET</c>/<c>EXPECT … LANGUAGE</c> round-trip can be exercised. The supported languages
+    /// come from the <c>WithLanguage(...)</c> set in <see cref="InProcessVidyanoBackend"/>. Fully qualified
+    /// to the SERVER type (see <see cref="ShopContext"/>'s <c>_L</c> note on the enclosing-namespace pitfall).</summary>
+    public global::Vidyano.Service.TranslatedString? Title { get; set; }
 
     // Nullable (like Category) so they're optional — a non-nullable string would be a required
     // attribute and the empty seed value would fail SAVE validation in the other Product tests.

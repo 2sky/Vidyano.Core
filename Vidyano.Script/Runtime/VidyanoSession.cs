@@ -1006,10 +1006,10 @@ public sealed class VidyanoSession : IDisposable
     ///   override the search text, or <see cref="ReferenceHint.RawId"/> to bypass the lookup entirely.</item>
     /// </list>
     /// </remarks>
-    public async Task<OpResult> SetAttributeAsync(string name, object? value, SourceLocation loc, GuardMode mode = GuardMode.Navigation, ReferenceHint? hint = null)
+    public async Task<OpResult> SetAttributeAsync(string name, object? value, SourceLocation loc, GuardMode mode = GuardMode.Navigation, ReferenceHint? hint = null, string? language = null)
     {
         if (CurrentPo is null) return NoCurrentPo(loc);
-        return await SetAttributeOnAsync(CurrentPo, name, value, loc, mode, hint).ConfigureAwait(false);
+        return await SetAttributeOnAsync(CurrentPo, name, value, loc, mode, hint, language: language).ConfigureAwait(false);
     }
 
     /// <summary>Attaches a file to a <c>BinaryFile</c>/<c>Image</c> attribute on the current PO (the
@@ -1034,7 +1034,7 @@ public sealed class VidyanoSession : IDisposable
     /// custom-component path is observable), and <c>direct</c> allows it silently. Read-only stays a hard guard
     /// in every mode (it is genuinely not settable, even by a custom component).
     /// </remarks>
-    private async Task<OpResult> SetAttributeOnAsync(PersistentObject po, string name, object? value, SourceLocation loc, GuardMode mode, ReferenceHint? hint, (string FileName, byte[] Data)? file = null)
+    private async Task<OpResult> SetAttributeOnAsync(PersistentObject po, string name, object? value, SourceLocation loc, GuardMode mode, ReferenceHint? hint, (string FileName, byte[] Data)? file = null, string? language = null)
     {
         var attr = po.GetAttribute(name);
         if (attr is null)
@@ -1096,6 +1096,28 @@ public sealed class VidyanoSession : IDisposable
             if (!formatted.Ok) return OpResult.Fail(formatted.Error!);
             await attr.SetValueAsync(formatted.Value).ConfigureAwait(false);
             result = OpResult.Success;
+        }
+        // SET Title [LANGUAGE nl] = "..." on a TranslatedString attribute. The server reads translations back
+        // from the attribute options, not from Value, so the dedicated helpers update the per-language map
+        // (and mirror the current-language string into Value). A bare SET targets the session's current
+        // language; LANGUAGE names a specific one.
+        else if (attr.Type == Vidyano.DataTypes.TranslatedString)
+        {
+            var text = value as string ?? value?.ToString();
+            if (language is not null)
+                await attr.SetTranslationAsync(language, text).ConfigureAwait(false);
+            else
+                await attr.SetCurrentTranslationAsync(text).ConfigureAwait(false);
+            result = OpResult.Success;
+        }
+        // LANGUAGE is only meaningful for a TranslatedString — fail loudly rather than silently ignoring it.
+        else if (language is not null)
+        {
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ParseUnexpectedToken,
+                $"LANGUAGE sets one translation, but attribute '{name}' is a {attr.Type}, not a {Vidyano.DataTypes.TranslatedString}.",
+                loc,
+                Hint: "Drop LANGUAGE to set the value, or target a TranslatedString attribute."));
         }
         else if (attr is PersistentObjectAttributeWithReference refAttr)
         {
@@ -1399,11 +1421,11 @@ public sealed class VidyanoSession : IDisposable
     /// <summary>Sets an attribute on a scoped PO. Same edit/guard/reference-resolution semantics
     /// as <see cref="SetAttributeAsync"/>, but targeting <see cref="Vidyano.Client.Session"/> (or, in
     /// the future, <c>@user</c>/<c>@application</c>) instead of the navigation-stack top.</summary>
-    public async Task<OpResult> SetScopedAttributeAsync(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc, GuardMode mode = GuardMode.Navigation)
+    public async Task<OpResult> SetScopedAttributeAsync(string scope, string attributeName, object? value, ReferenceHint? hint, SourceLocation loc, GuardMode mode = GuardMode.Navigation, string? language = null)
     {
         var poRes = ResolveScopePo(scope, loc);
         if (!poRes.Ok) return OpResult.Fail(poRes.Error!);
-        return await SetAttributeOnAsync(poRes.Value!, attributeName, value, loc, mode, hint).ConfigureAwait(false);
+        return await SetAttributeOnAsync(poRes.Value!, attributeName, value, loc, mode, hint, language: language).ConfigureAwait(false);
     }
 
     /// <summary>Scoped counterpart of <see cref="SetFileAttributeAsync"/> — attaches a file to a

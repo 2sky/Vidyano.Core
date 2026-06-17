@@ -56,6 +56,11 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
         builder.AddVidyanoMinimal<ShopContext>(vidyano => vidyano
             .WithDefaultAdmin()
             .WithSchemaRights()
+            // Three languages so the TranslatedString tests can set/assert per-language values; the seed
+            // titles (ShopContext._L) use exactly this en/nl/de set.
+            .WithLanguage("en", new Dictionary<string, string> { ["en"] = "English", ["nl"] = "Engels", ["de"] = "Englisch" })
+            .WithLanguage("nl", new Dictionary<string, string> { ["en"] = "Dutch", ["nl"] = "Nederlands", ["de"] = "Niederländisch" })
+            .WithLanguage("de", new Dictionary<string, string> { ["en"] = "German", ["nl"] = "Duits", ["de"] = "Deutsch" })
             .WithMenuItem("Products")
             .WithMenuItem("ProductCategories")
             .WithMenuItem("Documents")

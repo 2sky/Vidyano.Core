@@ -152,7 +152,11 @@ public enum SetValueKind
 /// </summary>
 /// <param name="Scope">Reserved variable scope for the target PO (<c>"session"</c> for
 /// <c>@session.X</c>); <c>null</c> means the top of the navigation stack.</param>
-public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location, string? Scope = null, SetValueKind ValueKind = SetValueKind.Value) : Statement(Location);
+/// <param name="Language"><c>SET Title LANGUAGE nl = "Hulpmiddel"</c> — set one translation of a
+/// <c>TranslatedString</c> attribute. <c>null</c> means the bare form: for a TranslatedString attribute it
+/// targets the session's current language; for any other type it is the ordinary value write. The clause
+/// is mutually exclusive with <see cref="Hint"/> / a <see cref="SetValueKind.File"/> RHS (parser-enforced).</param>
+public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location, string? Scope = null, SetValueKind ValueKind = SetValueKind.Value, Expression? Language = null) : Statement(Location);
 
 /// <summary><c>ACTION Approve [(Param=Value, ...)]</c> or <c>ACTION Delete = "Yes, delete"</c> /
 /// <c>ACTION Delete = ID 0</c>. The <c>= &lt;option&gt;</c> form picks an entry from
@@ -367,8 +371,11 @@ public enum ExpectSubjectKind
 /// current-query walk. <see cref="Hint"/> is set to <see cref="ReferenceHintKind.RawId"/> by the
 /// <c>EXPECT &lt;ref&gt; = ID "&lt;id&gt;"</c> form: an <see cref="ExpectSubjectKind.Attribute"/> subject then
 /// resolves to the referenced document id (<c>ObjectId</c>) instead of the display value, symmetric with
-/// <c>SET &lt;ref&gt; = ID "&lt;id&gt;"</c>.</summary>
-public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null, string? DetailName = null, ReferenceHintKind? Hint = null);
+/// <c>SET &lt;ref&gt; = ID "&lt;id&gt;"</c>. <see cref="Language"/> is set by the
+/// <c>EXPECT Title LANGUAGE nl = "..."</c> form on an <see cref="ExpectSubjectKind.Attribute"/> subject: the
+/// assertion then compares that one translation of a <c>TranslatedString</c> attribute, symmetric with
+/// <c>SET Title LANGUAGE nl = "..."</c>.</summary>
+public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null, string? DetailName = null, ReferenceHintKind? Hint = null, Expression? Language = null);
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.
 /// <see cref="Available"/> is <c>IsVisible &amp;&amp; !IsReadOnly</c> — the same guard

@@ -599,10 +599,19 @@ public sealed class Interpreter
             return Wrap(s, fileRes);
         }
 
+        // SET Title LANGUAGE nl = "..." — the language is a value expression (literal / bare code / interp).
+        string? language = null;
+        if (s.Language is not null)
+        {
+            var langRes = EvaluateExpression(s.Language);
+            if (!langRes.Ok) return Fail(s, langRes.Error!);
+            language = AsString(langRes.Value);
+        }
+
         ReferenceHint? hint = s.Hint is null ? null : new ReferenceHint(s.Hint.Value, AsString(v.Value));
         var res = s.Scope is null
-            ? await Current.SetAttributeAsync(s.Attribute, v.Value, s.Location, _mode, hint).ConfigureAwait(false)
-            : await Current.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location, _mode).ConfigureAwait(false);
+            ? await Current.SetAttributeAsync(s.Attribute, v.Value, s.Location, _mode, hint, language).ConfigureAwait(false)
+            : await Current.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location, _mode, language).ConfigureAwait(false);
         return Wrap(s, res);
     }
 
@@ -1089,6 +1098,20 @@ public sealed class Interpreter
                             $"Attribute '{subj.Name}' exists on {po.Type} but is hidden — the standard UI cannot read it.",
                             loc,
                             Hint: "A custom web component can still read a hidden attribute; use @mode = direct (or audit) to read it here."));
+                    // EXPECT Title LANGUAGE nl = "..." — compare one translation of a TranslatedString
+                    // attribute (symmetric with SET … LANGUAGE), instead of the current-language Value.
+                    if (subj.Language is not null)
+                    {
+                        if (attr.Type != Vidyano.DataTypes.TranslatedString)
+                            return Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken,
+                                $"LANGUAGE compares one translation, but attribute '{subj.Name}' is a {attr.Type}, not a {Vidyano.DataTypes.TranslatedString}.",
+                                loc,
+                                Hint: "Drop LANGUAGE to compare the current-language value."));
+                        var langRes = EvaluateExpression(subj.Language);
+                        if (!langRes.Ok) return Fail<object?>(langRes.Error!);
+                        var ts = (Vidyano.TranslatedString)attr;
+                        return OpResult<object?>.Success(ts is null ? null : (object?)ts[AsString(langRes.Value)]);
+                    }
                     return AttributeComparand(attr, subj.Hint, loc);
                 }
             case ExpectSubjectKind.Action:

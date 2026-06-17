@@ -576,6 +576,18 @@ public sealed class Parser
 
         var attrName = ParseDottedAttributeName();
         if (attrName == null) return null;
+
+        // Optional `LANGUAGE <lang>` before '=' : SET Title LANGUAGE nl = "Hulpmiddel" — set one
+        // translation of a TranslatedString attribute. Mirrors SIGN-IN's LANGUAGE clause (a value
+        // expression, so a literal, a bare code, or {{interp}} all work).
+        Expression? language = null;
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "LANGUAGE", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            language = ParseValueExpression();
+            if (language == null) return null;
+        }
+
         if (!Match(TokenKind.Equals, out _))
         {
             Error(ErrorKind.ParseExpected, $"Expected '=' after SET {attrName}.", Peek().Location);
@@ -594,9 +606,19 @@ public sealed class Parser
             else if (string.Equals(Peek().Lexeme, "FILE", StringComparison.OrdinalIgnoreCase)) { Advance(); valueKind = SetValueKind.File; }
         }
 
+        // LANGUAGE sets a translation from a plain value; it can't combine with the reference/file RHS forms.
+        if (language != null && (hint != null || valueKind != SetValueKind.Value))
+        {
+            Error(ErrorKind.ParseUnexpectedToken,
+                "LANGUAGE sets a translation and can't combine with LOOKUP / ID / FILE.",
+                loc,
+                hint: "SET Title LANGUAGE nl = \"Hulpmiddel\"");
+            return null;
+        }
+
         var value = ParseValueExpression();
         if (value == null) return null;
-        return new SetStmt(null, attrName, value, hint, loc, scope, valueKind);
+        return new SetStmt(null, attrName, value, hint, loc, scope, valueKind, language);
     }
 
     /// <summary>Reads an attribute name token sequence of the form <c>Identifier (. Identifier)*</c>
@@ -1104,6 +1126,13 @@ public sealed class Parser
                     hint: "EXPECT Customer = ID \"people/acme\"");
                 return null;
             }
+            if (subject.Language != null)
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "`ID` can't combine with LANGUAGE — a translation has no document id.",
+                    idTok.Location);
+                return null;
+            }
             if (cmp is not (ExpectOp.Eq or ExpectOp.NotEq))
             {
                 Error(ErrorKind.ParseUnexpectedToken,
@@ -1441,6 +1470,18 @@ public sealed class Parser
         // Bare identifier — treat as attribute on the current PO (dotted names allowed).
         var bareName = ParseDottedAttributeName();
         if (bareName == null) return null;
+
+        // Optional `LANGUAGE <lang>`: EXPECT Title LANGUAGE nl = "Hulpmiddel" — assert one translation of a
+        // TranslatedString attribute, symmetric with SET. Parsed onto the subject before the operator so the
+        // shared assertion machinery sees a normal `<op> <value>` tail.
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "LANGUAGE", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            var language = ParseValueExpression();
+            if (language == null) return null;
+            return new ExpectSubject(ExpectSubjectKind.Attribute, bareName, AttributeFlagKind.None, tok.Location, Language: language);
+        }
+
         return new ExpectSubject(ExpectSubjectKind.Attribute, bareName, AttributeFlagKind.None, tok.Location);
     }
 

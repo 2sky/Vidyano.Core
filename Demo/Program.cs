@@ -21,6 +21,9 @@ builder.Logging.SetMinimumLevel(LogLevel.Warning);       // keep the demo's own 
 builder.AddVidyanoMinimal<DemoContext>(vidyano => vidyano
     .WithDefaultAdmin()                                  // an "admin" / "admin" user to sign in as
     .WithSchemaRights()                                  // grant that user rights to the model
+    .WithLanguage("en", new Dictionary<string, string> { ["en"] = "English", ["nl"] = "Engels",     ["de"] = "Englisch" })
+    .WithLanguage("nl", new Dictionary<string, string> { ["en"] = "Dutch",   ["nl"] = "Nederlands",  ["de"] = "Niederländisch" })
+    .WithLanguage("de", new Dictionary<string, string> { ["en"] = "German",  ["nl"] = "Duits",       ["de"] = "Deutsch" })
     .WithMenuItem("Products")
     .WithMenuItem("ProductCategories"));
 
@@ -87,6 +90,29 @@ try
             if (item is not null)
                 Console.WriteLine($"  [{item.Id}] {item["Name"]} — Color: {item["Color"]}, Category: {item["Category"]}");
         }
+    }
+
+    // Multi-lingual round-trip: a TranslatedString attribute (Product.Title) carries every language; the
+    // client edits one translation at a time and the server merges it. Set the Dutch translation and the
+    // current-language one, save, then reload the row to confirm both stuck.
+    if (products is { Count: > 0 } && products[0] is { } firstRow)
+    {
+        var po = await firstRow.Load();
+        var title = po["Title"];
+
+        Console.WriteLine($"\nTranslatedString round-trip on product '{po.GetAttributeValue("Name")}':");
+        Console.WriteLine("--------------------------------------------");
+        var before = (Vidyano.TranslatedString)title;
+        Console.WriteLine($"  before — current: '{title.Value}'   nl: '{before?["nl"]}'   de: '{before?["de"]}'");
+
+        po.Edit();
+        await title.SetTranslationAsync("nl", "Aangepaste titel");   // set one specific language
+        await title.SetCurrentTranslationAsync("Updated title");     // set the session's current language
+        await po.Save();
+
+        var reloaded = await firstRow.Load();
+        var after = (Vidyano.TranslatedString)reloaded["Title"];
+        Console.WriteLine($"  after  — current: '{reloaded["Title"].Value}'   nl: '{after?["nl"]}'   de: '{after?["de"]}'");
     }
 
     Console.WriteLine("\n✅ Demo completed successfully!");

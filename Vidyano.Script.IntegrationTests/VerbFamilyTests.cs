@@ -178,6 +178,50 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task TranslatedString_SetAndExpect_PerLanguage_RoundTrips()
+    {
+        // Product.Title is a TranslatedString ({"en":…,"nl":…,"de":…}). Pin the session language so the
+        // bare SET/EXPECT (current-language) path is deterministic, set the current language and ONE other
+        // (nl), leave de untouched, save, reopen, and assert: the current-language value persisted, the
+        // explicit nl write persisted, and the untouched de keeps its seed (the client merge preserves it).
+        AssertOk(await Run("""
+            SIGN-IN admin / admin LANGUAGE en
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EXPECT Title = "Widget"                  ## current-language (en) seed via Value
+            EXPECT Title LANGUAGE nl = "Hulpmiddel"  ## seeded Dutch translation
+            EDIT
+            SET Title = "Widget-en"                  ## current language (en)
+            SET Title LANGUAGE nl = "Hulpmiddel-2"   ## a specific language
+            EXPECT Title LANGUAGE nl = "Hulpmiddel-2"
+            SAVE
+            SEARCH ""
+            OPEN-ROW WHERE Name = "Widget"
+            EXPECT Title = "Widget-en"               ## current language persisted
+            EXPECT Title LANGUAGE en = "Widget-en"   ## same, addressed explicitly
+            EXPECT Title LANGUAGE nl = "Hulpmiddel-2"
+            EXPECT Title LANGUAGE de = "Werkzeug"    ## untouched language preserved through the merge
+            """));
+    }
+
+    [Fact]
+    public async Task TranslatedString_Language_OnNonTranslatedAttribute_Fails()
+    {
+        // LANGUAGE only applies to a TranslatedString — Color is a plain String, so the SET fails loudly
+        // rather than silently dropping the clause.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EDIT
+            SET Color LANGUAGE nl = "Blauw"
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.ParseUnexpectedToken && d.Message.Contains("LANGUAGE"));
+    }
+
+    [Fact]
     public async Task Confirm_AnswersRetryDialog()
     {
         AssertOk(await Run("""

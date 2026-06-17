@@ -1,0 +1,35 @@
+### SET / EXPECT <attr> LANGUAGE <lang> — multi-lingual (TranslatedString) attributes
+###
+### This file lints cleanly with no backend. It demonstrates editing a TranslatedString attribute,
+### which carries a per-language map of strings ({"en":"…","nl":"…","de":"…"}). The supported
+### languages are decided by the SERVER per attribute (a client connected to a different server may
+### see a different set), so .visc never hard-codes a global language list — you just name the language
+### you want to write or assert.
+###
+###   • SET <attr> = "<value>"                 — sets the session's CURRENT language (the usual case).
+###   • SET <attr> LANGUAGE <lang> = "<value>" — sets ONE specific language, merged over the rest.
+###   • EXPECT <attr> = "<value>"              — asserts the current-language value.
+###   • EXPECT <attr> LANGUAGE <lang> = "..."  — asserts one specific translation (symmetric with SET).
+###
+### LANGUAGE only applies to a TranslatedString attribute, and can't combine with LOOKUP / ID / FILE.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+OPEN MenuItem Products
+OPEN-ROW 0
+EDIT
+
+### Set the current-language title, then two specific translations. Each LANGUAGE write merges over the
+### existing translations — languages you don't touch keep their server value.
+SET Title = "Widget"
+SET Title LANGUAGE nl = "Hulpmiddel"
+SET Title LANGUAGE de = "Werkzeug"
+
+### Assert per language. A bare EXPECT compares the current language; LANGUAGE pins a specific one.
+EXPECT Title = "Widget"
+EXPECT Title LANGUAGE nl = "Hulpmiddel"
+EXPECT Title LANGUAGE de = "Werkzeug"
+
+SAVE
