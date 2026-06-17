@@ -254,6 +254,40 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task DateOnly_TimeOnly_ReadRoundTrips()
+    {
+        // The server maps a DateOnly property to a Date attribute (wire "dd-MM-yyyy", no time) and a TimeOnly
+        // property to a Time attribute (wire "HH:mm"). The client modelled both as the full DateTime/TimeSpan
+        // forms and parsed only those, so a read silently defaulted (Date -> today/null, Time -> zero/null).
+        // This pins the corrected read path against real server output.
+        var conn = await _app.Backend.StartAsync();
+        var client = new Client(conn.HttpClient) { Uri = conn.BaseUri };
+        await client.SignInUsingCredentialsAsync("admin", "admin");
+
+        var po = await client.GetPersistentObjectAsync("Product", "1"); // Widget: 15-03-2024, 14:30
+        Assert.Equal(new DateTime(2024, 3, 15), (DateTime)po["ReleaseDate"].Value);
+        Assert.Equal(new TimeSpan(14, 30, 0), (TimeSpan)po["ReleaseTime"].Value);
+    }
+
+    [Fact]
+    public async Task DateOnly_SaveRoundTrips()
+    {
+        // The Date write path: the client sends its midnight DateTime as "dd-MM-yyyy HH:mm:ss.FFFFFFF" and the
+        // server's DateOnly parse takes the date part — so an edited date persists and reads back correctly.
+        var conn = await _app.Backend.StartAsync();
+        var client = new Client(conn.HttpClient) { Uri = conn.BaseUri };
+        await client.SignInUsingCredentialsAsync("admin", "admin");
+
+        var po = await client.GetPersistentObjectAsync("Product", "1");
+        po.Edit();
+        await po["ReleaseDate"].SetValueAsync(new DateTime(2030, 12, 25));
+        await po.Save();
+
+        var reloaded = await client.GetPersistentObjectAsync("Product", "1");
+        Assert.Equal(new DateTime(2030, 12, 25), (DateTime)reloaded["ReleaseDate"].Value);
+    }
+
+    [Fact]
     public async Task Confirm_AnswersRetryDialog()
     {
         AssertOk(await Run("""
