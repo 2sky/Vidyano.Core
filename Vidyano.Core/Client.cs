@@ -77,6 +77,12 @@ namespace Vidyano
             ["NULLABLEGUID"] = typeof(Guid?),
         };
 
+        // The wire forms a Time attribute takes when backed by a TimeOnly property: the invariant short/long
+        // time pattern. A TimeSpan-backed Time uses the "G" form instead (handled separately in
+        // FromServiceString). TimeSpan custom format: "h" accepts a single- or double-digit hour (so an
+        // unpadded "9:05" parses too), "mm"/"ss" with escaped literal colons.
+        private static readonly string[] timeServiceFormats = { @"h\:mm", @"h\:mm\:ss" };
+
         private static readonly Dictionary<string, NoInternetMessage> noInternetMessages = new Dictionary<string, NoInternetMessage>
         {
             { "en", new NoInternetMessage("Unable to connect to the server.", "Please check your internet connection settings and try again.", "Try again") },
@@ -1002,14 +1008,32 @@ namespace Vidyano
                     return Convert.ChangeType(value, type, CultureInfo.InvariantCulture);
                 }
 
+                // A Date (server-side DateOnly) arrives as "dd-MM-yyyy" with no time, but the client models it
+                // as a midnight DateTime. Parse the date part only — tolerating a trailing time, as the server
+                // does — so it round-trips instead of failing the full-DateTime parse below and silently
+                // defaulting (a DateOnly-backed Date would otherwise read back as today / null).
+                if (typeName == DataTypes.Date || typeName == DataTypes.NullableDate)
+                {
+                    var spaceIndex = value.IndexOf(' ');
+                    var datePart = spaceIndex >= 0 ? value.Substring(0, spaceIndex) : value;
+                    return DateTime.ParseExact(datePart, "dd-MM-yyyy", CultureInfo.InvariantCulture);
+                }
+
                 if (type == typeof(DateTime) || type == typeof(DateTime?))
                     return DateTime.ParseExact(value, "dd-MM-yyyy HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture);
 
                 if (type == typeof(DateTimeOffset) || type == typeof(DateTimeOffset?))
                     return DateTimeOffset.ParseExact(value, "dd-MM-yyyy HH:mm:ss.FFFFFFF K", CultureInfo.InvariantCulture);
 
+                // A Time (server-side TimeOnly) arrives as the invariant "HH:mm" / "HH:mm:ss"; a TimeSpan-backed
+                // Time arrives as the "G" form. Accept all three, modelled client-side as a TimeSpan.
                 if (type == typeof(TimeSpan) || type == typeof(TimeSpan?))
+                {
+                    if (TimeSpan.TryParseExact(value, timeServiceFormats, CultureInfo.InvariantCulture, out var time))
+                        return time;
+
                     return TimeSpan.ParseExact(value, "G", CultureInfo.InvariantCulture);
+                }
 
                 return null;
             }

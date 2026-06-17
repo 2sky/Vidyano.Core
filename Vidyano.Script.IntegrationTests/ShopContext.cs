@@ -51,9 +51,9 @@ public sealed class ShopContext : NullTargetContext
         products.Clear();
         products.AddRange(
         [
-            new Product { Id = "1", Name = "Widget", Color = "Blue", Category = "1", Title = _L("Widget", "Hulpmiddel", "Werkzeug") },
-            new Product { Id = "2", Name = "Gadget", Color = "Red", Category = "2", Title = _L("Gadget", "Apparaat", "Gerät") },
-            new Product { Id = "3", Name = "Gizmo", Color = "Green", Category = "1", Title = _L("Gizmo", "Ding", "Dingsda") },
+            new Product { Id = "1", Name = "Widget", Color = "Blue", Category = "1", Title = _L("Widget", "Hulpmiddel", "Werkzeug"), ReleaseDate = new DateOnly(2024, 3, 15), ReleaseTime = new TimeOnly(14, 30, 0) },
+            new Product { Id = "2", Name = "Gadget", Color = "Red", Category = "2", Title = _L("Gadget", "Apparaat", "Gerät"), ReleaseDate = new DateOnly(2023, 11, 1), ReleaseTime = new TimeOnly(9, 5, 0) },
+            new Product { Id = "3", Name = "Gizmo", Color = "Green", Category = "1", Title = _L("Gizmo", "Ding", "Dingsda"), ReleaseDate = new DateOnly(2025, 1, 20), ReleaseTime = new TimeOnly(23, 59, 0) },
         ]);
 
         documents.Clear();
@@ -111,6 +111,16 @@ public sealed class Product
     /// come from the <c>WithLanguage(...)</c> set in <see cref="InProcessVidyanoBackend"/>. Fully qualified
     /// to the SERVER type (see <see cref="ShopContext"/>'s <c>_L</c> note on the enclosing-namespace pitfall).</summary>
     public global::Vidyano.Service.TranslatedString? Title { get; set; }
+
+    /// <summary>A date-only field — surfaces as a <c>Date</c> attribute (the server maps <see cref="DateOnly"/>
+    /// → <c>DataTypes.Date</c>, wire value <c>"dd-MM-yyyy"</c> with no time). Exercises the client's Date
+    /// read path, which historically assumed a full <c>DateTime</c> string.</summary>
+    public DateOnly? ReleaseDate { get; set; }
+
+    /// <summary>A time-only field — surfaces as a <c>Time</c> attribute (the server maps <see cref="TimeOnly"/>
+    /// → <c>DataTypes.Time</c>). Exercises the client's Time read path, which historically assumed a
+    /// <c>TimeSpan</c> <c>"G"</c> string.</summary>
+    public TimeOnly? ReleaseTime { get; set; }
 
     // Nullable (like Category) so they're optional — a non-nullable string would be a required
     // attribute and the empty seed value would fail SAVE validation in the other Product tests.
