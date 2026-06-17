@@ -42,6 +42,16 @@ public sealed class ServiceStringDateTimeTests
         Assert.Equal(new TimeSpan(9, 5, 45), (TimeSpan)Client.FromServiceString("09:05:45", DataTypes.Time));
     }
 
+    [Theory]
+    [InlineData("9:05")]
+    [InlineData("9:05:45")]
+    public void Time_ParsesSingleDigitHour(string wire)
+    {
+        // An unpadded single-digit hour must parse, not silently default to TimeSpan.Zero.
+        var expected = wire.Length > 4 ? new TimeSpan(9, 5, 45) : new TimeSpan(9, 5, 0);
+        Assert.Equal(expected, (TimeSpan)Client.FromServiceString(wire, DataTypes.Time));
+    }
+
     [Fact]
     public void Time_StillParsesLegacyTimeSpanForm()
     {

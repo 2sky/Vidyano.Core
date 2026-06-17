@@ -79,8 +79,9 @@ namespace Vidyano
 
         // The wire forms a Time attribute takes when backed by a TimeOnly property: the invariant short/long
         // time pattern. A TimeSpan-backed Time uses the "G" form instead (handled separately in
-        // FromServiceString). TimeSpan custom format: "hh"/"mm"/"ss" with escaped literal colons.
-        private static readonly string[] timeServiceFormats = { @"hh\:mm", @"hh\:mm\:ss" };
+        // FromServiceString). TimeSpan custom format: "h" accepts a single- or double-digit hour (so an
+        // unpadded "9:05" parses too), "mm"/"ss" with escaped literal colons.
+        private static readonly string[] timeServiceFormats = { @"h\:mm", @"h\:mm\:ss" };
 
         private static readonly Dictionary<string, NoInternetMessage> noInternetMessages = new Dictionary<string, NoInternetMessage>
         {
@@ -1012,7 +1013,11 @@ namespace Vidyano
                 // does — so it round-trips instead of failing the full-DateTime parse below and silently
                 // defaulting (a DateOnly-backed Date would otherwise read back as today / null).
                 if (typeName == DataTypes.Date || typeName == DataTypes.NullableDate)
-                    return DateTime.ParseExact(value.Split(' ')[0], "dd-MM-yyyy", CultureInfo.InvariantCulture);
+                {
+                    var spaceIndex = value.IndexOf(' ');
+                    var datePart = spaceIndex >= 0 ? value.Substring(0, spaceIndex) : value;
+                    return DateTime.ParseExact(datePart, "dd-MM-yyyy", CultureInfo.InvariantCulture);
+                }
 
                 if (type == typeof(DateTime) || type == typeof(DateTime?))
                     return DateTime.ParseExact(value, "dd-MM-yyyy HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture);
