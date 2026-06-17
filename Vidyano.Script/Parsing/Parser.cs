@@ -190,6 +190,13 @@ public sealed class Parser
             return null;
         }
 
+        // @expects a, b — declares host-supplied variables (no `=`, so branch before the assignment
+        // grammar). A lint-only declaration: the analyzer counts the names as declared; the interpreter
+        // does nothing with it. Recognized here like @mode rather than as a verb, since it configures the
+        // script's input frame rather than acting at a step.
+        if (string.Equals(at.Lexeme, "expects", StringComparison.OrdinalIgnoreCase))
+            return ParseExpectsDirective(at.Location);
+
         if (!Match(TokenKind.Equals, out _))
         {
             Error(ErrorKind.ParseExpected,
@@ -225,6 +232,39 @@ public sealed class Parser
         if (value == null)
             return null;
         return new VariableAssignment(at.Lexeme, value, at.Location);
+    }
+
+    /// <summary><c>@expects a, b</c> — a comma-separated list of bare variable names the host supplies.
+    /// At least one name is required; names are separated by commas. Pure declaration — no value grammar.</summary>
+    private Statement? ParseExpectsDirective(SourceLocation loc)
+    {
+        var names = new List<string>();
+        do
+        {
+            var tok = Peek();
+            if (tok.Kind != TokenKind.Identifier)
+            {
+                Error(ErrorKind.ParseExpected,
+                    names.Count == 0 ? "Expected a variable name after @expects." : "Expected a variable name after ','.",
+                    tok.Location,
+                    hint: "@expects declares host-supplied variables: @expects region, tenant");
+                return null;
+            }
+            names.Add(Advance().Lexeme);
+        }
+        while (Match(TokenKind.Comma, out _));
+
+        // A bare identifier where a comma was expected is a missing separator — name it rather than
+        // letting the stray token resurface as an "unknown verb" on the next parse pass.
+        if (Peek().Kind == TokenKind.Identifier)
+        {
+            Error(ErrorKind.ParseExpected,
+                "Separate @expects variable names with commas.",
+                Peek().Location,
+                hint: "@expects region, tenant");
+            return null;
+        }
+        return new ExpectsDirective(names, loc);
     }
 
     // --- SIGN-IN / USE / SIGN-OUT -------------------------------------------------------------

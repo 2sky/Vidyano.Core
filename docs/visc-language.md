@@ -27,7 +27,7 @@ Two kinds of lines do the work:
 - **Verbs** (`SIGN-IN`, `OPEN`, `SEARCH`, …) perform an action against the session.
 - **`EXPECT`** assertions check observable state. A failed `EXPECT` fails the run; everything else is a verb that either succeeds or raises a diagnostic.
 
-Comments start with `##` (inline) or `###` (a *step header* that groups following lines in the run report). Directives like `@app` / `@mode` configure the run.
+Comments start with `##` (inline) or `###` (a *step header* that groups following lines in the run report). Directives like `@app` / `@mode` / `@expects` configure the run.
 
 ## The execution model
 
@@ -304,6 +304,20 @@ SET Code = "ACME-{{@random}}"
 - **User variables** are assigned `@name = …` and read `{{name}}` (no `@`). A loop index (`AS @i`) reads the same — `{{i}}` — but a loop **row** keeps the `@`: read a cell as `{{@row.<col>}}` (or use the bare handle `@row` for `OPEN-ROW @row`).
 - **Built-ins** `{{@today}} {{@now}} {{@uuid}} {{@random}}` are evaluated **on each reference** (like `DateTime.Now` / `rng.Next()`), so capture into a variable to freeze a value for reuse. `--seed`/`Seed` fixes the `@uuid`/`@random` sequence (independent streams); `--now`/`Now` anchors the clock, which then flows by real elapsed time.
 - **In-string interpolation** — `{{…}}` holes resolve inside `"…"` literals using the same machinery, so values compose. Escape a literal brace as `\{`.
+
+### Declaring host-supplied variables — `@expects`
+
+```visc
+@expects region, tenant              ## the host supplies {{region}} / {{tenant}} at run time
+OPEN MenuItem Shop/{{region}}/Products
+SEARCH "{{tenant}}"
+```
+
+Some variables aren't assigned in the script — the host injects them through `VidyanoScriptOptions.Variables`, the CLI `--var`, or `--env-prefix` (this is how a test harness feeds per-test values). The static lint can't see those bindings, so an editor would flag every such `{{x}}` as undefined. `@expects a, b` declares them: the [lint](./cli.md) counts the names as declared (so the reads are clean), while the interpreter treats the line as a **no-op** — it never binds the variables, so a host value is still required and is *never overwritten*.
+
+This makes the directive runtime-safe, which a workaround assignment is not: `@a = "{{a}}"` would silence the lint but also overwrite the host-injected value (and crash if it isn't set). With `@expects`, an unsupplied declared variable still loud-fails (`resolve-variable`) the moment it's first read — the declaration silences the *static* check without weakening the runtime backstop.
+
+`@expects` is an `@`-directive (like `@mode` / `@app`), not a verb; conventionally it goes at the top of the file, but because it has no runtime effect it's accepted anywhere and the lint is order-insensitive. Names are bare (no `@`, no `{{}}`) and comma-separated.
 
 ### Environment values
 

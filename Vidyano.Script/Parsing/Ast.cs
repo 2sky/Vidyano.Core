@@ -28,6 +28,16 @@ public sealed record VariableAssignment(string Name, Expression Value, SourceLoc
 /// <summary><c>@mode = navigation|audit|direct</c>. Hoisted out of variables since it changes semantics.</summary>
 public sealed record ModeDirective(GuardMode Mode, SourceLocation Location) : Statement(Location);
 
+/// <summary><c>@expects a, b</c> — declares variables the host supplies at run time (via
+/// <see cref="VidyanoScriptOptions.Variables"/> / <c>--var</c> / env-prefix). A pure <em>lint</em>
+/// declaration: it adds the names to the variable-use analyzer's "declared" set so a <c>{{a}}</c> read
+/// of a host-injected value doesn't false-positive, but the interpreter treats it as a NO-OP — it never
+/// writes the variable table, so a caller-supplied value stays required and is never overwritten (unlike
+/// <see cref="VariableAssignment"/>, whose self-assign hack <c>@a = "{{a}}"</c> this replaces). An
+/// unsupplied declared variable still loud-fails (<c>resolve-variable</c>) when first interpolated, so
+/// the declaration silences the static check without weakening the runtime backstop.</summary>
+public sealed record ExpectsDirective(IReadOnlyList<string> Names, SourceLocation Location) : Statement(Location);
+
 /// <summary><c>SIGN-IN user / password [LANGUAGE xx-XX]</c>. <see cref="Language"/> is sent as
 /// <c>data["requestedLanguage"]</c> via <see cref="Hooks.OnCreateData"/> so subsequent server-rendered
 /// labels, messages, and notifications come back localized.

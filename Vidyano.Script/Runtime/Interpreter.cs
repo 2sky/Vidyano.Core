@@ -285,6 +285,13 @@ public sealed class Interpreter
             return Ok(stmt);
         }
 
+        // @expects declares host-supplied variables for the lint only — a pure no-op at run time. It must
+        // never write _vars, or it would overwrite the very host value it documents; an unsupplied name
+        // still loud-fails (resolve-variable) when first interpolated. Handled before the gates so a
+        // declaration can never be blocked by session state.
+        if (stmt is ExpectsDirective)
+            return Ok(stmt);
+
         // The skip / initial-pending / retry-pending gates fire here AND for body statements (which route
         // back through this method), so a gated state freezes a loop body the same way it freezes the
         // top-level stream. A blocking result short-circuits execution.
