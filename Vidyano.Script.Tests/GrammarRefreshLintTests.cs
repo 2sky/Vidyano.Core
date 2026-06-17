@@ -288,15 +288,4 @@ public sealed class GrammarRefreshLintTests
         AssertClean("SET Whatever = ID \"x\"");
         AssertClean("SET Whatever = null");
     }
-
-    // --- REFRESH (regression: keyword still parses) --------------------------------------------
-
-    [Fact]
-    public void Refresh_BareVerb_StillParses()
-    {
-        // The help-table row for REFRESH was removed but the verb itself was kept; verify the
-        // parser still produces a RefreshStmt rather than an unknown-verb diagnostic.
-        var stmt = SingleStatement<RefreshStmt>("REFRESH");
-        Assert.Null(stmt.Handle);
-    }
 }

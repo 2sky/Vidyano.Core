@@ -121,9 +121,6 @@ public sealed record CancelStmt(string? Handle, SourceLocation Location) : State
 /// notification stays on the PO so a following <c>EXPECT Notification …</c> can pin the message.</summary>
 public sealed record SaveStmt(string? Handle, SourceLocation Location, string? Scope = null, bool ExpectError = false) : Statement(Location);
 
-/// <summary><c>REFRESH</c> — refresh attributes (calls <c>PersistentObject.Refresh</c>).</summary>
-public sealed record RefreshStmt(string? Handle, SourceLocation Location) : Statement(Location);
-
 /// <summary>How a <c>SET</c> turns its right-hand side into the attribute value.</summary>
 public enum SetValueKind
 {

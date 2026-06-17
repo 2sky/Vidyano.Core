@@ -329,7 +329,6 @@ public sealed class Interpreter
                         : await Current.SaveAsync(sv.Location).ConfigureAwait(false);
                     return sv.ExpectError ? WrapExpectingError(stmt, saveRes) : Wrap(stmt, saveRes);
                 }
-            case RefreshStmt rf:               return Wrap(stmt, await Current.RefreshAsync(rf.Location).ConfigureAwait(false));
             case SetStmt s:                    return await DoSet(s).ConfigureAwait(false);
             case ActionStmt a:                 return await DoAction(a).ConfigureAwait(false);
             case ConfirmStmt cf:               return await DoConfirm(cf).ConfigureAwait(false);

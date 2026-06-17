@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
@@ -475,9 +476,13 @@ namespace Vidyano.ViewModel
             }
         }
 
-        public async Task RefreshAttributesAsync(PersistentObjectAttribute attribute = null)
+        // Server-driven attribute refresh after a TriggersRefresh attribute changes. Not a caller-facing
+        // operation: it's the synchronization step behind PersistentObjectAttribute.SetValueAsync, which
+        // owns the value change that warrants it — hence internal and a required attribute (the server
+        // needs RefreshedPersistentObjectAttributeId to know which attribute fired).
+        internal async Task RefreshAttributesAsync(PersistentObjectAttribute attribute)
         {
-            var parameters = attribute != null ? new Dictionary<string, string> { { "RefreshedPersistentObjectAttributeId", Client.ToServiceString(attribute.Id) } } : null;
+            var parameters = new Dictionary<string, string> { { "RefreshedPersistentObjectAttributeId", Client.ToServiceString(attribute.Id) } };
             try
             {
                 var result = await Client.ExecuteActionAsync("PersistentObject.Refresh", this, null, null, parameters).ConfigureAwait(false);
@@ -533,11 +538,20 @@ namespace Vidyano.ViewModel
             return Queries[queryName];
         }
 
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        [Obsolete("Use SetAttributeValueAsync instead to ensure the UI is properly refreshed when the value changes. This method will not trigger a refresh and may cause the UI to be out of sync with the underlying data.", true)]
         public void SetAttributeValue(string attributeName, object value)
+        {
+            _ = SetAttributeValueAsync(attributeName, value);
+        }
+
+        public Task SetAttributeValueAsync(string attributeName, object value)
         {
             var attr = GetAttribute(attributeName);
             if (attr != null)
-                attr.Value = value;
+                return attr.SetValueAsync(value);
+
+            return Task.CompletedTask;
         }
 
         #region Service Serialization

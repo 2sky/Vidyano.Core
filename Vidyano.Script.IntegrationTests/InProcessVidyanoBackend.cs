@@ -66,6 +66,12 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 model.GetPersistentObject(nameof(ProductCategory))!
                     .GetOrCreateAttributeAsDetail("Products").Details = productsDetail;
 
+                // Mark Product.Trigger as TriggersRefresh: a SET of it round-trips through
+                // ProductActions.OnRefresh, which mirrors the value into Product.Echo — exercises the
+                // client SetValueAsync -> RefreshAttributesAsync path end-to-end.
+                model.GetPersistentObject(nameof(Product))!
+                    .GetOrCreateAttribute(nameof(Product.Trigger)).TriggersRefresh = true;
+
                 // Query-level custom actions. The user right both authorizes the action and attaches it
                 // to the Product query's PO type.
                 var hello = model.GetOrCreateCustomAction(nameof(HelloWorld));
