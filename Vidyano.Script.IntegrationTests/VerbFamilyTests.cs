@@ -1,3 +1,4 @@
+using Vidyano.Script.Diagnostics;
 using Vidyano.Script.Runtime;
 using Xunit;
 
@@ -28,6 +29,12 @@ public sealed class VerbFamilyTests
     }
 
     private static void AssertOk(ScriptResult result) => Assert.True(result.Ok, result.Describe());
+
+    /// <summary>Every diagnostic across every statement of the run — failures, skips, and warnings that
+    /// rode on passing statements alike. Lets a test assert on a specific <see cref="ErrorKind"/> without
+    /// re-walking the step/statement tree each time.</summary>
+    private static IEnumerable<Diagnostic> AllDiagnostics(ScriptResult result) =>
+        result.Steps.SelectMany(s => s.Statements).SelectMany(s => s.Diagnostics);
 
     [Fact]
     public async Task SignIn_Open_QueryCount()
@@ -184,6 +191,72 @@ public sealed class VerbFamilyTests
             EXPECT Notification.Type = "OK"
             EXPECT Notification MATCHES "Yes"
             """));
+    }
+
+    // --- hidden-attribute SET across guard modes -------------------------------------------------
+    //
+    // Product.Secret is hidden (ProductActions.OnLoad sets Visibility = Never), modelling a field only a
+    // custom web component edits. Core itself never blocks setting a hidden-but-editable attribute
+    // (PersistentObjectAttribute.UpdateValue gates on read-only alone), so these pin the .visc SET guard:
+    // it tiers with reachability — navigation rejects, audit warns-but-allows, direct allows silently.
+
+    [Fact]
+    public async Task HiddenAttribute_NavigationMode_RejectsSet()
+    {
+        // Default mode. The standard UI would never surface Secret, so SET is rejected before it touches
+        // the value — the regression that would have let this through is exactly the one the users hit.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EDIT
+            SET Secret = "classified"
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.GuardAttributeHidden);
+    }
+
+    [Fact]
+    public async Task HiddenAttribute_DirectMode_AllowsAndRoundTrips()
+    {
+        // @mode = direct is the documented escape hatch for the custom-component path: SET reaches the
+        // hidden attribute, SAVE posts it, and reopening reads it back (the EXPECT read tiers the same way).
+        AssertOk(await Run("""
+            @mode = direct
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EDIT
+            SET Secret = "classified"
+            SAVE
+            SEARCH ""
+            OPEN-ROW WHERE Name = "Widget"
+            EXPECT Secret = "classified"
+            """));
+    }
+
+    [Fact]
+    public async Task HiddenAttribute_AuditMode_WarnsButAllows()
+    {
+        // Audit tier: the set is allowed (so the round-trip persists like direct) but carries a non-failing
+        // warning so a reviewer sees the custom-component path was exercised.
+        var result = await Run("""
+            @mode = audit
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EDIT
+            SET Secret = "classified"
+            SAVE
+            SEARCH ""
+            OPEN-ROW WHERE Name = "Widget"
+            EXPECT Secret = "classified"
+            """);
+
+        AssertOk(result);
+        // The warning rides on the (passing) SET — same kind as the navigation failure, but the run is ok.
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.GuardAttributeHidden);
     }
 
     [Fact]

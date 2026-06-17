@@ -105,6 +105,13 @@ public sealed class Product
     /// <summary>The "different attribute" the refresh writes: <see cref="ProductActions.OnRefresh"/>
     /// mirrors <see cref="Trigger"/> into it, so a SET of Trigger surfaces here after the round-trip.</summary>
     public string? Echo { get; set; }
+
+    /// <summary>A hidden-but-editable attribute: <see cref="ProductActions.OnLoad"/> sets its
+    /// <c>Visibility</c> to <see cref="AttributeVisibility.Never"/>, modelling the real-world case where a
+    /// custom web component edits a field the default editor never renders. The standard UI can't set it,
+    /// so the .visc SET guard tiers by mode (navigation rejects; audit warns-but-allows; direct allows).
+    /// Nullable/optional so it doesn't affect SAVE validation in the other Product tests.</summary>
+    public string? Secret { get; set; }
 }
 
 public sealed class ProductCategory
@@ -130,6 +137,16 @@ public sealed class ProductActions(ShopContext context)
 
         obj.SetAttributeValue("Name", "New Product");
         obj.SetAttributeValue("Color", "Blue");
+    }
+
+    /// <summary>Hides <see cref="Product.Secret"/> from the default editor (visibility Never) the same way a
+    /// real app would for a field only a custom web component edits. The attribute still rides the wire and
+    /// stays editable server-side, so a .visc SET reaches it once the mode allows a hidden write.</summary>
+    public override void OnLoad(PersistentObject obj, PersistentObject? parent)
+    {
+        base.OnLoad(obj, parent);
+
+        obj[nameof(Product.Secret)].Visibility = AttributeVisibility.Never;
     }
 
     public override void OnSave(PersistentObject obj)

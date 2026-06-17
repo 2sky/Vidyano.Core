@@ -355,6 +355,17 @@ A `@mode` directive (or `VidyanoScriptOptions.Mode`) selects how strictly the en
 - **`audit`** — every observable side-effect is checked against the previous snapshot; useful for regression scripts.
 - **`direct`** — guards relaxed; lets scripts poke state directly. Reserved for setup/teardown.
 
+### Hidden attributes and the mode tier
+
+A **hidden** attribute (`AttributeVisibility.Never` — the default editor never renders it) is treated as a *reachability* concern, not a hard constraint: the standard UI can't touch it, but a custom web component can, and Core itself only ever blocks a **read-only** write (visibility never blocks a set). So `SET`/`EXPECT` on a hidden attribute tier with the mode:
+
+| | `navigation` | `audit` | `direct` |
+|---|---|---|---|
+| `SET <hidden>` | rejected (`guard-attribute-hidden`) | allowed **+ warning** | allowed silently |
+| `EXPECT <hidden>` (read) | rejected (`guard-attribute-hidden`) | allowed silently | allowed silently |
+
+Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-only stays a hard guard in every mode** (`guard-attribute-read-only`) — a read-only attribute is genuinely not settable, even by a custom component, so no mode bypasses it.
+
 ---
 
 ## Verb quick reference

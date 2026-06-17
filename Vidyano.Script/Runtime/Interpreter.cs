@@ -594,15 +594,15 @@ public sealed class Interpreter
             if (!file.Ok) return Fail(s, file.Error!);
             var (fileName, bytes) = file.Value;
             var fileRes = s.Scope is null
-                ? await Current.SetFileAttributeAsync(s.Attribute, fileName, bytes, s.Location).ConfigureAwait(false)
-                : await Current.SetScopedFileAttributeAsync(s.Scope, s.Attribute, fileName, bytes, s.Location).ConfigureAwait(false);
+                ? await Current.SetFileAttributeAsync(s.Attribute, fileName, bytes, s.Location, _mode).ConfigureAwait(false)
+                : await Current.SetScopedFileAttributeAsync(s.Scope, s.Attribute, fileName, bytes, s.Location, _mode).ConfigureAwait(false);
             return Wrap(s, fileRes);
         }
 
         ReferenceHint? hint = s.Hint is null ? null : new ReferenceHint(s.Hint.Value, AsString(v.Value));
         var res = s.Scope is null
-            ? await Current.SetAttributeAsync(s.Attribute, v.Value, s.Location, hint).ConfigureAwait(false)
-            : await Current.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location).ConfigureAwait(false);
+            ? await Current.SetAttributeAsync(s.Attribute, v.Value, s.Location, _mode, hint).ConfigureAwait(false)
+            : await Current.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location, _mode).ConfigureAwait(false);
         return Wrap(s, res);
     }
 
@@ -1080,10 +1080,15 @@ public sealed class Interpreter
                             $"Attribute '{subj.Name}' does not exist on {po.Type}.",
                             loc,
                             Hint: Suggester.Hint(subj.Name!, po.Attributes.Select(a => a.Name))));
-                    if (!attr.IsVisible)
+                    // Reading a hidden attribute tiers the same way SET does (see SetAttributeOnAsync): the
+                    // standard UI can't read it, but a custom web component can — so navigation rejects while
+                    // audit/direct allow. No audit warning here: a read is observational, so unlike the
+                    // mutating SET it carries no "you touched a hidden field" risk worth surfacing.
+                    if (!attr.IsVisible && _mode == GuardMode.Navigation)
                         return Fail<object?>(new Diagnostic(ErrorKind.GuardAttributeHidden,
-                            $"Attribute '{subj.Name}' exists on {po.Type} but is hidden — the UI cannot read it.",
-                            loc));
+                            $"Attribute '{subj.Name}' exists on {po.Type} but is hidden — the standard UI cannot read it.",
+                            loc,
+                            Hint: "A custom web component can still read a hidden attribute; use @mode = direct (or audit) to read it here."));
                     return AttributeComparand(attr, subj.Hint, loc);
                 }
             case ExpectSubjectKind.Action:
@@ -1778,7 +1783,7 @@ public sealed class Interpreter
     // --- statement result wrappers ------------------------------------------------------------
 
     private StatementResult Wrap(Statement stmt, OpResult res) =>
-        res.Ok ? Ok(stmt) : Fail(stmt, res.Error!);
+        res.Ok ? Ok(stmt, res.Warning) : Fail(stmt, res.Error!);
 
     /// <summary>Same polarity as the non-generic <see cref="Wrap(Statement, OpResult)"/>, for the
     /// <see cref="SessionBook"/> calls that return a payload the interpreter doesn't need (the slot is
@@ -1808,8 +1813,9 @@ public sealed class Interpreter
             : Fail(stmt, res.Error!);
     }
 
-    private StatementResult Ok(Statement stmt) =>
-        new(stmt, true, Current.TakeSnapshot(), Array.Empty<Diagnostic>());
+    private StatementResult Ok(Statement stmt, Diagnostic? warning = null) =>
+        new(stmt, true, Current.TakeSnapshot(),
+            warning is null ? Array.Empty<Diagnostic>() : new[] { warning });
 
     private StatementResult Fail(Statement stmt, Diagnostic d) =>
         new(stmt, false, Current.TakeSnapshot(), new[] { d });
