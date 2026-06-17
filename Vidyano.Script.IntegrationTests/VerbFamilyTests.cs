@@ -178,6 +178,82 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task TranslatedString_SetAndExpect_PerLanguage_RoundTrips()
+    {
+        // Product.Title is a TranslatedString ({"en":…,"nl":…,"de":…}). Pin the session language so the
+        // bare SET/EXPECT (current-language) path is deterministic, set the current language and ONE other
+        // (nl), leave de untouched, save, reopen, and assert: the current-language value persisted, the
+        // explicit nl write persisted, and the untouched de keeps its seed (the client merge preserves it).
+        AssertOk(await Run("""
+            SIGN-IN admin / admin LANGUAGE en
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EXPECT Title = "Widget"                  ## current-language (en) seed via Value
+            EXPECT Title LANGUAGE nl = "Hulpmiddel"  ## seeded Dutch translation
+            EDIT
+            SET Title = "Widget-en"                  ## current language (en)
+            SET Title LANGUAGE nl = "Hulpmiddel-2"   ## a specific language
+            EXPECT Title LANGUAGE nl = "Hulpmiddel-2"
+            SAVE
+            SEARCH ""
+            OPEN-ROW WHERE Name = "Widget"
+            EXPECT Title = "Widget-en"               ## current language persisted
+            EXPECT Title LANGUAGE en = "Widget-en"   ## same, addressed explicitly
+            EXPECT Title LANGUAGE nl = "Hulpmiddel-2"
+            EXPECT Title LANGUAGE de = "Werkzeug"    ## untouched language preserved through the merge
+            """));
+    }
+
+    [Fact]
+    public async Task TranslatedString_Language_OnNonTranslatedAttribute_Fails()
+    {
+        // LANGUAGE only applies to a TranslatedString — Color is a plain String, so the SET fails loudly
+        // rather than silently dropping the clause.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            EDIT
+            SET Color LANGUAGE nl = "Blauw"
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.ParseUnexpectedToken && d.Message.Contains("LANGUAGE"));
+    }
+
+    [Fact]
+    public async Task TranslatedString_SetValueAsync_PersistsThroughOptions()
+    {
+        // The .visc SET path routes a TranslatedString through SetCurrentTranslationAsync, so only a direct
+        // Core test covers the standard value channel (SetValueAsync -> UpdateValue) a UI binding uses. That
+        // channel MUST write the translation map (OptionsDirect[0], the server's save channel), not just
+        // Value — otherwise the save sends a stale map and the edit is silently lost (Gemini, PR #42). With
+        // the bug, the reloaded current-language Value would still read the seed; with the fix it round-trips.
+        var conn = await _app.Backend.StartAsync();
+        var client = new Client(conn.HttpClient) { Uri = conn.BaseUri };
+        await client.SignInUsingCredentialsAsync("admin", "admin");
+
+        var po = await client.GetPersistentObjectAsync("Product", "1"); // Widget: en=Widget, nl=Hulpmiddel, de=Werkzeug
+        po.Edit();
+        await po["Title"].SetValueAsync("Widget-via-value");            // the normal value channel
+        await po.Save();
+
+        var reloaded = await client.GetPersistentObjectAsync("Product", "1");
+        var title = reloaded["Title"];
+
+        // (a) the current-language edit persisted — fails if UpdateValue wrote only Value (stale Options[0]).
+        Assert.Equal("Widget-via-value", (string)title.Value);
+
+        // (b) the untouched languages survived — proof the whole map round-tripped through Options[0], not
+        //     just the one Value slot. Two of the three distinct seed values must remain.
+        var all = (TranslatedString)title;
+        Assert.NotNull(all);
+        var seedSurvivors = new[] { "Widget", "Hulpmiddel", "Werkzeug" }
+            .Count(seed => all!.Languages.Any(lang => all[lang] == seed));
+        Assert.Equal(2, seedSurvivors);
+    }
+
+    [Fact]
     public async Task Confirm_AnswersRetryDialog()
     {
         AssertOk(await Run("""

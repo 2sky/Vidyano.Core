@@ -21,10 +21,14 @@ public sealed class DemoContext : NullTargetContext
 
     private static readonly List<Product> products =
     [
-        new() { Id = "1", Name = "Widget", Color = "Blue", Category = "1" },
-        new() { Id = "2", Name = "Gadget", Color = "Red", Category = "2" },
-        new() { Id = "3", Name = "Gizmo", Color = "Green", Category = "1" },
+        new() { Id = "1", Name = "Widget", Color = "Blue", Category = "1", Title = _L("Widget", "Hulpmiddel", "Werkzeug") },
+        new() { Id = "2", Name = "Gadget", Color = "Red", Category = "2", Title = _L("Gadget", "Apparaat", "Gerät") },
+        new() { Id = "3", Name = "Gizmo", Color = "Green", Category = "1", Title = _L("Gizmo", "Ding", "Dingsda") },
     ];
+
+    // The same English/Dutch/German helper the .visc shop fixtures use to author a multi-lingual value.
+    private static TranslatedString _L(string en, string nl, string de) =>
+        new() { ["en"] = en, ["nl"] = nl, ["de"] = de };
 
     public DemoContext()
     {
@@ -45,6 +49,9 @@ public sealed class Product
     public string Color { get; set; } = string.Empty;
     [Reference(typeof(ProductCategory))]
     public string? Category { get; set; }
+    // A per-language display title — surfaced to the client as a TranslatedString attribute, so the demo
+    // can exercise the multi-lingual set/read round-trip.
+    public TranslatedString? Title { get; set; }
 }
 
 public sealed class ProductCategory

@@ -40,6 +40,28 @@ if (save is { CanExecute: true })
     await save.Execute(null);
 ```
 
+### Multi-lingual attributes (`TranslatedString`)
+
+A `TranslatedString` attribute carries a per-language map of strings. The supported languages are decided by the server **per attribute** (not globally on the `Client`), so you read them off the attribute itself. `attr.Value` is the current-language string; the full map is read with a cast and written with the `SetTranslation*` helpers, which update every language correctly and keep the current-language `Value` in sync.
+
+```csharp
+po.Edit();
+
+var title = po["Title"];
+
+// Read: the current-language value, or the full per-language map.
+string current = (string)title.Value;             // e.g. "Widget"
+TranslatedString all = (TranslatedString)title;   // { "en": "Widget", "nl": "Hulpmiddel", … }
+string dutch = all?["nl"];
+
+// Write: one language, the session's current language, or a whole map (merged over the rest).
+await title.SetTranslationAsync("nl", "Hulpmiddel");
+await title.SetCurrentTranslationAsync("Updated title");
+await title.SetTranslationsAsync(new Dictionary<string, string> { ["en"] = "Widget", ["de"] = "Werkzeug" });
+
+await po.Save();
+```
+
 ## Executing queries
 
 ```csharp

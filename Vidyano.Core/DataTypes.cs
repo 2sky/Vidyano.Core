@@ -25,6 +25,7 @@ namespace Vidyano
                       Reference, KeyValueList,
                       Guid, NullableGuid,
                       Image, BinaryFile,
+                      TranslatedString,
                   };
 
             Text = new HashSet<string>
@@ -189,6 +190,12 @@ namespace Vidyano
 
         /// <summary>Represents the BinaryFile data type.</summary>
         public const string BinaryFile = "BinaryFile";
+
+        /// <summary>Represents the TranslatedString data type — a per-language map of strings. The
+        /// supported languages are carried per attribute (not globally on the <see cref="Client"/>);
+        /// see <see cref="TranslatedString"/> and the helpers on
+        /// <see cref="ViewModel.PersistentObjectAttribute"/>.</summary>
+        public const string TranslatedString = "TranslatedString";
 
         /// <summary>Represents the Guid data type.</summary>
         public const string Guid = "Guid";
