@@ -175,14 +175,15 @@ public static class VerbCatalog
             "query", []),
 
         new("EXPECT",
-            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>",
+            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>\nEXPECT Detail \"<name>\" Action <X> IS [NOT] AVAILABLE | VISIBLE",
             "Assert on session/PO/query state.",
             "Asserts on `NavStack.*`, `TotalItems`, `Selection.*`, `IsInEdit`, `ClientOperation`, "
             + "`RetryDialog.*` (Title / Message / Options of an open server retry), attributes, "
             + "notifications, and round-tripped metadata. `= ID \"<id>\"` / `!= ID` compares a reference "
             + "attribute by its document id (ObjectId), symmetric with `SET <ref> = ID`. `LANGUAGE <lang>` "
             + "compares one translation of a TranslatedString attribute, symmetric with `SET … LANGUAGE`. "
-            + "`MATCHES` is a regex assertion (1s ReDoS guard). `Detail \"<name>\"` redirects query-family subjects.",
+            + "`MATCHES` is a regex assertion (1s ReDoS guard). `Detail \"<name>\"` redirects query-family subjects, "
+            + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone).",
             ["EXPECT Status = \"Approved\"", "EXPECT Customer = ID \"people/acme\"", "EXPECT Title LANGUAGE nl = \"Hulpmiddel\"", "EXPECT TotalItems >= 1"],
             "assert", []),
 

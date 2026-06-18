@@ -36,6 +36,15 @@ EXPECT PO.Type = "Vidyano.Customer"
 # EXPECT PO.NavigationHints.target = "Detail"
 # EXPECT PO.Tag IS NULL
 
+### --- Action availability (current PO and a detail query) ----------------------------
+### Whether a named action is executable / shown. An action filtered out server-side
+### (e.g. DisableActions) reads as IS NOT AVAILABLE. Commented: action set is service-specific.
+# EXPECT Action Edit IS AVAILABLE
+### A leading Detail "<name>" targets a named action on a detail (sub-)query, resolved on
+### that detail alone — symmetric with ACTION Detail "<name>" <X>.
+# EXPECT Detail "Orders" Action New IS NOT AVAILABLE
+# EXPECT Detail "Orders" Action ExportToExcel IS AVAILABLE
+
 ### --- Query metadata ------------------------------------------------------------------
 CANCEL
 EXPECT NavStack.Top.Kind = "Query"
