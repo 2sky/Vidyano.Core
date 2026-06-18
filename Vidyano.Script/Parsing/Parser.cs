@@ -1177,11 +1177,14 @@ public sealed class Parser
                 Error(ErrorKind.ParseUnexpectedToken, "Nested 'Detail' is not allowed.", tok.Location);
                 return null;
             }
-            if (!IsQueryFamilySubject(inner.Kind))
+            // An Action inner subject is also permitted: EXPECT Detail "X" Action Y IS [NOT] AVAILABLE | VISIBLE
+            // asserts a named action's gating on the detail (sub-)query, symmetric with the
+            // ACTION Detail "X" Y execution form. The IS flag is stamped later by ParseAssertion.
+            if (!IsQueryFamilySubject(inner.Kind) && inner.Kind is not ExpectSubjectKind.Action)
             {
                 Error(ErrorKind.ParseUnexpectedToken,
-                    "EXPECT Detail can only target query subjects (TotalItems / Query.*) or IS [NOT] AVAILABLE | VISIBLE.", tok.Location,
-                    hint: "EXPECT Detail \"OrderLines\" TotalItems = 3  •  EXPECT Detail \"OrderLines\" IS AVAILABLE");
+                    "EXPECT Detail can only target query subjects (TotalItems / Query.*), an Action, or IS [NOT] AVAILABLE | VISIBLE.", tok.Location,
+                    hint: "EXPECT Detail \"OrderLines\" TotalItems = 3  •  EXPECT Detail \"OrderLines\" Action Delete IS NOT AVAILABLE");
                 return null;
             }
             return inner with { DetailName = detailName };

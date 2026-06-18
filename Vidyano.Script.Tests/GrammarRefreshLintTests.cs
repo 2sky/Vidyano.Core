@@ -246,6 +246,65 @@ public sealed class GrammarRefreshLintTests
         Assert.Contains("VISIBLE", combined);
     }
 
+    // --- EXPECT Detail "X" Action Y IS [NOT] AVAILABLE | VISIBLE --------------------------------
+    // Symmetric with ACTION Detail "X" Y (execution) and EXPECT Action Y (current PO/query): assert a
+    // named action's gating on a detail (sub-)query. Parse-shape only; the runtime — resolving the
+    // action against CurrentPo.Queries[DetailName] alone, not the master PO — needs a live server and
+    // is verified downstream, exactly like EXPECT Action (see ExpectActionAbsentLintTests).
+
+    [Theory]
+    [InlineData("EXPECT Detail \"OrderLines\" Action Delete IS NOT AVAILABLE", AttributeFlagKind.Available, ExpectOp.IsNot)]
+    [InlineData("EXPECT Detail \"OrderLines\" Action Delete IS AVAILABLE", AttributeFlagKind.Available, ExpectOp.Is)]
+    [InlineData("EXPECT Detail \"OrderLines\" Action Delete IS NOT VISIBLE", AttributeFlagKind.Visible, ExpectOp.IsNot)]
+    [InlineData("EXPECT Detail \"OrderLines\" Action Delete IS VISIBLE", AttributeFlagKind.Visible, ExpectOp.Is)]
+    public void ExpectDetailAction_FlagForms_ParseToExpectedShape(string body, AttributeFlagKind flag, ExpectOp op)
+    {
+        var stmt = SingleStatement<ExpectStmt>(body);
+        Assert.Equal(ExpectSubjectKind.Action, stmt.Subject.Kind);
+        Assert.Equal("Delete", stmt.Subject.Name);
+        Assert.Equal("OrderLines", stmt.Subject.DetailName);
+        Assert.Equal(flag, stmt.Subject.Flag);
+        Assert.Equal(op, stmt.Op);
+    }
+
+    [Theory]
+    [InlineData("EXPECT Detail \"OrderLines\" Action Delete IS NOT AVAILABLE")]
+    [InlineData("EXPECT Detail \"OrderLines\" Action New IS VISIBLE")]
+    [InlineData("EXPECT Detail OrderLines Action New IS AVAILABLE")] // bare-identifier detail name
+    public void ExpectDetailAction_FlagForms_LintClean(string body)
+    {
+        AssertClean(body);
+    }
+
+    [Fact]
+    public void ExpectDetailAction_IsRequired_Rejected()
+    {
+        // The Action flag allow-list still applies through the Detail clause: REQUIRED is attribute-only.
+        var diags = VidyanoScript.Lint("EXPECT Detail \"OrderLines\" Action Delete IS REQUIRED");
+        Assert.NotEmpty(diags);
+        var combined = string.Join(" || ", diags.Select(d => $"{d.Message} | {d.Hint}"));
+        Assert.Contains("AVAILABLE", combined);
+    }
+
+    [Fact]
+    public void ExpectDetailAction_DisplayName_Rejected()
+    {
+        // DISPLAY-NAME is out of scope for the Detail clause — only the AVAILABLE/VISIBLE gating forms
+        // are permitted, so an ActionDisplayName inner subject is rejected.
+        AssertHasDiagnostic("EXPECT Detail \"OrderLines\" Action Delete DISPLAY-NAME = \"Remove\"");
+    }
+
+    [Fact]
+    public void ExpectDetail_NonQueryNonActionInner_RejectedWithUpdatedMessage()
+    {
+        // A subject that is neither query-family nor Action (here Notification) is still rejected, and
+        // the message now advertises the Action option alongside the query subjects.
+        var diags = VidyanoScript.Lint("EXPECT Detail \"OrderLines\" Notification");
+        Assert.NotEmpty(diags);
+        var combined = string.Join(" || ", diags.Select(d => $"{d.Message} | {d.Hint}"));
+        Assert.Contains("an Action", combined);
+    }
+
     // --- SET attr = LOOKUP | ID | null ---------------------------------------------------------
 
     [Fact]

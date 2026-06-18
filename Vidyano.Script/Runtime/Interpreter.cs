@@ -1118,11 +1118,22 @@ public sealed class Interpreter
                 {
                     if (po is null && query is null)
                         return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT Action needs a current PO or Query.", loc));
-                    var action = po?.GetAction(subj.Name!) ?? query?.GetAction(subj.Name!);
-                    var candidates = (po?.Actions ?? Array.Empty<Vidyano.ViewModel.Actions.ActionBase>())
-                        .Concat(po?.PinnedActions ?? Array.Empty<Vidyano.ViewModel.Actions.ActionBase>())
-                        .Concat(query?.Actions ?? Array.Empty<Vidyano.ViewModel.Actions.QueryAction>())
-                        .Select(a => a.Name);
+                    // With a Detail clause, `query` was already redirected to the detail query above:
+                    // resolve the action there alone, never on the master PO (which may carry a
+                    // same-named action that would mask the detail's gating). Otherwise fall back
+                    // through PO → current query as before.
+                    var action = subj.DetailName is not null
+                        ? query?.GetAction(subj.Name!)
+                        : (po?.GetAction(subj.Name!) ?? query?.GetAction(subj.Name!));
+                    var candidates = subj.DetailName is not null
+                        ? (query?.Actions ?? Array.Empty<Vidyano.ViewModel.Actions.QueryAction>())
+                            .Concat(query?.PinnedActions ?? Array.Empty<Vidyano.ViewModel.Actions.QueryAction>())
+                            .Select(a => a.Name)
+                        : (po?.Actions ?? Array.Empty<Vidyano.ViewModel.Actions.ActionBase>())
+                            .Concat(po?.PinnedActions ?? Array.Empty<Vidyano.ViewModel.Actions.ActionBase>())
+                            .Concat(query?.Actions ?? Array.Empty<Vidyano.ViewModel.Actions.QueryAction>())
+                            .Concat(query?.PinnedActions ?? Array.Empty<Vidyano.ViewModel.Actions.QueryAction>())
+                            .Select(a => a.Name);
                     if (action is null)
                     {
                         // An absent action (e.g. removed via DisableActions) is neither visible nor

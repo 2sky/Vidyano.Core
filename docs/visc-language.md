@@ -265,12 +265,23 @@ EXPECT Query.Columns[FirstName].Label = "First name"
 
 Missing bag keys produce `null` — assert with `IS NULL` / `IS NOT NULL`.
 
-**Detail redirection** — query-family subjects (`TotalItems`, `Selection.*`, `Query.*`) accept a leading `Detail "<name>"` to target a detail query on the current PO. It reads what the detail holds in memory (no forced search), so load it first with `SEARCH Detail "<name>"` if needed:
+**Action availability** — `EXPECT Action <name> IS [NOT] AVAILABLE | VISIBLE` asserts whether a named action is executable (`AVAILABLE` → `CanExecute`) or shown (`VISIBLE` → `IsVisible`) on the current PO / nav-stack query. An action filtered out server-side (e.g. via `DisableActions`) reads as `IS NOT AVAILABLE`:
+
+```visc
+EXPECT Action Delete IS NOT AVAILABLE   ## gated out (e.g. server DisableActions)
+EXPECT Action Export IS VISIBLE
+```
+
+**Detail redirection** — query-family subjects (`TotalItems`, `Selection.*`, `Query.*`) accept a leading `Detail "<name>"` to target a detail query on the current PO. It reads what the detail holds in memory (no forced search), so load it first with `SEARCH Detail "<name>"` if needed. The same clause also targets a named **action** on that detail — symmetric with `ACTION Detail "<name>" <X>` — resolving the action against the detail's own actions alone (never the master PO, which may carry a same-named action):
 
 ```visc
 EXPECT Detail "OrderLines" TotalItems = 4
 EXPECT Detail "OrderLines" Selection.Count = 1
+EXPECT Detail "OrderLines" Action Delete IS NOT AVAILABLE   ## action gated on the sub-query
+EXPECT Detail "OrderLines" Action ExportToExcel IS AVAILABLE
 ```
+
+Only the `AVAILABLE` / `VISIBLE` flags compose with `Detail` (the `DISPLAY-NAME` form does not).
 
 ---
 
