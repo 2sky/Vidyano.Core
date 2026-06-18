@@ -1132,6 +1132,7 @@ public sealed class Interpreter
                         : (po?.Actions ?? Array.Empty<Vidyano.ViewModel.Actions.ActionBase>())
                             .Concat(po?.PinnedActions ?? Array.Empty<Vidyano.ViewModel.Actions.ActionBase>())
                             .Concat(query?.Actions ?? Array.Empty<Vidyano.ViewModel.Actions.QueryAction>())
+                            .Concat(query?.PinnedActions ?? Array.Empty<Vidyano.ViewModel.Actions.QueryAction>())
                             .Select(a => a.Name);
                     if (action is null)
                     {
