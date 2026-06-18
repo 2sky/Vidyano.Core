@@ -812,7 +812,13 @@ namespace Vidyano
                 data["action"] = action;
                 data["query"] = query?.ToServiceObject();
                 data["parent"] = parent?.ToServiceObject();
-                data["selectedItems"] = selectedItems != null ? new JArray(selectedItems.Select(i => i?.ToServiceObject())) : null;
+                // A query action always carries a non-null selection array ([] when nothing is selected); only
+                // object actions omit it. This mirrors the web client (Action._onExecute resolves the selection to
+                // query.selectedItems/[] before posting) and is required by server handlers that call EnsureQuery(),
+                // which rejects a null SelectedItems. Enforced here so every caller is correct regardless of how it
+                // builds the selection.
+                data["selectedItems"] = selectedItems != null ? new JArray(selectedItems.Select(i => i?.ToServiceObject()))
+                    : query != null ? new JArray() : null;
                 var jParameters = parameters != null ? JObject.FromObject(parameters) : null;
                 data["parameters"] = jParameters;
 

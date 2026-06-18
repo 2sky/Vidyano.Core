@@ -1599,9 +1599,17 @@ public sealed class VidyanoSession : IDisposable
                     : null;
                 result = await Client.ExecuteActionAsync(prefix + name, CurrentPo, actionQuery, selected, dict).ConfigureAwait(false);
             }
-            // ExecuteActionAsync sets notification on the parent on error and returns null.
-            if (result is null && CurrentPo != null && CurrentPo.HasNotification && CurrentPo.NotificationType == NotificationType.Error)
-                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, CurrentPo.Notification, loc));
+            // ExecuteActionAsync sets the error notification on the parent PO (PO action) or on the query the
+            // action ran against (query action) and returns null. Surface either as a failure — a query action
+            // that errors server-side has no PO to carry the error, so without the query check it would pass
+            // silently.
+            if (result is null)
+            {
+                if (CurrentPo is { HasNotification: true, NotificationType: NotificationType.Error })
+                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, CurrentPo.Notification, loc));
+                if ((detailQuery ?? CurrentQuery) is { HasNotification: true, NotificationType: NotificationType.Error } eq)
+                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, eq.Notification, loc));
+            }
             if (result != null && result.FullTypeName != "Vidyano.Notification")
             {
                 // If the top frame is already a PO, swap to the action's result (same navigation level).
@@ -1823,7 +1831,9 @@ public sealed class VidyanoSession : IDisposable
                     c => Vidyano.Client.ToServiceString(r[c.Name]) as string)).ToList(),
             Actions: CurrentQuery.Actions.Select(a => new ActionSnapshot(a.Name, a.CanExecute, a.IsVisible)).ToList(),
             SelectedCount: CurrentQuery.SelectedItems.Count,
-            AllSelected: CurrentQuery.AllSelected);
+            AllSelected: CurrentQuery.AllSelected,
+            Notification: CurrentQuery.Notification,
+            NotificationType: CurrentQuery.HasNotification ? CurrentQuery.NotificationType.ToString() : null);
 
         IReadOnlyDictionary<string, string>? handles = _handles.Count == 0 ? null
             : _handles.ToDictionary(kv => kv.Key, kv => DescribeHandle(kv.Value));

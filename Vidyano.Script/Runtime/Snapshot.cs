@@ -62,4 +62,6 @@ public sealed record QuerySnapshot(
     IReadOnlyList<IReadOnlyDictionary<string, string?>> Rows,
     IReadOnlyList<ActionSnapshot>? Actions = null,
     int SelectedCount = 0,
-    bool AllSelected = false);
+    bool AllSelected = false,
+    string? Notification = null,
+    string? NotificationType = null);

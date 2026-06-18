@@ -98,6 +98,53 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task QueryAction_NoSelection_PostsEmptyArray_And_Opens()
+    {
+        // The Core fix: a query action invoked with NO selection posts an empty selectedItems array (not
+        // null), so a server action that only needs an open query (EnsureQuery) runs and returns a PO to
+        // open. With the old null payload EnsureQuery threw "DEV: Expected query and selected items" and no
+        // PO came back. There is deliberately no SELECT-ROWS — selecting a row to satisfy the check was the
+        // meaningless workaround this fix removes.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            ACTION ImportProducts
+            EXPECT NavStack.Depth = 2
+            EXPECT NavStack.Top.Kind = "PersistentObject"
+            EXPECT NavStack.Top.Name = "Product"
+            """));
+    }
+
+    [Fact]
+    public async Task QueryAction_ServerError_FailsLoudly()
+    {
+        // A query action that errors server-side sets the error on the Query (there's no PO). The ACTION verb
+        // must surface that as a failure — regression for VidyanoSession only checking CurrentPo, which let a
+        // failed query action pass silently.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            ACTION FailOnServer
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertNotificationError);
+    }
+
+    [Fact]
+    public async Task QueryAction_ServerError_ExpectingError_ReadsQueryNotification()
+    {
+        // EXPECTING ERROR absorbs the query-action failure (negative path), leaving the error notification on
+        // the Query — and EXPECT Notification now reads the current Query, not just a PO.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            ACTION FailOnServer EXPECTING ERROR
+            EXPECT Notification.Type = "Error"
+            """));
+    }
+
+    [Fact]
     public async Task Save_ExpectingError_OnSentinel()
     {
         AssertOk(await Run("""
