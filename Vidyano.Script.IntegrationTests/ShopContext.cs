@@ -259,3 +259,31 @@ public sealed class AskFirst(ShopContext context) : CustomAction<ShopContext>(co
         return e.Parent;
     }
 }
+
+/// <summary>Query-level action that needs only an open query, no row selection — it calls
+/// <c>EnsureQuery()</c> (which rejects a null <c>SelectedItems</c>) and returns a PersistentObject to
+/// open, the shape of a real "import"/"register" toolbar action. Drivable from .visc only once the client
+/// posts an empty selection array for a no-selection query action; with the old null payload EnsureQuery
+/// throws <c>"DEV: Expected query and selected items"</c> and the action returns no PO. Registered with
+/// <c>ShowedOn.Query</c> in <see cref="InProcessVidyanoBackend"/>.</summary>
+public sealed class ImportProducts(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public override PersistentObject? Execute(CustomActionArgs e)
+    {
+        e.EnsureQuery();   // asserts a query AND a non-null selection — the payload this regression pins
+        return Manager.Current.GetPersistentObject(nameof(Product), "1");
+    }
+}
+
+/// <summary>Query-level action that always fails server-side. Pins that a .visc <c>ACTION</c> on a query
+/// frame surfaces the failure (the error rides on the <c>Query</c>, not a PO, so it would otherwise pass
+/// silently) and that <c>EXPECT Notification</c> can read a query's notification. Registered with
+/// <c>ShowedOn.Query</c> in <see cref="InProcessVidyanoBackend"/>.</summary>
+public sealed class FailOnServer(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public override PersistentObject? Execute(CustomActionArgs e)
+    {
+        e.EnsureQuery();
+        throw new Exception("Query action failed on the server.");
+    }
+}

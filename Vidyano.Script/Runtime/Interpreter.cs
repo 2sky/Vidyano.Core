@@ -1186,10 +1186,14 @@ public sealed class Interpreter
                         _                           => OpResult<object?>.Success((object?)attr.IsVisible),
                     };
                 }
+            // Notification lives on whichever frame is current: the PO if one is open, otherwise the Query
+            // (a query action surfaces its notification on the Query — see VidyanoSession.ExecuteActionAsync).
             case ExpectSubjectKind.Notification:
-                return OpResult<object?>.Success(po?.Notification);
+                return OpResult<object?>.Success(po is not null ? po.Notification : query?.Notification);
             case ExpectSubjectKind.NotificationType:
-                return OpResult<object?>.Success(po?.HasNotification == true ? po.NotificationType.ToString() : null);
+                return OpResult<object?>.Success(
+                    po is not null ? (po.HasNotification ? po.NotificationType.ToString() : null)
+                    : query is { HasNotification: true } ? query.NotificationType.ToString() : null);
             case ExpectSubjectKind.IsDirty:
                 return OpResult<object?>.Success((object?)(po?.IsDirty ?? false));
             case ExpectSubjectKind.IsInEdit:

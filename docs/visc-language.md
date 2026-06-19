@@ -174,6 +174,8 @@ ACTION Detail "Lines" Delete         ## target a detail query on the current PO
 
 An optional leading `Detail "<name>"` clause targets a detail query (`PersistentObject.Queries`) instead of the nav-stack query — the action resolves from and executes against that detail query (the parent stays the master PO), so a `SELECT-ROWS Detail "<name>"` selection has a verb to act on.
 
+A query action invoked with **no selection** posts an empty selection (matching the web client), so a server action that only needs an open query — e.g. one that calls `EnsureQuery()` — runs without a meaningless `SELECT-ROWS`. If a query action **errors** server-side, the error rides on the current Query (there's no PO to carry it); `ACTION` surfaces it as a failure (it does not pass silently), and a following `EXPECT Notification …` can read it.
+
 ### Asserting the negative path — `EXPECTING ERROR`
 
 ```visc
@@ -181,7 +183,7 @@ SAVE EXPECTING ERROR
 ACTION Delete EXPECTING ERROR
 ```
 
-This trailing suffix flips the verb's polarity: it **passes only if the server returns an error notification**, and **fails if the verb unexpectedly succeeds**. Only the server's error notification is absorbed — a client-side guard (e.g. SAVE before EDIT) or a transport fault still fails normally. The notification stays on the current PO, so a following `EXPECT Notification …` pins the exact message. Composes with every `ACTION` form.
+This trailing suffix flips the verb's polarity: it **passes only if the server returns an error notification**, and **fails if the verb unexpectedly succeeds**. Only the server's error notification is absorbed — a client-side guard (e.g. SAVE before EDIT) or a transport fault still fails normally. The notification stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message. Composes with every `ACTION` form.
 
 ### Server retry dialogs — `CONFIRM`
 
@@ -224,6 +226,8 @@ EXPECT ClientOperation ShowMessageBox
 EXPECT ClientOperation ShowMessageBox CONTAINS "saved"
 EXPECT ClientOperation Refresh IS NULL
 ```
+
+`Notification` / `Notification.Type` read the current PO's notification, or the current Query's when no PO is open — so a query action's notification (e.g. an error) is assertable.
 
 **Retry dialog** (the open server retry; `IS NULL` when none)
 
