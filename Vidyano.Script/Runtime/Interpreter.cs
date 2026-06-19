@@ -491,7 +491,9 @@ public sealed class Interpreter
             oid = AsString(o.Value);
         }
         var res = await Current.OpenPersistentObjectAsync(AsString(t.Value), oid, op.AsHandle, op.Location).ConfigureAwait(false);
-        return Wrap(op, res);
+        // Unlike SAVE/ACTION, a refused point-load surfaces as a ServerError (Core throws and discards the
+        // error PO — there's no notification left to read), so the expected error kind here is ServerError.
+        return op.ExpectError ? WrapExpectingError(op, res, ErrorKind.ServerError) : Wrap(op, res);
     }
 
     private async Task<StatementResult> DoOpenQuery(OpenQueryStmt oq)
@@ -499,7 +501,7 @@ public sealed class Interpreter
         var t = EvaluateExpression(oq.Id);
         if (!t.Ok) return Fail(oq, t.Error!);
         var res = await Current.OpenQueryAsync(AsString(t.Value), oq.AsHandle, oq.Location).ConfigureAwait(false);
-        return Wrap(oq, res);
+        return oq.ExpectError ? WrapExpectingError(oq, res, ErrorKind.ResolveQuery, ErrorKind.ServerError) : Wrap(oq, res);
     }
 
     private async Task<StatementResult> DoOpenMenu(OpenMenuItemStmt om)
@@ -512,7 +514,9 @@ public sealed class Interpreter
             segments.Add(AsString(v.Value));
         }
         var res = await Current.OpenMenuItemAsync(segments, om.AsHandle, om.Location).ConfigureAwait(false);
-        return Wrap(om, res);
+        return om.ExpectError
+            ? WrapExpectingError(om, res, ErrorKind.ResolveMenuItem, ErrorKind.ResolveQuery, ErrorKind.ServerError)
+            : Wrap(om, res);
     }
 
     private async Task<StatementResult> DoOpenRow(OpenRowStmt or)
@@ -1830,23 +1834,36 @@ public sealed class Interpreter
         res.Ok ? Ok(stmt) : Fail(stmt, res.Error!);
 
     /// <summary>Inverts <see cref="Wrap"/>'s polarity for a verb carrying the <c>EXPECTING ERROR</c>
-    /// suffix. The verb passes iff the server returned an error notification
-    /// (<see cref="ErrorKind.AssertNotificationError"/>) — and because the session leaves that
-    /// notification on the current PO, a following <c>EXPECT Notification …</c> can still pin the
-    /// message. A verb that unexpectedly *succeeded* fails the run (the asserted negative path never
-    /// fired). Any other failure kind is surfaced as-is: a client-side guard (e.g. missing required
-    /// attribute) or transport fault means the negative path was never reached — that's a real
-    /// authoring/infra fault, not the error we were asserting.</summary>
-    private StatementResult WrapExpectingError(Statement stmt, OpResult res)
+    /// suffix. The verb passes iff it failed with one of <paramref name="expectedKinds"/> (defaulting to
+    /// <see cref="ErrorKind.AssertNotificationError"/> when none are given). The accepted set is per-verb:
+    /// <list type="bullet">
+    /// <item>SAVE / ACTION → <see cref="ErrorKind.AssertNotificationError"/> (the server returned an error
+    /// notification, which the session leaves on the current PO/Query so a following
+    /// <c>EXPECT Notification …</c> can still pin the message).</item>
+    /// <item>OPEN PersistentObject → <see cref="ErrorKind.ServerError"/> (a refused point-load — Core throws
+    /// and discards the error PO, so <c>EXPECT Notification</c> can NOT follow, and a transport fault is
+    /// indistinguishable from a server refusal here).</item>
+    /// <item>OPEN Query → <see cref="ErrorKind.ResolveQuery"/> / <see cref="ErrorKind.ServerError"/>.</item>
+    /// <item>OPEN MenuItem → <see cref="ErrorKind.ResolveMenuItem"/> plus the kinds a resolved leaf load can
+    /// raise (<see cref="ErrorKind.ResolveQuery"/> / <see cref="ErrorKind.ServerError"/>).</item>
+    /// </list>
+    /// A verb that unexpectedly *succeeded* fails the run (the asserted negative path never fired). Any
+    /// failure kind outside the accepted set is surfaced as-is: a client-side guard (e.g. not signed in,
+    /// missing required attribute) means the negative path was never reached — a real authoring fault, not
+    /// the error we were asserting.</summary>
+    private StatementResult WrapExpectingError(Statement stmt, OpResult res, params string[] expectedKinds)
     {
         if (res.Ok)
             return Fail(stmt, new Diagnostic(
                 ErrorKind.AssertExpectedError,
-                "Expected a server error notification, but the operation succeeded.",
+                "Expected the operation to fail, but it succeeded.",
                 stmt.Location,
                 Hint: "Drop EXPECTING ERROR if this verb is supposed to succeed."));
 
-        return string.Equals(res.Error!.Kind, ErrorKind.AssertNotificationError, StringComparison.Ordinal)
+        if (expectedKinds.Length == 0)
+            expectedKinds = [ErrorKind.AssertNotificationError];
+
+        return expectedKinds.Contains(res.Error!.Kind, StringComparer.Ordinal)
             ? Ok(stmt)
             : Fail(stmt, res.Error!);
     }

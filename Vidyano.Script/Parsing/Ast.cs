@@ -52,14 +52,20 @@ public sealed record SignOutStmt(string? SessionName, SourceLocation Location) :
 /// <summary><c>USE @name</c> — switch active session.</summary>
 public sealed record UseSessionStmt(string SessionName, SourceLocation Location) : Statement(Location);
 
-/// <summary><c>OPEN PersistentObject Customer 42 [AS @handle]</c>.</summary>
-public sealed record OpenPersistentObjectStmt(Expression Type, Expression? ObjectId, string? AsHandle, SourceLocation Location) : Statement(Location);
+/// <summary><c>OPEN PersistentObject Customer 42 [AS @handle] [EXPECTING ERROR]</c>. The trailing
+/// <c>EXPECTING ERROR</c> suffix asserts the negative path: the open passes iff the server refuses the
+/// point-load (a <see cref="Vidyano.Script.Diagnostics.ErrorKind.ServerError"/>) — not-found,
+/// access-denied, or no PO returned.</summary>
+public sealed record OpenPersistentObjectStmt(Expression Type, Expression? ObjectId, string? AsHandle, SourceLocation Location, bool ExpectError = false) : Statement(Location);
 
-/// <summary><c>OPEN Query Orders [AS @handle]</c>.</summary>
-public sealed record OpenQueryStmt(Expression Id, string? AsHandle, SourceLocation Location) : Statement(Location);
+/// <summary><c>OPEN Query Orders [AS @handle] [EXPECTING ERROR]</c>. The suffix asserts the query-load
+/// is refused (<see cref="Vidyano.Script.Diagnostics.ErrorKind.ResolveQuery"/> / <c>ServerError</c>).</summary>
+public sealed record OpenQueryStmt(Expression Id, string? AsHandle, SourceLocation Location, bool ExpectError = false) : Statement(Location);
 
-/// <summary><c>OPEN MenuItem Sales/Customers [AS @handle]</c>. Path is <c>/</c>-separated.</summary>
-public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, string? AsHandle, SourceLocation Location) : Statement(Location);
+/// <summary><c>OPEN MenuItem Sales/Customers [AS @handle] [EXPECTING ERROR]</c>. Path is <c>/</c>-separated.
+/// The suffix asserts the menu path does not resolve for this user
+/// (<see cref="Vidyano.Script.Diagnostics.ErrorKind.ResolveMenuItem"/>, or a refused underlying load).</summary>
+public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, string? AsHandle, SourceLocation Location, bool ExpectError = false) : Statement(Location);
 
 /// <summary><c>OPEN-ROW 0 [AS @handle]</c> or <c>OPEN-ROW WHERE &lt;column&gt; = &lt;value&gt; [AS @handle]</c> —
 /// open the PO behind a row of the current query, selected either positionally or by a column value.
