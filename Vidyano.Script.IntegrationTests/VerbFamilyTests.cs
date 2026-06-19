@@ -160,6 +160,104 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task OpenPo_ByType_PushesFrame()
+    {
+        // Positive control for the point-load path EXPECTING ERROR asserts the negative of: a real id opens.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN PersistentObject "Product" "1"
+            EXPECT NavStack.Depth = 1
+            EXPECT NavStack.Top.Kind = "PersistentObject"
+            EXPECT NavStack.Top.Name = "Product"
+            """));
+    }
+
+    [Fact]
+    public async Task OpenPo_MissingId_ExpectingError_Passes()
+    {
+        // Negative path: a refused point-load (not-found) surfaces as a ServerError; EXPECTING ERROR
+        // inverts it to a pass. No frame is pushed, so a following EXPECT can't read the PO.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN PersistentObject "Product" "999" EXPECTING ERROR
+            EXPECT NavStack.Depth = 0
+            """));
+    }
+
+    [Fact]
+    public async Task OpenPo_ExistingId_ExpectingError_Fails()
+    {
+        // Inverse guard: EXPECTING ERROR on an id that DOES open must fail (the asserted negative path
+        // never fired) — proving the assertion is real, not a no-op.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN PersistentObject "Product" "1" EXPECTING ERROR
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertExpectedError);
+    }
+
+    [Fact]
+    public async Task OpenQuery_ByName_PushesFrame()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN Query "Products"
+            EXPECT NavStack.Depth = 1
+            EXPECT NavStack.Top.Kind = "Query"
+            """));
+    }
+
+    [Fact]
+    public async Task OpenQuery_Missing_ExpectingError_Passes()
+    {
+        // A refused query-load surfaces as a ServerError ("Unable to find query"); EXPECTING ERROR
+        // inverts it to a pass and pushes no frame.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN Query "NoSuchQuery" EXPECTING ERROR
+            EXPECT NavStack.Depth = 0
+            """));
+    }
+
+    [Fact]
+    public async Task OpenQuery_Existing_ExpectingError_Fails()
+    {
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN Query "Products" EXPECTING ERROR
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertExpectedError);
+    }
+
+    [Fact]
+    public async Task OpenMenuItem_Missing_ExpectingError_Passes()
+    {
+        // A menu path that doesn't resolve for this user surfaces as ResolveMenuItem (a client-side menu
+        // walk); EXPECTING ERROR absorbs it — the "this menu entry should not be reachable" assertion.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem "NoSuchUnit" EXPECTING ERROR
+            EXPECT NavStack.Depth = 0
+            """));
+    }
+
+    [Fact]
+    public async Task OpenMenuItem_Existing_ExpectingError_Fails()
+    {
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products EXPECTING ERROR
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertExpectedError);
+    }
+
+    [Fact]
     public async Task TriggersRefresh_OnRefresh_UpdatesOtherAttribute()
     {
         // Setting Product.Trigger (marked TriggersRefresh) round-trips through ProductActions.OnRefresh,

@@ -377,24 +377,28 @@ public sealed class Parser
                     var type = ParseValueExpression();
                     if (type == null) return null;
                     Expression? id = null;
-                    if (!IsLineTerminator(Peek()) && !IsAsKeyword(Peek()))
+                    if (!IsLineTerminator(Peek()) && !IsAsKeyword(Peek()) && !IsExpectingKeyword(Peek()))
                         id = ParseValueExpression();
                     var asHandle = ParseOptionalAs();
-                    return new OpenPersistentObjectStmt(type, id, asHandle, loc);
+                    var expectError = TryConsumeExpectingError(out var malformed);
+                    if (malformed) return null;
+                    return new OpenPersistentObjectStmt(type, id, asHandle, loc, ExpectError: expectError);
                 }
             case "QUERY":
                 {
                     var id = ParseValueExpression();
                     if (id == null) return null;
                     var asHandle = ParseOptionalAs();
-                    return new OpenQueryStmt(id, asHandle, loc);
+                    var expectError = TryConsumeExpectingError(out var malformed);
+                    if (malformed) return null;
+                    return new OpenQueryStmt(id, asHandle, loc, ExpectError: expectError);
                 }
             case "MENUITEM":
                 {
                     // OPEN MenuItem with no segments = open the first ProgramUnit's first item.
                     // The session enforces that behaviour; we just allow the empty path here.
                     var segments = new List<Expression>();
-                    if (!IsLineTerminator(Peek()) && !IsAsKeyword(Peek()))
+                    if (!IsLineTerminator(Peek()) && !IsAsKeyword(Peek()) && !IsExpectingKeyword(Peek()))
                     {
                         var first = ParseValueExpression();
                         if (first == null) return null;
@@ -407,7 +411,9 @@ public sealed class Parser
                         }
                     }
                     var asHandle = ParseOptionalAs();
-                    return new OpenMenuItemStmt(segments, asHandle, loc);
+                    var expectError = TryConsumeExpectingError(out var malformed);
+                    if (malformed) return null;
+                    return new OpenMenuItemStmt(segments, asHandle, loc, ExpectError: expectError);
                 }
         }
         return null;
@@ -1642,8 +1648,10 @@ public sealed class Parser
     }
 
     /// <summary>Consumes an optional trailing <c>EXPECTING ERROR</c> suffix on a fallible verb
-    /// (SAVE / ACTION) and returns whether it was present. The suffix asserts the negative path:
-    /// the verb passes iff it surfaces a server error notification. A bare <c>EXPECTING</c> not
+    /// (SAVE / ACTION / OPEN PersistentObject) and returns whether it was present. The suffix asserts
+    /// the negative path: the verb passes iff it fails with the error the caller treats as expected
+    /// (a server error notification for SAVE/ACTION; a refused point-load for OPEN). A bare
+    /// <c>EXPECTING</c> not
     /// followed by <c>ERROR</c> is a parse error; <paramref name="malformed"/> is then set so the
     /// caller bails out (returns <c>null</c>) instead of shipping a half-parsed statement.</summary>
     private bool TryConsumeExpectingError(out bool malformed)
@@ -1838,6 +1846,9 @@ public sealed class Parser
 
     private bool IsAsKeyword(Token t) =>
         t.Kind == TokenKind.Identifier && string.Equals(t.Lexeme, "AS", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsExpectingKeyword(Token t) =>
+        t.Kind == TokenKind.Identifier && string.Equals(t.Lexeme, "EXPECTING", StringComparison.OrdinalIgnoreCase);
 
     private string? ParseOptionalAs()
     {

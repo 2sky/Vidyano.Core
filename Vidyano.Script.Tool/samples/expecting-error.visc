@@ -32,3 +32,20 @@ EXPECT Notification MATCHES ".+"
 ### `ACTION Delete EXPECTING ERROR` passes only when Delete surfaces an error notification.
 CANCEL
 ACTION Delete EXPECTING ERROR
+
+### All three OPEN forms take the suffix to assert the open is REFUSED — "this should not open".
+### Two differences from SAVE/ACTION: Core discards the error PO/query, so NO frame is pushed and
+### `EXPECT Notification` can't follow (the message is only in the run diagnostic); and a refused open
+### is indistinguishable from a transport fault here. To assert a row is gone AND read state after,
+### prefer a query re-search (SELECT-ROWS WHERE … → EXPECT Selection.Count = 0).
+GO-BACK
+
+### OPEN PersistentObject — a point-load by id (deleted / not-found / access-denied).
+OPEN PersistentObject "Customer" "deleted-id" EXPECTING ERROR
+EXPECT NavStack.Top.Kind = "Query"   ## still on the list — the refused open pushed nothing
+
+### OPEN Query — a query that doesn't exist or the user may not open.
+OPEN Query "RestrictedOrders" EXPECTING ERROR
+
+### OPEN MenuItem — a path that doesn't resolve in this user's menu (a permission/visibility boundary).
+OPEN MenuItem Admin/Users EXPECTING ERROR

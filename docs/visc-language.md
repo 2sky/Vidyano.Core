@@ -181,9 +181,20 @@ A query action invoked with **no selection** posts an empty selection (matching 
 ```visc
 SAVE EXPECTING ERROR
 ACTION Delete EXPECTING ERROR
+OPEN PersistentObject "Customer" "deleted-id" EXPECTING ERROR
+OPEN Query "RestrictedOrders" EXPECTING ERROR
+OPEN MenuItem Admin/Users EXPECTING ERROR
 ```
 
-This trailing suffix flips the verb's polarity: it **passes only if the server returns an error notification**, and **fails if the verb unexpectedly succeeds**. Only the server's error notification is absorbed — a client-side guard (e.g. SAVE before EDIT) or a transport fault still fails normally. The notification stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message. Composes with every `ACTION` form.
+This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION`, that expected failure is the server's error notification, which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form.
+
+All three `OPEN` forms take the suffix to assert the open is **refused** — the `.visc` equivalent of "this should not open":
+
+- **`OPEN PersistentObject <type> <id>`** — a refused point-load (not-found, access-denied, no PO returned).
+- **`OPEN Query <id>`** — a refused query-load (no such query, or access-denied).
+- **`OPEN MenuItem <path>`** — a path that does not resolve in this user's menu (the natural way to assert a permission/visibility boundary), or a refused load of the entry it points at.
+
+Two caveats apply to all three: Core throws away the error PO/query on a refused open, so **no frame is pushed and `EXPECT Notification` cannot follow** (the message is only in the run diagnostic); and because Core collapses every open failure into one error channel, a refused open is **indistinguishable from a transport fault** here (unlike SAVE/ACTION, which a transport fault still fails). To assert a row is gone *and* read state afterwards, prefer a query re-search (`SELECT-ROWS WHERE … → EXPECT Selection.Count = 0`).
 
 ### Server retry dialogs — `CONFIRM`
 
@@ -427,6 +438,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SET <attr> LANGUAGE <lang> = <value>` | Set one translation of a TranslatedString attribute (bare `SET` = current language). |
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `SAVE \| ACTION … EXPECTING ERROR` | Assert the negative (error-notification) path. |
+| `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
 | `CONFIRM "<label>" \| CONFIRM ID <i>` | Answer an open server retry dialog. |
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |
 | `EXPECT <ref> = ID "<id>"` | Assert a reference by its document id (`ObjectId`). |
