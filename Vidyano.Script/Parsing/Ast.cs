@@ -257,6 +257,21 @@ public sealed record ForEachRowStmt(
 /// dialog was open ride back to the server with the confirmation.</summary>
 public sealed record ConfirmStmt(Expression Option, ReferenceHintKind? OptionHint, SourceLocation Location) : Statement(Location);
 
+/// <summary><c>ADD-REFERENCE</c> / <c>ADD-REFERENCE &lt;index&gt;</c> / <c>ADD-REFERENCE WHERE &lt;col&gt; = &lt;value&gt;</c>
+/// — confirm the open Add-Reference picker, linking the selected rows by posting the faithful
+/// <c>Query.AddReference</c> call (the web client's <c>executeAction("Query.AddReference", parent, picker,
+/// selectedItems, {AddAction})</c>). The picker frame is opened by an <c>ACTION</c> whose server result is a
+/// <c>Vidyano.AddReference</c> wrapper PO; until it is on top, ADD-REFERENCE fails with
+/// <see cref="Vidyano.Script.Diagnostics.ErrorKind.StateNoAddReferencePending"/>.
+/// <para>The bare form confirms the picker's <em>current</em> selection (set with a prior <c>SELECT-ROWS</c>).
+/// The optional inline selector is sugar that selects on the picker first, then confirms — exactly one of
+/// <see cref="Index"/> (positional) or <see cref="MatchColumn"/>/<see cref="MatchOp"/>/<see cref="MatchValue"/>
+/// (WHERE, non-strict) is populated; both are null for the bare form. There is no <c>Detail</c> clause — the
+/// picker frame itself is the target. Confirming with no selection fails loudly (an ADD-REFERENCE that adds
+/// nothing is always an authoring mistake, unlike the web client's silent no-op).</para></summary>
+public sealed record AddReferenceStmt(
+    Expression? Index, string? MatchColumn, ExpectOp? MatchOp, Expression? MatchValue, SourceLocation Location) : Statement(Location);
+
 // --- EXPECT subject + operator ----------------------------------------------------------------
 
 /// <summary>Categories of things EXPECT can target.</summary>

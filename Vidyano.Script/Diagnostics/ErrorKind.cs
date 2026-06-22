@@ -72,6 +72,12 @@ public static class ErrorKind
     public const string StateRetryPending        = "state-retry-pending";
     /// <summary><c>CONFIRM</c> was issued with no retry dialog open to answer.</summary>
     public const string StateNoRetryPending      = "state-no-retry-pending";
+    /// <summary>A non-picker verb was attempted while an Add-Reference picker is open. Only
+    /// <c>ADD-REFERENCE</c> / <c>SEARCH</c> / <c>SELECT-ROWS</c> / <c>EXPECT</c> / <c>REQUIRES</c> /
+    /// <c>GO-BACK</c> are allowed until the picker is confirmed or dismissed.</summary>
+    public const string StateAddReferencePending = "state-add-reference-pending";
+    /// <summary><c>ADD-REFERENCE</c> was issued with no Add-Reference picker open to confirm.</summary>
+    public const string StateNoAddReferencePending = "state-no-add-reference-pending";
     /// <summary>A <c>REPEAT</c> count resolved to a negative or non-integer value — the bound is
     /// unevaluable, so the loop can't run.</summary>
     public const string StateInvalidBound        = "state-invalid-bound";

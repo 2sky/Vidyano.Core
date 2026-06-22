@@ -149,6 +149,7 @@ public sealed class Parser
             "SET"         => ParseSet(tok.Location),
             "ACTION"      => ParseAction(tok.Location),
             "CONFIRM"     => ParseConfirm(tok.Location),
+            "ADD-REFERENCE" => ParseAddReference(tok.Location),
             "SEARCH"      => ParseSearch(tok.Location),
             "EXPECT"      => ParseExpect(tok.Location),
             "TOOL"        => ParseTool(tok.Location),
@@ -755,6 +756,31 @@ public sealed class Parser
         var optionExpr = ParseValueExpression();
         if (optionExpr == null) return null;
         return new ConfirmStmt(optionExpr, optionHint, loc);
+    }
+
+    /// <summary><c>ADD-REFERENCE</c> (confirm the picker's current selection) or, with an inline selector,
+    /// <c>ADD-REFERENCE &lt;index&gt;</c> / <c>ADD-REFERENCE WHERE &lt;col&gt; = &lt;value&gt;</c> (select on the
+    /// picker, then confirm). Reuses <see cref="ParseRowTarget"/> for the selector but rejects its optional
+    /// <c>Detail</c> clause — the open picker frame is the only possible target.</summary>
+    private Statement? ParseAddReference(SourceLocation loc)
+    {
+        // Bare form: nothing follows on the line.
+        if (IsAtEnd || IsLineTerminator(Peek()))
+            return new AddReferenceStmt(null, null, null, null, loc);
+
+        if (!ParseRowTarget("ADD-REFERENCE", out var index, out var column, out var matchOp, out var value, out var detailName))
+            return null;
+        if (detailName != null)
+        {
+            Error(ErrorKind.ParseUnexpectedToken,
+                "ADD-REFERENCE doesn't take a 'Detail' clause — it acts on the open picker.",
+                loc,
+                hint: "Select on the picker directly: ADD-REFERENCE WHERE <col> = <value>, or ADD-REFERENCE <index>.");
+            return null;
+        }
+        return column != null
+            ? new AddReferenceStmt(null, column, matchOp, value, loc)
+            : new AddReferenceStmt(index, null, null, null, loc);
     }
 
     private Statement? ParseSearch(SourceLocation loc)

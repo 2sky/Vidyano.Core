@@ -1,0 +1,55 @@
+### ADD-REFERENCE — confirming a custom Add-Reference picker
+###
+### This file lints cleanly with no backend. It demonstrates ADD-REFERENCE and the picker frame an ACTION
+### opens when its server result is an AddReference. The RavenDB / demo samples don't expose a custom
+### AddReference action, so the round-trip itself is lint-only here — the live round-trip (reaching the
+### server's OnAddReference) is exercised by the integration tests (Vidyano.Script.IntegrationTests,
+### VerbFamilyTests.AddReference_*). Every form below is real grammar the runtime executes.
+###
+### Background. A custom action can return `AddReference("<query>")` server-side — the affordance for linking
+### existing rows to the current record (the web client's toolbar "Add" dialog). In .visc that ACTION opens
+### the picker as a modal frame:
+###
+###   • EXPECT NavStack.Top.Kind = "AddReferenceDialog" sees the frame like any other.
+###   • The picker is a query — SEARCH / SELECT-ROWS / EXPECT TotalItems drive and inspect it.
+###   • While it is open the script is frozen: only SEARCH / SELECT-ROWS / EXPECT / REQUIRES, plus
+###     ADD-REFERENCE (confirm) and GO-BACK (dismiss), run — anything else trips `state-add-reference-pending`.
+###   • ADD-REFERENCE confirms the selection (posting the faithful Query.AddReference call) and pops the frame.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+### --- Explicit workflow: open the picker, inspect it, select, confirm ----------------------------
+### LinkProducts is a PO-level action whose server result is AddReference("Products").
+OPEN MenuItem ProductCategories
+OPEN-ROW WHERE Name = "Tools"
+ACTION LinkProducts
+EXPECT NavStack.Top.Kind = "AddReferenceDialog"
+SEARCH "Gadget"
+EXPECT TotalItems >= 1
+SELECT-ROWS WHERE Name = "Gadget"
+EXPECT Selection.Count = 1
+ADD-REFERENCE
+### The picker popped; we're back on the ProductCategory. Reload its detail to see the new link.
+EXPECT NavStack.Top.Kind = "PersistentObject"
+SEARCH Detail "ProductCategory_Products"
+EXPECT Detail "ProductCategory_Products" TotalItems >= 1
+
+### --- Inline-selector sugar: select on the picker and confirm in one line ------------------------
+OPEN-ROW WHERE Name = "Electronics"
+ACTION LinkProducts
+ADD-REFERENCE WHERE Name = "Widget"          ## or by position: ADD-REFERENCE 0
+
+### --- Dismissing a picker without linking -------------------------------------------------------
+OPEN-ROW WHERE Name = "Tools"
+ACTION LinkProducts
+EXPECT NavStack.Top.Kind = "AddReferenceDialog"
+GO-BACK
+EXPECT NavStack.Top.Kind = "PersistentObject"
+
+### --- Removing a reference is NOT a verb --------------------------------------------------------
+### It's an ordinary selection-gated action on the already-linked rows: select them on the detail query,
+### then run the server's remove action.
+SELECT-ROWS Detail "ProductCategory_Products" WHERE Name = "Widget"
+ACTION Detail "ProductCategory_Products" Remove

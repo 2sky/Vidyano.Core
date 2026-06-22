@@ -257,6 +257,17 @@ public sealed class LintTests
             $"expects.visc should lint clean, got: {string.Join("; ", diags.Select(d => $"{d.Kind}: {d.Message}"))}");
     }
 
+    [Fact]
+    public void AddReferenceSample_LintsClean()
+    {
+        var path = SamplePath("add-reference.visc");
+        Assert.True(File.Exists(path), $"Sample not found at {path}");
+        var body = File.ReadAllText(path);
+        var diags = VidyanoScript.Lint(body, path);
+        Assert.True(diags.Count == 0,
+            $"add-reference.visc should lint clean, got: {string.Join("; ", diags.Select(d => $"{d.Kind}: {d.Message}"))}");
+    }
+
     private static string SamplePath(string fileName)
     {
         // Walk up from the test assembly's location to the repo root, then into the tool samples.

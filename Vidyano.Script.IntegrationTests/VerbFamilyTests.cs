@@ -448,6 +448,118 @@ public sealed class VerbFamilyTests
             """));
     }
 
+    // --- ADD-REFERENCE (custom AddReference picker round-trip) -----------------------------------
+    //
+    // LinkProducts is a PO-level action on ProductCategory that returns AddReference("Products"); the .visc
+    // ACTION opens the picker as a modal frame, ADD-REFERENCE confirms it, and ProductActions.OnAddReference
+    // re-homes the picked products into the category. "Tools" seeds with 2 products (Widget, Gizmo); "Gadget"
+    // starts in "Electronics", so linking it makes Tools hold 3.
+
+    [Fact]
+    public async Task AddReference_InlineSelector_LinksRowAndReachesOnAddReference()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            ACTION LinkProducts
+            EXPECT NavStack.Depth = 3
+            EXPECT NavStack.Top.Kind = "AddReferenceDialog"
+            ADD-REFERENCE WHERE Name = "Gadget"
+            EXPECT NavStack.Depth = 2
+            EXPECT NavStack.Top.Kind = "PersistentObject"
+            EXPECT NavStack.Top.Name = "ProductCategory"
+            SEARCH Detail "ProductCategory_Products"
+            EXPECT Detail "ProductCategory_Products" TotalItems = 3
+            """));
+    }
+
+    [Fact]
+    public async Task AddReference_ExplicitSelect_ThenBareConfirm_Links()
+    {
+        // The full picker workflow: load the picker, assert its contents, SELECT-ROWS on it, then bare
+        // ADD-REFERENCE confirms the current selection.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            ACTION LinkProducts
+            SEARCH ""
+            EXPECT TotalItems = 3
+            SELECT-ROWS WHERE Name = "Gadget"
+            EXPECT Selection.Count = 1
+            ADD-REFERENCE
+            EXPECT NavStack.Top.Kind = "PersistentObject"
+            SEARCH Detail "ProductCategory_Products"
+            EXPECT Detail "ProductCategory_Products" TotalItems = 3
+            """));
+    }
+
+    [Fact]
+    public async Task AddReference_NoSelection_FailsLoudly()
+    {
+        // Confirming with nothing selected is always an authoring mistake — fail rather than silently no-op.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            ACTION LinkProducts
+            ADD-REFERENCE
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertFailed);
+    }
+
+    [Fact]
+    public async Task AddReference_PickerOpen_GatesNonPickerVerbs()
+    {
+        // While the picker is open the script is frozen to the picker verbs; an OPEN would bury it, so it
+        // trips state-add-reference-pending.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            ACTION LinkProducts
+            OPEN MenuItem Home/Products
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.StateAddReferencePending);
+    }
+
+    [Fact]
+    public async Task AddReference_GoBack_DismissesPickerWithoutLinking()
+    {
+        // GO-BACK dismisses the picker; the category's products are unchanged (still the 2 seeds).
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            ACTION LinkProducts
+            EXPECT NavStack.Top.Kind = "AddReferenceDialog"
+            GO-BACK
+            EXPECT NavStack.Top.Kind = "PersistentObject"
+            EXPECT NavStack.Top.Name = "ProductCategory"
+            SEARCH Detail "ProductCategory_Products"
+            EXPECT Detail "ProductCategory_Products" TotalItems = 2
+            """));
+    }
+
+    [Fact]
+    public async Task AddReference_NoPickerOpen_FailsLoudly()
+    {
+        // ADD-REFERENCE with no picker open is a state error, mirroring CONFIRM with no retry.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            ADD-REFERENCE WHERE Name = "Gadget"
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.StateNoAddReferencePending);
+    }
+
     // --- hidden-attribute SET across guard modes -------------------------------------------------
     //
     // Product.Secret is hidden (ProductActions.OnLoad sets Visibility = Never), modelling a field only a

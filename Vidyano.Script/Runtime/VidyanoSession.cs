@@ -131,16 +131,25 @@ public sealed class VidyanoSession : IDisposable
     };
 
     /// <summary>The nearest Query on the navigation stack going down from the top, or <c>null</c> if none.
-    /// This means SEARCH and OPEN-ROW still target the underlying Query even after OPEN-ROW pushed a PO on top of it.</summary>
+    /// This means SEARCH and OPEN-ROW still target the underlying Query even after OPEN-ROW pushed a PO on top of it.
+    /// An open Add-Reference picker (<see cref="AddReferenceEntry"/>) counts as a Query here, so the picker's
+    /// rows are what SEARCH / SELECT-ROWS / EXPECT TotalItems act on while the dialog is on top.</summary>
     public Query? CurrentQuery
     {
         get
         {
             for (var i = _navStack.Count - 1; i >= 0; i--)
+            {
                 if (_navStack[i] is QueryEntry qe) return qe.Query;
+                if (_navStack[i] is AddReferenceEntry are) return are.Picker;
+            }
             return null;
         }
     }
+
+    /// <summary>The open Add-Reference picker dialog when one is on top of the navigation stack, otherwise
+    /// <c>null</c>. Drives the picker-pending gate and is what <c>ADD-REFERENCE</c> confirms.</summary>
+    public AddReferenceEntry? CurrentAddReference => _navStack.Count > 0 ? _navStack[^1] as AddReferenceEntry : null;
 
     /// <summary>The navigation stack — oldest entry at index 0, top at <c>NavStack[Count-1]</c>.
     /// Every OPEN pushes; SAVE/CANCEL pop when there's an underlying frame to return to.</summary>
@@ -1569,6 +1578,11 @@ public sealed class VidyanoSession : IDisposable
             }
         }
 
+        // The PO the action runs against — the parent it posts and, for an AddReference result, the parent
+        // its picker reparents to and the confirm carries. Captured before the call, while the nav stack is
+        // still at the action's starting frame (null for a top-level query action).
+        var addReferenceParent = CurrentPo;
+
         // Run the server call(s) inside the parking coroutine: a RetryAction raised by Core's
         // ExecuteAction loop parks the action here and surfaces as a dialog frame the script answers
         // with CONFIRM (see the coroutine fields). With no retry it behaves exactly as a direct await.
@@ -1610,6 +1624,22 @@ public sealed class VidyanoSession : IDisposable
                 if ((detailQuery ?? CurrentQuery) is { HasNotification: true, NotificationType: NotificationType.Error } eq)
                     return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, eq.Notification, loc));
             }
+            // A custom action that returns AddReference("<query>") yields a "Vidyano.AddReference" wrapper PO
+            // holding the reference picker. Mirror the web client (action.ts): take the wrapper's query,
+            // reparent it to the PO the action ran on (so its rows load — and the add posts — against the
+            // right context; the wrapper parents it to itself, which loads nothing), and push it as a modal
+            // picker frame. ADD-REFERENCE then confirms it. The originating action name rides along as the
+            // AddAction parameter the confirm sends.
+            if (result is { FullTypeName: "Vidyano.AddReference" })
+            {
+                var picker = result.Queries.Values.FirstOrDefault();
+                if (picker is null)
+                    return OpResult.Fail(new Diagnostic(ErrorKind.ServerError,
+                        $"Action '{name}' returned an AddReference with no picker query.", loc));
+                picker.Parent = addReferenceParent;
+                _navStack.Add(new AddReferenceEntry(picker, addReferenceParent, name));
+                return OpResult.Success;
+            }
             if (result != null && result.FullTypeName != "Vidyano.Notification")
             {
                 // If the top frame is already a PO, swap to the action's result (same navigation level).
@@ -1629,6 +1659,76 @@ public sealed class VidyanoSession : IDisposable
             return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
         }
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>Confirms the open Add-Reference picker, linking the selected rows to the parent the originating
+    /// action ran on. Posts the faithful <c>Query.AddReference</c> call — the web client's
+    /// <c>executeAction("Query.AddReference", parent, picker, selectedItems, {AddAction})</c>: <c>parent</c> and
+    /// <c>picker</c> come from the <see cref="AddReferenceEntry"/>, and the originating action's name rides as
+    /// the <c>AddAction</c> parameter so the server routes to the right <c>OnAddReference</c> override.
+    /// <para>An optional inline selector (<paramref name="index"/> or <paramref name="column"/> +
+    /// <paramref name="value"/>) selects on the picker first; otherwise the picker's current selection (from a
+    /// prior <c>SELECT-ROWS</c>) is used. Confirming with an empty selection fails loudly — an ADD-REFERENCE
+    /// that adds nothing is an authoring mistake. On success the picker frame is popped, revealing the frame
+    /// beneath; a server-side error leaves the picker open and surfaces as
+    /// <see cref="ErrorKind.AssertNotificationError"/>.</para></summary>
+    public async Task<OpResult> AddReferenceAsync(int? index, string? column, object? value, SourceLocation loc)
+    {
+        if (CurrentAddReference is not { } entry)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.StateNoAddReferencePending,
+                "ADD-REFERENCE has no open Add-Reference picker to confirm.",
+                loc,
+                Hint: "ADD-REFERENCE confirms a picker opened by an ACTION whose server result is an AddReference — there isn't one open."));
+
+        var picker = entry.Picker;
+
+        // Inline selector sugar: select on the picker before confirming. Routes through SelectRowsAsync, which
+        // resolves the current Query (= the picker, whose frame is on top), so the selection lands on the
+        // picker exactly as an explicit SELECT-ROWS would have.
+        if (index is not null || column is not null)
+        {
+            var sel = await SelectRowsAsync(all: false, none: false, index, column, value, detailName: null, loc).ConfigureAwait(false);
+            if (!sel.Ok) return sel;
+        }
+
+        var selected = picker.SelectedItems.ToArray();
+        if (selected.Length == 0)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.AssertFailed,
+                "ADD-REFERENCE has no selected rows to add.",
+                loc,
+                Hint: "Select rows on the picker first (SELECT-ROWS WHERE …), or pass an inline selector (ADD-REFERENCE WHERE Name = \"…\")."));
+
+        try
+        {
+            // Faithful to the web client (action.ts): post Query.AddReference with the action's parent, the
+            // picker query, the chosen rows, and {AddAction} so the server routes to the originating action's
+            // OnAddReference. Skip the client-side action hooks just as the web client passes
+            // skipUserDefinedActions=true (ExecuteAction doesn't dispatch ClientOperations either way).
+            var addParams = new Dictionary<string, string> { ["AddAction"] = entry.AddActionName };
+            var po = await Client.ExecuteActionAsync("Query.AddReference", entry.Parent, picker, selected, addParams, skipHooks: true).ConfigureAwait(false);
+
+            // ExecuteActionAsync sets an error notification (on the parent PO, or the query for a query action)
+            // and returns null on failure. A null result with no error is the normal success shape —
+            // OnAddReference returns void, so there's no result PO to open.
+            if (po is null)
+            {
+                if (entry.Parent is { HasNotification: true, NotificationType: NotificationType.Error })
+                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, entry.Parent.Notification, loc));
+                if (picker is { HasNotification: true, NotificationType: NotificationType.Error })
+                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, picker.Notification, loc));
+            }
+
+            // Pop the picker frame, revealing the PO/Query the action ran on.
+            if (_navStack.Count > 0 && _navStack[^1] is AddReferenceEntry)
+                _navStack.RemoveAt(_navStack.Count - 1);
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
     }
 
     /// <summary>Coerces a script value into an int. Accepts <see cref="int"/>, <see cref="long"/>,

@@ -210,6 +210,37 @@ CONFIRM "Yes"                         ## or: CONFIRM ID 0
 
 While a dialog is open the script is **frozen** to `CONFIRM` / `SET` / `EXPECT` (anything else trips `state-retry-pending`). `CONFIRM` picks an option by label or `ID <index>` and **resumes the action**. If the retry carried a PO for extra input, `SET` its attributes first — `CurrentPo` is the retry PO while the dialog is open, so the edits ride back with the confirmation.
 
+### Add-Reference pickers — `ADD-REFERENCE`
+
+Some custom actions return an **Add-Reference picker** instead of opening a record: server-side the handler returns `AddReference("<query>")`, the affordance for *linking existing rows* to the current record (the web client shows it as the toolbar **Add** dialog). In `.visc` such an `ACTION` opens the picker as a modal frame, which you drive like any query and confirm with `ADD-REFERENCE`:
+
+```visc
+OPEN MenuItem Home/ProductCategories
+OPEN-ROW WHERE Name = "Tools"
+ACTION LinkProducts                       ## server result is an AddReference → opens a picker frame
+EXPECT NavStack.Top.Kind = "AddReferenceDialog"
+SEARCH "Gadget"                           ## the picker is a query — search / select / assert it
+EXPECT TotalItems >= 1
+SELECT-ROWS WHERE Name = "Gadget"
+ADD-REFERENCE                             ## confirm the selection → reaches the server's OnAddReference
+```
+
+`ADD-REFERENCE` also takes an **inline selector** as sugar — it selects on the picker, then confirms, in one line:
+
+```visc
+ACTION LinkProducts
+ADD-REFERENCE WHERE Name = "Gadget"       ## or: ADD-REFERENCE <index>
+```
+
+While the picker is open the script is **frozen** to the verbs that drive, inspect, confirm, or dismiss it — `SEARCH` / `SELECT-ROWS` / `EXPECT` / `REQUIRES`, plus `ADD-REFERENCE` (confirm) and `GO-BACK` (dismiss without linking); anything else trips `state-add-reference-pending`. Confirming with **no selection** fails loudly (an add that adds nothing is always a mistake), and `ADD-REFERENCE` with **no picker open** fails with `state-no-add-reference-pending`. On success the picker frame pops, revealing the record beneath; reload its detail (`SEARCH Detail "<name>"`) to see the new link.
+
+> **Removing a reference** has no dedicated verb — it is an ordinary selection-gated action on the *already-linked* rows. Select them on the relevant (detail) query and run the server's remove action:
+>
+> ```visc
+> SELECT-ROWS Detail "ChargeCards" WHERE Name = "Card-007"
+> ACTION Detail "ChargeCards" Remove
+> ```
+
 ---
 
 ## Asserting state — `EXPECT`
@@ -440,6 +471,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SAVE \| ACTION … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
 | `CONFIRM "<label>" \| CONFIRM ID <i>` | Answer an open server retry dialog. |
+| `ADD-REFERENCE [<i> \| WHERE <col> = <value>]` | Confirm an Add-Reference picker an `ACTION` opened, linking the selected (or inline-selected) rows. |
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |
 | `EXPECT <ref> = ID "<id>"` | Assert a reference by its document id (`ObjectId`). |
 | `EXPECT <attr> LANGUAGE <lang> = "…"` | Assert one translation of a TranslatedString attribute. |

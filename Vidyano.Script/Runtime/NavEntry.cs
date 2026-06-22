@@ -51,3 +51,19 @@ public sealed record RetryEntry(PendingRetry Retry) : NavEntry
     public override string Name => Retry.Title;
     public override bool IsDialog => true;
 }
+
+/// <summary>A modal frame for an open Add-Reference picker, pushed when an <c>ACTION</c>'s server result is a
+/// <c>Vidyano.AddReference</c> wrapper PO and popped by <c>ADD-REFERENCE</c> (confirm) or <c>GO-BACK</c>
+/// (dismiss). Always a dialog — it overlays the PO/Query the action ran on. <see cref="Picker"/> is the
+/// reference picker query (reparented to <see cref="Parent"/> so its rows load against the right context);
+/// query-family verbs (SEARCH / SELECT-ROWS / EXPECT TotalItems) target it while it is on top.
+/// <see cref="Parent"/> is the PO the originating action ran on — the <c>parent</c> the confirming
+/// <c>Query.AddReference</c> post carries — and <see cref="AddActionName"/> is that action's name, sent as the
+/// <c>AddAction</c> parameter so the server routes to the right <c>OnAddReference</c> override. Kind is
+/// <c>"AddReferenceDialog"</c>, so <c>EXPECT NavStack.Top.Kind = "AddReferenceDialog"</c> reads it.</summary>
+public sealed record AddReferenceEntry(Query Picker, PersistentObject? Parent, string AddActionName) : NavEntry
+{
+    public override string Kind => "AddReferenceDialog";
+    public override string Name => Picker.Name;
+    public override bool IsDialog => true;
+}

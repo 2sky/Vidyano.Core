@@ -339,6 +339,7 @@ public sealed class Interpreter
             case SetStmt s:                    return await DoSet(s).ConfigureAwait(false);
             case ActionStmt a:                 return await DoAction(a).ConfigureAwait(false);
             case ConfirmStmt cf:               return await DoConfirm(cf).ConfigureAwait(false);
+            case AddReferenceStmt ar:          return await DoAddReference(ar).ConfigureAwait(false);
             case SearchStmt q:                 return await DoSearch(q).ConfigureAwait(false);
             case ExpectStmt ex:                return DoExpect(ex);
             case ToolCallStmt tc:              return await DoTool(tc).ConfigureAwait(false);
@@ -371,6 +372,14 @@ public sealed class Interpreter
     /// are read-only — everything else trips <see cref="ErrorKind.StateRetryPending"/>.</summary>
     private static bool IsRetryScoped(Statement stmt) =>
         stmt is ConfirmStmt or SetStmt or ExpectStmt or RequiresStmt or RequiresToolStmt;
+
+    /// <summary>Returns <c>true</c> when a statement is permitted while an Add-Reference picker is open.
+    /// <c>ADD-REFERENCE</c> confirms it; <c>SEARCH</c>/<c>SELECT-ROWS</c> drive the picker; <c>EXPECT</c>/
+    /// <c>REQUIRES</c> are read-only; <c>GO-BACK</c> dismisses it — everything else trips
+    /// <see cref="ErrorKind.StateAddReferencePending"/>.</summary>
+    private static bool IsAddReferenceScoped(Statement stmt) =>
+        stmt is AddReferenceStmt or SearchStmt or SelectRowsStmt or ExpectStmt
+             or RequiresStmt or RequiresToolStmt or GoBackStmt;
 
     /// <summary>Runs the per-statement gates and bookkeeping that precede every execution: the skip flag,
     /// the <c>_statementsExecuted</c> / <c>ResetLastOperations</c> side-effects, and the initial-pending /
@@ -424,6 +433,19 @@ public sealed class Interpreter
                 "A server retry dialog is open — the action paused to ask for confirmation or more input.",
                 stmt.Location,
                 Hint: "Answer it with CONFIRM \"<option>\" / CONFIRM ID <index>; SET attributes on the retry PO first if it asks for input."));
+            return true;
+        }
+
+        // Add-Reference-pending gate: while a picker dialog is open the script is frozen to the verbs that
+        // drive, inspect, confirm, or dismiss it — mirroring the retry gate. Everything else (OPEN, ACTION,
+        // EDIT/SAVE, …) would bury or bypass the picker, so it trips loudly.
+        if (!isMetaStmt && Current.CurrentAddReference is not null && !IsAddReferenceScoped(stmt))
+        {
+            result = Fail(stmt, new Diagnostic(
+                ErrorKind.StateAddReferencePending,
+                "An Add-Reference picker is open — choose rows and confirm it before doing anything else.",
+                stmt.Location,
+                Hint: "While the picker is open: SEARCH / SELECT-ROWS / EXPECT to inspect, ADD-REFERENCE to confirm, GO-BACK to dismiss."));
             return true;
         }
 
@@ -717,6 +739,31 @@ public sealed class Interpreter
                 Hint: "CONFIRM \"Yes\"  •  CONFIRM ID 0"));
         var res = await Current.ConfirmRetryAsync(ov.Value, cf.OptionHint, cf.Location).ConfigureAwait(false);
         return Wrap(cf, res);
+    }
+
+    private async Task<StatementResult> DoAddReference(AddReferenceStmt ar)
+    {
+        // Resolve the optional inline selector (index or WHERE value) the same way DoSelectRows does, so the
+        // "needs an integer index" diagnostic and the value evaluation come from one place. Bare ADD-REFERENCE
+        // leaves both null and confirms the picker's current selection.
+        int? index = null;
+        object? matchValue = null;
+        if (ar.MatchColumn != null)
+        {
+            var mv = EvaluateExpression(ar.MatchValue!);
+            if (!mv.Ok) return Fail(ar, mv.Error!);
+            matchValue = mv.Value;
+        }
+        else if (ar.Index != null)
+        {
+            var v = EvaluateExpression(ar.Index);
+            if (!v.Ok) return Fail(ar, v.Error!);
+            if (!TryCoerceInt(v.Value, out var idx))
+                return Fail(ar, new Diagnostic(ErrorKind.ParseInvalidValue, "ADD-REFERENCE needs an integer index.", ar.Location));
+            index = idx;
+        }
+        var res = await Current.AddReferenceAsync(index, ar.MatchColumn, matchValue, ar.Location).ConfigureAwait(false);
+        return Wrap(ar, res);
     }
 
     private async Task<StatementResult> DoSearch(SearchStmt q)
