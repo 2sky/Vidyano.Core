@@ -472,7 +472,7 @@ namespace Vidyano.ViewModel
                 string err = null;
                 try
                 {
-                    await new Navigate().Execute(item.Load()).ConfigureAwait(false);
+                    await new Navigate().Execute(item.Load(throwExceptions: true)).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {

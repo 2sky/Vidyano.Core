@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
@@ -86,14 +87,27 @@ namespace Vidyano.ViewModel
 
         #region Public Methods
 
-        public async Task<PersistentObject> Load()
+        public async Task<PersistentObject> Load(bool throwExceptions = false)
         {
             if (!Query.CanRead)
                 return null;
 
-            var po = await Client.GetPersistentObjectAsync(Query.PersistentObject.Id, Id, Query.Parent).ConfigureAwait(false);
-            po.OwnerQuery = Query;
-            return po;
+            try
+            {
+                var po = await Client.GetPersistentObjectAsync(Query.PersistentObject.Id, Id, Query.Parent).ConfigureAwait(false);
+                po.OwnerQuery = Query;
+                return po;
+            }
+            catch (Exception e)
+            {
+                // Mirror the web client (query-result-item.ts): a failed row-open sets the error on the
+                // owning query so callers can observe it, then returns null unless the caller opts into the throw.
+                Query.SetNotification(e.Message);
+                if (throwExceptions)
+                    throw;
+
+                return null;
+            }
         }
 
         public async Task Open()
