@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Vidyano.Script.LanguageServer</RootNamespace>
     <AssemblyName>Vidyano.Script.LanguageServer</AssemblyName>
-    <Version>5.65.0</Version>
+    <Version>5.66.0</Version>
     <!-- Not shipped as a standalone NuGet package: the language server reaches users bundled inside the
          `vidyano` dotnet tool, which ProjectReferences this library. This keeps the OmniSharp dependency
          off a published surface and avoids a third companion package (only Vidyano.Script + .Tool ship). -->
