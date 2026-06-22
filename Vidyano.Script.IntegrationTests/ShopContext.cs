@@ -215,6 +215,23 @@ public sealed class ProductActions(ShopContext context)
         var categoryId = args.Parent.ObjectId;
         return Context.Products.Where(p => p.Category == categoryId);
     }
+
+    /// <summary>The server half of the .visc <c>ADD-REFERENCE</c> round-trip. The <see cref="LinkProducts"/>
+    /// action on a ProductCategory opens an Add-Reference picker over the Products query; when the client
+    /// confirms (posting <c>Query.AddReference</c> with <c>{AddAction:"LinkProducts"}</c>), the server routes
+    /// here — to the picker query's PO type, Product — and we re-home each picked product to the parent
+    /// category by setting its <see cref="Product.Category"/>. The default base throws for a custom
+    /// <c>AddAction</c>, so this override (no <c>base</c> call) is what makes the custom add work. Mutating the
+    /// seed instances directly is enough for the in-memory NullTargetContext; <see cref="PersistChanges"/>
+    /// mirrors the real-app shape.</summary>
+    public override void OnAddReference(PersistentObject parent, IEnumerable<Product> entities, Query query, QueryResultItem[] selectedItems)
+    {
+        var categoryId = parent.ObjectId;
+        foreach (var product in entities)
+            product.Category = categoryId;
+
+        PersistChanges();
+    }
 }
 
 public sealed class ProductCategoryActions(ShopContext context)
@@ -273,6 +290,19 @@ public sealed class ImportProducts(ShopContext context) : CustomAction<ShopConte
         e.EnsureQuery();   // asserts a query AND a non-null selection — the payload this regression pins
         return Manager.Current.GetPersistentObject(nameof(Product), "1");
     }
+}
+
+/// <summary>PO-level custom action on a ProductCategory that opens an Add-Reference picker over the global
+/// Products query — the shape a real app uses to link existing children to a parent record. Returns the
+/// picker via <see cref="AsyncCustomAction{T}.AddReference(string)"/>; the actual linking happens in
+/// <see cref="ProductActions.OnAddReference"/> when the client confirms with .visc <c>ADD-REFERENCE</c>.
+/// Inherits <see cref="AsyncCustomAction{T}"/> because <c>AddReference</c> lives there, not on the synchronous
+/// <see cref="CustomAction{T}"/> base the other fixtures use. Registered with <c>ShowedOn.PersistentObject</c>
+/// on ProductCategory in <see cref="InProcessVidyanoBackend"/>.</summary>
+public sealed class LinkProducts(ShopContext context) : AsyncCustomAction<ShopContext>(context)
+{
+    public override Task<PersistentObject?> ExecuteAsync(CustomActionArgs e)
+        => Task.FromResult<PersistentObject?>(AddReference("Products"));
 }
 
 /// <summary>Query-level action that always fails server-side. Pins that a .visc <c>ACTION</c> on a query

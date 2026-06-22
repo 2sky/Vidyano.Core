@@ -93,11 +93,18 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 var fail = model.GetOrCreateCustomAction(nameof(FailOnServer));
                 fail.ShowedOn = ShowedOn.Query;
 
+                // PO-level action on ProductCategory that opens an Add-Reference picker over the Products
+                // query — the live fixture for the .visc ADD-REFERENCE round-trip. The right both authorizes
+                // the action and attaches it to the ProductCategory PO type (the parent the add runs on).
+                var link = model.GetOrCreateCustomAction(nameof(LinkProducts));
+                link.ShowedOn = ShowedOn.PersistentObject;
+
                 var administrators = model.GetOrCreateGroup("Administrators");
                 administrators.AddUserRight($"{nameof(HelloWorld)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(AskFirst)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(ImportProducts)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(FailOnServer)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(LinkProducts)}/{Schema}.{nameof(ProductCategory)}");
             }));
 
         var app = builder.Build();

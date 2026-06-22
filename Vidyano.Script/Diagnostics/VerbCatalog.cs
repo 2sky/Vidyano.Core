@@ -143,7 +143,9 @@ public static class VerbCatalog
             "Invoke an action by name.",
             "Executes an action, subject to the action-availability guard. `= <option>` chooses an "
             + "`Options[]` entry; `Detail \"<name>\"` targets a detail query; `EXPECTING ERROR` asserts "
-            + "the negative path.",
+            + "the negative path. When the server result is an `AddReference` (a custom action that returns "
+            + "`AddReference(\"<query>\")`), the action opens a picker dialog instead of a PO frame — confirm "
+            + "it with `ADD-REFERENCE`.",
             ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete"],
             "action", []),
 
@@ -157,6 +159,21 @@ public static class VerbCatalog
             + "ride back to the server with the confirmation. Fails with `state-no-retry-pending` when no "
             + "dialog is open.",
             ["CONFIRM \"Yes\"", "CONFIRM ID 0"],
+            "action", []),
+
+        new("ADD-REFERENCE",
+            "ADD-REFERENCE\nADD-REFERENCE <index>\nADD-REFERENCE WHERE <col> = <value>",
+            "Confirm an open Add-Reference picker.",
+            "Confirms the Add-Reference picker an `ACTION` opened (when that action's server result is an "
+            + "`AddReference`), linking the selected rows by posting the faithful `Query.AddReference` call. "
+            + "While the picker is open the script is frozen to `SEARCH` / `SELECT-ROWS` / `EXPECT` (inspect) "
+            + "and `ADD-REFERENCE` / `GO-BACK` (confirm / dismiss). The bare form confirms the picker's "
+            + "current selection (from a prior `SELECT-ROWS`); the inline `<index>` / `WHERE` selector selects "
+            + "on the picker first, then confirms. Confirming with no selection fails. Fails with "
+            + "`state-no-add-reference-pending` when no picker is open. To remove a reference instead, there is "
+            + "no verb — select the linked rows and run the server's remove action: "
+            + "`SELECT-ROWS Detail \"<name>\" WHERE …` then `ACTION Detail \"<name>\" Remove`.",
+            ["ADD-REFERENCE", "ADD-REFERENCE WHERE Name = \"Card-007\"", "ADD-REFERENCE 0"],
             "action", []),
 
         new("SEARCH",

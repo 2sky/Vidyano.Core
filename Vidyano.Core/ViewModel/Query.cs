@@ -153,7 +153,12 @@ namespace Vidyano.ViewModel
 
         public bool CanFilter { get; private set; }
 
-        public PersistentObject Parent { get; internal set; }
+        // Settable so a query can be reparented after construction, mirroring the web client's
+        // `query.parent = this.parent`. The AddReference flow needs this: the picker query returned inside a
+        // "Vidyano.AddReference" wrapper PO is parented to that wrapper, but its rows must load against — and
+        // the add must post — the PO the originating action ran on, so the caller reparents it before use.
+        // (SemanticZoom reparents internally for the same reason.)
+        public PersistentObject Parent { get; set; }
 
         public PersistentObject PersistentObject { get; }
 
