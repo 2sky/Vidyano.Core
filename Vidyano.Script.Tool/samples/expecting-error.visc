@@ -49,3 +49,14 @@ OPEN Query "RestrictedOrders" EXPECTING ERROR
 
 ### OPEN MenuItem — a path that doesn't resolve in this user's menu (a permission/visibility boundary).
 OPEN MenuItem Admin/Users EXPECTING ERROR
+
+### OPEN-ROW — a row whose PersistentObject LOAD is refused server-side (e.g. its OnLoad ends in an error).
+### UNLIKE the three OPEN forms above, a refused row-open is NOT subject to the "can't read the notification"
+### caveat: it pushes no PO frame but sets the error on the still-current calling query (mirroring the web
+### client), so EXPECT Notification CAN follow it to pin the message. A bad row SELECTION (out-of-range index,
+### or a WHERE matching no/many rows) is a client-side authoring fault and still fails loudly.
+OPEN MenuItem Customers
+OPEN-ROW WHERE Name = "Unloadable" EXPECTING ERROR
+EXPECT NavStack.Top.Kind = "Query"   ## no PO frame pushed — still on the calling query
+EXPECT NotificationType = "Error"    ## the refused load's error, now readable on the query
+EXPECT Notification MATCHES ".+"

@@ -80,8 +80,14 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// <para><see cref="DetailName"/> (the optional <c>Detail "&lt;name&gt;"</c> clause) is orthogonal to the
 /// positional-vs-WHERE choice: when set, the row is selected from the named detail query on the current
 /// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query. It does not apply to the
-/// <see cref="RowVar"/> form, which already carries its own snapshotted row.</para></summary>
-public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null, string? RowVar = null) : Statement(Location);
+/// <see cref="RowVar"/> form, which already carries its own snapshotted row.</para>
+/// <para><see cref="ExpectError"/> (the trailing <c>EXPECTING ERROR</c> suffix) asserts the negative path:
+/// the open passes only if the row's PO load is refused server-side (a <c>server-error</c>). Unlike the
+/// OPEN PersistentObject/Query/MenuItem forms — where Core discards the error PO so nothing is left to read —
+/// a refused row-open leaves the error notification on the still-current calling query, so an
+/// <c>EXPECT Notification</c> <b>can</b> follow. A client-side selection failure (row out of range / no or
+/// ambiguous WHERE match) stays loud, never absorbed.</para></summary>
+public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null, string? RowVar = null, bool ExpectError = false) : Statement(Location);
 
 /// <summary><c>SELECT-ROWS &lt;target&gt;</c> — set the selection on the resolved Query so a
 /// selection-gated action (e.g. Delete) can run. Always replaces the current selection; never pushes a

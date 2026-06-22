@@ -553,7 +553,7 @@ public sealed class Interpreter
                     or.Location,
                     Hint: "Bind the row with `FOR-EACH ROW … AS @row` and open it inside the loop body."));
             var rowRes = await Current.OpenRowItemAsync(rowItem, or.AsHandle, or.Location).ConfigureAwait(false);
-            return Wrap(or, rowRes);
+            return WrapRow(or, rowRes);
         }
 
         if (or.MatchColumn != null)
@@ -561,7 +561,7 @@ public sealed class Interpreter
             var mv = EvaluateExpression(or.MatchValue!);
             if (!mv.Ok) return Fail(or, mv.Error!);
             var whereRes = await Current.OpenRowWhereAsync(or.MatchColumn, mv.Value, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
-            return Wrap(or, whereRes);
+            return WrapRow(or, whereRes);
         }
 
         var v = EvaluateExpression(or.Index!);
@@ -569,7 +569,15 @@ public sealed class Interpreter
         if (!TryCoerceInt(v.Value, out var index))
             return Fail(or, new Diagnostic(ErrorKind.ParseInvalidValue, "OPEN-ROW needs an integer index.", or.Location));
         var res = await Current.OpenRowAsync(index, or.AsHandle, or.Location, or.DetailName).ConfigureAwait(false);
-        return Wrap(or, res);
+        return WrapRow(or, res);
+
+        // EXPECTING ERROR on OPEN-ROW asserts the negative path of the *load*: a row whose PO load is
+        // refused server-side surfaces as a ServerError, and (unlike the OPEN forms, which discard the
+        // error PO) leaves the notification on the still-current calling query for a following EXPECT
+        // Notification. A client-side selection failure (out of range / no or ambiguous WHERE match) is an
+        // AssertFailed left outside the set, so it stays loud — never silently absorbed by EXPECTING ERROR.
+        StatementResult WrapRow(OpenRowStmt s, OpResult r) =>
+            s.ExpectError ? WrapExpectingError(s, r, ErrorKind.ServerError) : Wrap(s, r);
     }
 
     private async Task<StatementResult> DoFollow(FollowStmt f)
