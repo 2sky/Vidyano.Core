@@ -83,6 +83,7 @@ The names `session`, `user`, and `application` are reserved; `@session = …` is
 | `OPEN-ROW <i>` | Push a PO frame from row `i` of the current Query. |
 | `OPEN-ROW WHERE <col> = <value>` | Push a PO from the single row whose `<col>` equals `<value>`. **Strict** — 0 or >1 matches fail. Addresses a fixture by reference, not a brittle index. |
 | `OPEN-ROW Detail "<name>" <i\|WHERE …>` | Select from the named detail query on the current PO instead of the current Query. The `Detail` clause is orthogonal to the index/`WHERE` choice. |
+| `OPEN-ROW <…> EXPECTING ERROR` | Assert the row's PO load is **refused** server-side. Leaves the error on the still-current calling query, so `EXPECT Notification` can follow (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)). |
 | `FOLLOW <attr> [AS @h]` | Navigate from a **reference** attribute on the current PO to the PO it points at, pushing a PO frame — the equivalent of the web client's "open" affordance next to a reference field. Honors the same `CanOpen` gate the UI uses. It does **not** change the reference (that's `SET`). |
 | `GO-BACK` | Pop the top frame (the browser back button). Refuses when the top is a PO in edit (`SAVE`/`CANCEL` first) and when already at the root. |
 
@@ -184,6 +185,7 @@ ACTION Delete EXPECTING ERROR
 OPEN PersistentObject "Customer" "deleted-id" EXPECTING ERROR
 OPEN Query "RestrictedOrders" EXPECTING ERROR
 OPEN MenuItem Admin/Users EXPECTING ERROR
+OPEN-ROW WHERE Name = "Faulty" EXPECTING ERROR
 ```
 
 This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION`, that expected failure is the server's error notification, which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form.
@@ -194,7 +196,9 @@ All three `OPEN` forms take the suffix to assert the open is **refused** — the
 - **`OPEN Query <id>`** — a refused query-load (no such query, or access-denied).
 - **`OPEN MenuItem <path>`** — a path that does not resolve in this user's menu (the natural way to assert a permission/visibility boundary), or a refused load of the entry it points at.
 
-Two caveats apply to all three: Core throws away the error PO/query on a refused open, so **no frame is pushed and `EXPECT Notification` cannot follow** (the message is only in the run diagnostic); and because Core collapses every open failure into one error channel, a refused open is **indistinguishable from a transport fault** here (unlike SAVE/ACTION, which a transport fault still fails). To assert a row is gone *and* read state afterwards, prefer a query re-search (`SELECT-ROWS WHERE … → EXPECT Selection.Count = 0`).
+Two caveats apply to those three OPEN forms (but **not** to `OPEN-ROW`, below): Core throws away the error PO/query on a refused open, so **no frame is pushed and `EXPECT Notification` cannot follow** (the message is only in the run diagnostic); and because Core collapses every open failure into one error channel, a refused open is **indistinguishable from a transport fault** here (unlike SAVE/ACTION, which a transport fault still fails). To assert a row is gone *and* read state afterwards, prefer a query re-search (`SELECT-ROWS WHERE … → EXPECT Selection.Count = 0`).
+
+**`OPEN-ROW … EXPECTING ERROR`** asserts a row whose PO **load** is refused server-side (e.g. its `OnLoad` ends in an error). Unlike the three OPEN forms, it does **not** suffer the "can't read the notification" caveat: a refused row-open sets the error on the **still-current calling query** (no PO frame is pushed, so that query stays the top frame), mirroring the web client. So `EXPECT Notification` / `EXPECT Notification.Type = "Error"` **can** follow it to pin the message. Only the refused *load* (a `server-error`) is absorbed — a bad row *selection* (index out of range, or a `WHERE` matching no/many rows) is a client-side authoring fault that still fails loudly.
 
 ### Server retry dialogs — `CONFIRM`
 
@@ -470,6 +474,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `SAVE \| ACTION … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
+| `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |
 | `CONFIRM "<label>" \| CONFIRM ID <i>` | Answer an open server retry dialog. |
 | `ADD-REFERENCE [<i> \| WHERE <col> = <value>]` | Confirm an Add-Reference picker an `ACTION` opened, linking the selected (or inline-selected) rows. |
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |

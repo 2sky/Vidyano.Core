@@ -429,15 +429,19 @@ public sealed class Parser
             var rowVar = ConsumeHandleName("OPEN-ROW");
             if (rowVar is null) return null;
             var rowHandle = ParseOptionalAs();
-            return new OpenRowStmt(null, rowHandle, loc, RowVar: rowVar);
+            var rowExpectError = TryConsumeExpectingError(out var rowMalformed);
+            if (rowMalformed) return null;
+            return new OpenRowStmt(null, rowHandle, loc, RowVar: rowVar, ExpectError: rowExpectError);
         }
 
         if (!ParseRowTarget("OPEN-ROW", out var index, out var column, out var matchOp, out var value, out var detailName))
             return null;
         var asHandle = ParseOptionalAs();
+        var expectError = TryConsumeExpectingError(out var malformed);
+        if (malformed) return null;
         return column != null
-            ? new OpenRowStmt(null, asHandle, loc, MatchColumn: column, MatchOp: matchOp, MatchValue: value, DetailName: detailName)
-            : new OpenRowStmt(index, asHandle, loc, DetailName: detailName);
+            ? new OpenRowStmt(null, asHandle, loc, MatchColumn: column, MatchOp: matchOp, MatchValue: value, DetailName: detailName, ExpectError: expectError)
+            : new OpenRowStmt(index, asHandle, loc, DetailName: detailName, ExpectError: expectError);
     }
 
     /// <summary>Parses <c>FOLLOW &lt;attr&gt; [AS @handle]</c>. The attribute name is read with the same
@@ -1674,10 +1678,10 @@ public sealed class Parser
     }
 
     /// <summary>Consumes an optional trailing <c>EXPECTING ERROR</c> suffix on a fallible verb
-    /// (SAVE / ACTION / OPEN PersistentObject) and returns whether it was present. The suffix asserts
-    /// the negative path: the verb passes iff it fails with the error the caller treats as expected
-    /// (a server error notification for SAVE/ACTION; a refused point-load for OPEN). A bare
-    /// <c>EXPECTING</c> not
+    /// (SAVE / ACTION / OPEN PersistentObject|Query|MenuItem / OPEN-ROW) and returns whether it was present.
+    /// The suffix asserts the negative path: the verb passes iff it fails with the error the caller treats
+    /// as expected (a server error notification for SAVE/ACTION; a refused load for the OPEN forms and
+    /// OPEN-ROW). A bare <c>EXPECTING</c> not
     /// followed by <c>ERROR</c> is a parse error; <paramref name="malformed"/> is then set so the
     /// caller bails out (returns <c>null</c>) instead of shipping a half-parsed statement.</summary>
     private bool TryConsumeExpectingError(out bool malformed)

@@ -21,6 +21,14 @@ public sealed class ShopContext : NullTargetContext
     /// a deterministic server-side failure with no dependency on rule-engine semantics.</summary>
     public const string ForbiddenColor = "Forbidden";
 
+    /// <summary>A product whose <see cref="ProductActions.OnLoad"/> ends in an Error notification, so
+    /// <c>HasError</c> faults its <c>GetPersistentObject</c> — the load-time analog of <see cref="FailOnServer"/>
+    /// (an action that throws). Lets <c>OPEN-ROW … EXPECTING ERROR</c> assert the fix that the C# client now
+    /// surfaces a refused row-open on the calling query (<c>QueryResultItem.Load</c> → <c>Query.SetNotification</c>,
+    /// mirroring the web client). It carries no category, so the per-category detail counts other tests assert
+    /// are unaffected.</summary>
+    public const string UnloadableProductName = "Faulty";
+
     // NullTargetContext persists through these collections, which are process-global (the Minimal API
     // has no per-app data store). Tests share one booted app, so each test re-seeds via Reset() to stay
     // isolated; the seed is fresh instances so an edit/save in one test never leaks into the next.
@@ -54,6 +62,7 @@ public sealed class ShopContext : NullTargetContext
             new Product { Id = "1", Name = "Widget", Color = "Blue", Category = "1", Title = _L("Widget", "Hulpmiddel", "Werkzeug"), ReleaseDate = new DateOnly(2024, 3, 15), ReleaseTime = new TimeOnly(14, 30, 0) },
             new Product { Id = "2", Name = "Gadget", Color = "Red", Category = "2", Title = _L("Gadget", "Apparaat", "Gerät"), ReleaseDate = new DateOnly(2023, 11, 1), ReleaseTime = new TimeOnly(9, 5, 0) },
             new Product { Id = "3", Name = "Gizmo", Color = "Green", Category = "1", Title = _L("Gizmo", "Ding", "Dingsda"), ReleaseDate = new DateOnly(2025, 1, 20), ReleaseTime = new TimeOnly(23, 59, 0) },
+            new Product { Id = "4", Name = UnloadableProductName, Color = "Blue" },
         ]);
 
         documents.Clear();
@@ -178,6 +187,15 @@ public sealed class ProductActions(ShopContext context)
     public override void OnLoad(PersistentObject obj, PersistentObject? parent)
     {
         base.OnLoad(obj, parent);
+
+        // The "Faulty" fixture ends OnLoad in an Error notification, so HasError makes the service fault this
+        // GetPersistentObject — the load-time analog of FailOnServer, and the negative path OPEN-ROW … EXPECTING
+        // ERROR asserts (the client surfaces the refused load on the calling query).
+        if ((string?)obj[nameof(Product.Name)] == ShopContext.UnloadableProductName)
+        {
+            obj.AddNotification($"Product '{ShopContext.UnloadableProductName}' cannot be loaded.", NotificationType.Error);
+            return;
+        }
 
         obj[nameof(Product.Secret)].Visibility = AttributeVisibility.Never;
         obj[nameof(Product.Locked)].IsReadOnly = true;

@@ -39,13 +39,14 @@ public sealed class VerbFamilyTests
     [Fact]
     public async Task SignIn_Open_QueryCount()
     {
+        // 4 products: Widget, Gadget, Gizmo, plus the "Faulty" load-fault fixture (ShopContext.UnloadableProductName).
         AssertOk(await Run("""
             SIGN-IN admin / admin
             OPEN MenuItem Home/Products
             EXPECT NavStack.Depth = 1
             EXPECT NavStack.Top.Kind = "Query"
             EXPECT NavStack.Top.Name = "Products"
-            EXPECT TotalItems = 3
+            EXPECT TotalItems = 4
             """));
     }
 
@@ -142,6 +143,57 @@ public sealed class VerbFamilyTests
             ACTION FailOnServer EXPECTING ERROR
             EXPECT Notification.Type = "Error"
             """));
+    }
+
+    [Fact]
+    public async Task OpenRow_LoadError_ExpectingError_ReadsQueryNotification()
+    {
+        // The row-open analog of QueryAction_ServerError_ExpectingError: opening the "Faulty" row faults its
+        // PO load server-side (OnLoad ends in an Error → HasError → the service throws). EXPECTING ERROR
+        // absorbs the refused load, and — because the C# client now sets the error on the calling query
+        // (QueryResultItem.Load → Query.SetNotification, mirroring the web client) rather than only throwing —
+        // the notification stays on the still-current Products query for EXPECT Notification to read. No PO
+        // frame is pushed (Depth stays 1). Before the fix the error lived only in the run diagnostic.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Faulty" EXPECTING ERROR
+            EXPECT NavStack.Depth = 1
+            EXPECT NavStack.Top.Kind = "Query"
+            EXPECT Notification.Type = "Error"
+            EXPECT Notification MATCHES "cannot be loaded"
+            """));
+    }
+
+    [Fact]
+    public async Task OpenRow_ExpectingError_OnSuccess_Fails()
+    {
+        // Inverse guard: EXPECTING ERROR on a row that DOES load must fail — the asserted negative path never
+        // fired. Mirrors OpenPo_ExpectingError_OnSuccess_Fails.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget" EXPECTING ERROR
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertExpectedError);
+    }
+
+    [Fact]
+    public async Task OpenRow_ExpectingError_DoesNotAbsorbBadSelection()
+    {
+        // EXPECTING ERROR only absorbs a server-refused load, never a client-side selection failure: a WHERE
+        // matching no row is an AssertFailed (authoring fault), outside the {server-error} set, so it stays
+        // loud — never silently swallowed.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Nonexistent" EXPECTING ERROR
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertFailed);
     }
 
     [Fact]
@@ -485,7 +537,7 @@ public sealed class VerbFamilyTests
             OPEN-ROW WHERE Name = "Tools"
             ACTION LinkProducts
             SEARCH ""
-            EXPECT TotalItems = 3
+            EXPECT TotalItems = 4
             SELECT-ROWS WHERE Name = "Gadget"
             EXPECT Selection.Count = 1
             ADD-REFERENCE

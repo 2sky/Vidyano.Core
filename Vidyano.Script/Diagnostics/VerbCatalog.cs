@@ -78,11 +78,15 @@ public static class VerbCatalog
             "navigation", []),
 
         new("OPEN-ROW",
-            "OPEN-ROW <index> [AS @h]\nOPEN-ROW WHERE <col> = <value> [AS @h]\nOPEN-ROW Detail \"<name>\" <index|WHERE …>",
+            "OPEN-ROW <index> [AS @h]\nOPEN-ROW WHERE <col> = <value> [AS @h]\nOPEN-ROW Detail \"<name>\" <index|WHERE …>\nOPEN-ROW <…> EXPECTING ERROR",
             "Push a PO frame from a row of the current query.",
             "Opens the PersistentObject behind a row of the current query — by index, by `WHERE <col> = "
-            + "<value>` (strict: 0 or >1 matches fail), or from a named detail query via `Detail \"<name>\"`.",
-            ["OPEN-ROW 0 AS @row", "OPEN-ROW WHERE Name = \"Acme\"", "OPEN-ROW Detail \"OrderLines\" 0"],
+            + "<value>` (strict: 0 or >1 matches fail), or from a named detail query via `Detail \"<name>\"`. "
+            + "A trailing `EXPECTING ERROR` asserts the negative path: it passes only if the row's PO load is "
+            + "refused server-side (a server error), and — unlike the OPEN forms — leaves that error on the "
+            + "still-current calling query, so an `EXPECT Notification` can follow. A bad row selection "
+            + "(out of range / no or ambiguous WHERE match) still fails loudly.",
+            ["OPEN-ROW 0 AS @row", "OPEN-ROW WHERE Name = \"Acme\"", "OPEN-ROW Detail \"OrderLines\" 0", "OPEN-ROW WHERE Name = \"Faulty\" EXPECTING ERROR"],
             "navigation", []),
 
         new("GO-BACK",
