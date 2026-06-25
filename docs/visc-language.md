@@ -177,6 +177,8 @@ An optional leading `Detail "<name>"` clause targets a detail query (`Persistent
 
 A query action invoked with **no selection** posts an empty selection (matching the web client), so a server action that only needs an open query — e.g. one that calls `EnsureQuery()` — runs without a meaningless `SELECT-ROWS`. If a query action **errors** server-side, the error rides on the current Query (there's no PO to carry it); `ACTION` surfaces it as a failure (it does not pass silently), and a following `EXPECT Notification …` can read it.
 
+A custom action can fail two ways, and both surface as an `ACTION` failure with the message copied onto the current frame for `EXPECT Notification …` to read: the server sets an error notification on the PO/query and returns null, **or** the action *returns* a `Notification(message, Error)` result (the toast shape — `return Notification(...)`). A returned **non-error** notification (info/warning) is copied onto the frame too — so `EXPECT Notification …` can read it — but does **not** fail the verb, faithful to the toast a browser shows.
+
 ### Asserting the negative path — `EXPECTING ERROR`
 
 ```visc
@@ -188,7 +190,7 @@ OPEN MenuItem Admin/Users EXPECTING ERROR
 OPEN-ROW WHERE Name = "Faulty" EXPECTING ERROR
 ```
 
-This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION`, that expected failure is the server's error notification, which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form.
+This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION`, that expected failure is the server's error notification — whether the server set it on the PO/query and returned null, or the action *returned* it as a `Notification(…, Error)` result — which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form.
 
 All three `OPEN` forms take the suffix to assert the open is **refused** — the `.visc` equivalent of "this should not open":
 

@@ -85,6 +85,11 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 var ask = model.GetOrCreateCustomAction(nameof(AskFirst));
                 ask.ShowedOn = ShowedOn.PersistentObject;
 
+                // PO-level action that returns a Notification(..., Error) — the rejection shape the runner
+                // used to drop silently (see RejectWithNotification / HelloWorld's comment).
+                var reject = model.GetOrCreateCustomAction(nameof(RejectWithNotification));
+                reject.ShowedOn = ShowedOn.PersistentObject;
+
                 // Query-level actions (toolbar, no row selection) — exercise the empty-selection payload and
                 // query-action error surfacing.
                 var import = model.GetOrCreateCustomAction(nameof(ImportProducts));
@@ -102,6 +107,7 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 var administrators = model.GetOrCreateGroup("Administrators");
                 administrators.AddUserRight($"{nameof(HelloWorld)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(AskFirst)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(RejectWithNotification)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(ImportProducts)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(FailOnServer)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(LinkProducts)}/{Schema}.{nameof(ProductCategory)}");

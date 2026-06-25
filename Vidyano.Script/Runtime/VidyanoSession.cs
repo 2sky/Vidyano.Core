@@ -1640,8 +1640,29 @@ public sealed class VidyanoSession : IDisposable
                 _navStack.Add(new AddReferenceEntry(picker, addReferenceParent, name));
                 return OpResult.Success;
             }
-            if (result != null && result.FullTypeName != "Vidyano.Notification")
+            // A custom action can signal its outcome by *returning* a notification PO (server:
+            // `return Notification(message, type)`) rather than setting it on the parent and returning
+            // null. Core's raw ExecuteActionAsync hands that PO straight back without copying the message
+            // anywhere, so mirror the web client (action.ts `_onExecute`): copy it onto the frame the
+            // action ran against — the query for a query action, else the parent PO — so EXPECT
+            // Notification can read it, and never push it as a navigable frame. Fail the op only on an
+            // Error (so ACTION/SAVE … EXPECTING ERROR pins it); an info/warning notification surfaces but
+            // passes, faithful to the toast a browser shows.
+            if (result is { FullTypeName: "Vidyano.Notification" })
             {
+                if (action is QueryAction && (detailQuery ?? CurrentQuery) is { } notifiedQuery)
+                    notifiedQuery.SetNotification(result.Notification, result.NotificationType);
+                else
+                    CurrentPo?.SetNotification(result.Notification, result.NotificationType);
+
+                return result.NotificationType == NotificationType.Error
+                    ? OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, result.Notification, loc))
+                    : OpResult.Success;
+            }
+            if (result != null)
+            {
+                // A returned Vidyano.Notification / AddReference is already handled above, so any non-null
+                // result here is a real PersistentObject to open.
                 // If the top frame is already a PO, swap to the action's result (same navigation level).
                 // Otherwise push a new PO frame on top of whatever query was current (e.g. ACTION New).
                 // The server marks dialogs via StateBehavior.OpenAsDialog — including the cascading
