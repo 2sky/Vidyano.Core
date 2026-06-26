@@ -335,3 +335,17 @@ public sealed class FailOnServer(ShopContext context) : CustomAction<ShopContext
         throw new Exception("Query action failed on the server.");
     }
 }
+
+/// <summary>PO-level custom action that signals failure by <b>returning</b> a <c>Notification(..., Error)</c>
+/// result (<c>FullTypeName == "Vidyano.Notification"</c>) rather than setting it on the parent and returning
+/// null. This is the rejection shape <see cref="HelloWorld"/>'s comment calls out as the one the .visc runtime
+/// used to drop: the web client shows it as a toast, so a returned Error notification must surface as an
+/// <c>ACTION</c> failure (assertable with <c>EXPECTING ERROR</c> + <c>EXPECT Notification</c>). Registered with
+/// <c>ShowedOn.PersistentObject</c> on Product in <see cref="InProcessVidyanoBackend"/>.</summary>
+public sealed class RejectWithNotification(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public const string Message = "This operation is not allowed.";
+
+    public override PersistentObject? Execute(CustomActionArgs e) =>
+        Notification(Message, NotificationType.Error);
+}

@@ -99,6 +99,40 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task Action_ReturnsErrorNotification_FailsLoudly()
+    {
+        // A custom action that signals failure by RETURNING a Notification(..., Error) — not setting it on the
+        // PO and returning null — must surface as an ACTION failure: the web client shows it as a toast, so it
+        // can't pass silently. Before the fix the returned Vidyano.Notification was dropped and ACTION reported
+        // success.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            ACTION RejectWithNotification
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertNotificationError);
+    }
+
+    [Fact]
+    public async Task Action_ReturnsErrorNotification_ExpectingError_ReadsNotification()
+    {
+        // EXPECTING ERROR absorbs the returned-notification failure (negative path), and the message is copied
+        // onto the current PO so EXPECT Notification can read it — symmetric with the set-and-return-null and
+        // server-throw paths.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            ACTION RejectWithNotification EXPECTING ERROR
+            EXPECT Notification.Type = "Error"
+            EXPECT Notification MATCHES "not allowed"
+            """));
+    }
+
+    [Fact]
     public async Task QueryAction_NoSelection_PostsEmptyArray_And_Opens()
     {
         // The Core fix: a query action invoked with NO selection posts an empty selectedItems array (not

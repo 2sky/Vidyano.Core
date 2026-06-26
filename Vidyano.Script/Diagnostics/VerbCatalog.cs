@@ -147,7 +147,10 @@ public static class VerbCatalog
             "Invoke an action by name.",
             "Executes an action, subject to the action-availability guard. `= <option>` chooses an "
             + "`Options[]` entry; `Detail \"<name>\"` targets a detail query; `EXPECTING ERROR` asserts "
-            + "the negative path. When the server result is an `AddReference` (a custom action that returns "
+            + "the negative path. A custom action that signals failure by returning a `Notification(message, "
+            + "Error)` surfaces as an ACTION failure with the message on the current frame (assertable with "
+            + "`EXPECTING ERROR` + `EXPECT Notification`); a returned non-error notification is shown but "
+            + "passes. When the server result is an `AddReference` (a custom action that returns "
             + "`AddReference(\"<query>\")`), the action opens a picker dialog instead of a PO frame — confirm "
             + "it with `ADD-REFERENCE`.",
             ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete"],
