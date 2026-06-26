@@ -299,6 +299,14 @@ EXPECT Title = "Widget"                ## current-language value
 EXPECT Title LANGUAGE nl = "Hulpmiddel"
 ```
 
+**Dates, times & numbers compare by value** — for a numeric or date/time attribute, `=` / `!=` / `<` / `>` / `<=` / `>=` compare **by value**, not by formatted string, so an assertion matches regardless of the host machine's locale. Write the literal in the same invariant service-string form `SET` uses — `dd-MM-yyyy` (optionally `… HH:mm:ss.FFFFFFF`, with a trailing ` K` for an offset) for a date, `HH:mm[:ss]` for a time. A literal that can't be parsed as the attribute's type falls back to a plain string compare.
+
+```visc
+EXPECT ReleaseDate = "15-03-2024"      ## by value — locale-independent
+EXPECT ReleaseDate < "01-01-2025"
+EXPECT ReleaseTime = "14:30"
+```
+
 **Attributes & round-tripped metadata** — `EXPECT` reaches the server metadata (`Tag`, `Metadata`, `NavigationHints`, `TypeHints`) a browser would see:
 
 ```visc

@@ -1737,6 +1737,17 @@ public sealed class Interpreter
         // ExpectOp.Matches is handled in DoExpect (it needs to distinguish a malformed pattern from a
         // non-match), so it never reaches Compare.
 
+        // Dates/times order by value (culture-irrelevant), like the numeric case below.
+        if (TryCompareTemporal(left, right, out var tsign))
+            return op switch
+            {
+                ExpectOp.Lt   => tsign < 0,
+                ExpectOp.LtEq => tsign <= 0,
+                ExpectOp.Gt   => tsign > 0,
+                ExpectOp.GtEq => tsign >= 0,
+                _ => false,
+            };
+
         // Numeric comparisons coerce both sides to decimal when possible.
         if (!TryCoerceDecimal(left, out var l) || !TryCoerceDecimal(right, out var r))
             return false;
@@ -1800,6 +1811,10 @@ public sealed class Interpreter
         if (a is bool ab && b is bool bb) return ab == bb;
         if (TryCoerceDecimal(a, out var ad) && TryCoerceDecimal(b, out var bd))
             return ad == bd;
+        // Dates/times compare by value (culture-irrelevant), like numbers above: coerce both sides via the
+        // invariant service-string form SET writes, so an EXPECT matches regardless of the host locale.
+        if (TryCompareTemporal(a, b, out var cmp))
+            return cmp == 0;
         var sa = a is string s1 ? s1 : a.ToString();
         var sb = b is string s2 ? s2 : b.ToString();
         return string.Equals(sa, sb, StringComparison.Ordinal);
@@ -1848,6 +1863,77 @@ public sealed class Interpreter
             case string s when decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed): result = parsed; return true;
         }
         result = 0;
+        return false;
+    }
+
+    // Accepted invariant literal forms for temporal comparisons — the same service-string forms SET writes
+    // and the server reads back (Client.From/ToServiceString). A Date attribute reads back as a midnight
+    // DateTime, so the date-only "dd-MM-yyyy" form is accepted alongside the full DateTime form (the
+    // trailing ".FFFFFFF" is optional, so "dd-MM-yyyy HH:mm:ss" parses too).
+    private static readonly string[] dateTimeFormats = { "dd-MM-yyyy HH:mm:ss.FFFFFFF", "dd-MM-yyyy" };
+    private static readonly string[] dateTimeOffsetFormats = { "dd-MM-yyyy HH:mm:ss.FFFFFFF K" };
+    private static readonly string[] timeSpanFormats = { @"hh\:mm", @"hh\:mm\:ss", "c", "g", "G" };
+
+    private static bool TryCoerceDateTime(object? v, out DateTime result)
+    {
+        switch (v)
+        {
+            case DateTime dt: result = dt; return true;
+            case string s when DateTime.TryParseExact(s, dateTimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var p): result = p; return true;
+        }
+        result = default;
+        return false;
+    }
+
+    private static bool TryCoerceDateTimeOffset(object? v, out DateTimeOffset result)
+    {
+        switch (v)
+        {
+            case DateTimeOffset dto: result = dto; return true;
+            case string s when DateTimeOffset.TryParseExact(s, dateTimeOffsetFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var p): result = p; return true;
+        }
+        result = default;
+        return false;
+    }
+
+    private static bool TryCoerceTimeSpan(object? v, out TimeSpan result)
+    {
+        switch (v)
+        {
+            case TimeSpan ts: result = ts; return true;
+            case string s when TimeSpan.TryParseExact(s, timeSpanFormats, CultureInfo.InvariantCulture, out var p): result = p; return true;
+        }
+        result = default;
+        return false;
+    }
+
+    /// <summary>Compares two values by temporal value (culture-irrelevant) when at least one side is a typed
+    /// <see cref="DateTime"/>/<see cref="DateTimeOffset"/>/<see cref="TimeSpan"/> — the other side is parsed
+    /// from its invariant service-string form. The typed side comes from <c>attr.Value</c>; the literal side
+    /// is the script string. Returns <c>false</c> (caller falls back to a string compare) when the sides
+    /// aren't a coercible temporal pair, so an unparseable literal never silently matches a default value.
+    /// <paramref name="sign"/> carries the usual negative/zero/positive ordering.</summary>
+    private static bool TryCompareTemporal(object? a, object? b, out int sign)
+    {
+        sign = 0;
+        if (a is DateTimeOffset || b is DateTimeOffset)
+        {
+            if (!TryCoerceDateTimeOffset(a, out var x) || !TryCoerceDateTimeOffset(b, out var y)) return false;
+            sign = x.CompareTo(y);
+            return true;
+        }
+        if (a is DateTime || b is DateTime)
+        {
+            if (!TryCoerceDateTime(a, out var x) || !TryCoerceDateTime(b, out var y)) return false;
+            sign = x.CompareTo(y);
+            return true;
+        }
+        if (a is TimeSpan || b is TimeSpan)
+        {
+            if (!TryCoerceTimeSpan(a, out var x) || !TryCoerceTimeSpan(b, out var y)) return false;
+            sign = x.CompareTo(y);
+            return true;
+        }
         return false;
     }
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Vidyano.Script.Diagnostics;
 using Vidyano.Script.Runtime;
 using Xunit;
@@ -516,6 +517,44 @@ public sealed class VerbFamilyTests
 
         var reloaded = await client.GetPersistentObjectAsync("Product", "1");
         Assert.Equal(new DateTime(2030, 12, 25), (DateTime)reloaded["ReleaseDate"].Value);
+    }
+
+    [Fact]
+    public async Task Expect_TemporalAttributes_CompareByValue_IndependentOfCulture()
+    {
+        // attr.Value of a date/time attribute is a typed DateTime/TimeSpan; EXPECT must compare it BY VALUE
+        // against the literal's invariant service-string form (what SET writes), not via attr.Value.ToString()
+        // under the ambient thread culture. Pinning a non-matching locale (en-US: "3/15/2024 12:00:00 AM")
+        // proves the comparison no longer depends on the host machine's locale. Widget: 15-03-2024, 14:30.
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("en-US");
+
+            AssertOk(await Run("""
+                SIGN-IN admin / admin
+                OPEN MenuItem Home/Products
+                OPEN-ROW WHERE Name = "Widget"
+                EXPECT ReleaseDate = "15-03-2024"
+                EXPECT ReleaseDate != "20-01-2025"
+                EXPECT ReleaseDate < "01-01-2025"
+                EXPECT ReleaseDate > "01-01-2024"
+                EXPECT ReleaseTime = "14:30"
+                """));
+
+            // A non-matching date must make EXPECT fail — by-value comparison, not a silent default match.
+            var mismatch = await Run("""
+                SIGN-IN admin / admin
+                OPEN MenuItem Home/Products
+                OPEN-ROW WHERE Name = "Widget"
+                EXPECT ReleaseDate = "01-01-2000"
+                """);
+            Assert.False(mismatch.Ok, mismatch.Describe());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 
     [Fact]
