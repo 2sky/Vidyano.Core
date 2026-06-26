@@ -208,7 +208,8 @@ public static class VerbCatalog
             + "notifications, and round-tripped metadata. `= ID \"<id>\"` / `!= ID` compares a reference "
             + "attribute by its document id (ObjectId), symmetric with `SET <ref> = ID`. `LANGUAGE <lang>` "
             + "compares one translation of a TranslatedString attribute, symmetric with `SET … LANGUAGE`. "
-            + "`MATCHES` is a regex assertion (1s ReDoS guard). `Detail \"<name>\"` redirects query-family subjects, "
+            + "`MATCHES` is a regex assertion (1s ReDoS guard). Numeric and date/time subjects compare by value "
+            + "(locale-independent), the literal in the same invariant form `SET` uses. `Detail \"<name>\"` redirects query-family subjects, "
             + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone).",
             ["EXPECT Status = \"Approved\"", "EXPECT Customer = ID \"people/acme\"", "EXPECT Title LANGUAGE nl = \"Hulpmiddel\"", "EXPECT TotalItems >= 1"],
             "assert", []),
