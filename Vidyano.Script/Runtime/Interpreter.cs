@@ -403,12 +403,17 @@ public sealed class Interpreter
         var isMetaStmt = stmt is VariableAssignment or ModeDirective;
         if (!isMetaStmt) _statementsExecuted = true;
 
-        // Reset the per-verb ClientOperations buffer before every executable verb (but NOT before
-        // EXPECT — assertions consume what the *previous* verb produced). Meta statements
-        // (@var, @mode) don't talk to the server, so they leave the buffer alone too. A loop verb is
-        // structural — its body statements reset the buffer themselves — so leave it untouched for them.
+        // Reset the per-verb observable buffers before every executable verb (but NOT before
+        // EXPECT — assertions consume what the *previous* verb produced). This covers the ClientOperations
+        // buffer and the last auto-fetched stream, so EXPECT Stream reads only the immediately preceding
+        // verb's stream. Meta statements (@var, @mode) don't talk to the server, so they leave the buffers
+        // alone too. A loop verb is structural — its body statements reset the buffers themselves — so leave
+        // it untouched for them.
         if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt)
+        {
             Current.ResetLastOperations();
+            Current.ResetLastStream();
+        }
 
         // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the gate. Only
         // meta statements, SAVE @initial, and EXPECTs that observe the @initial scope are allowed through;
@@ -1253,6 +1258,16 @@ public sealed class Interpreter
                 return OpResult<object?>.Success(
                     po is not null ? (po.HasNotification ? po.NotificationType.ToString() : null)
                     : query is { HasNotification: true } ? query.NotificationType.ToString() : null);
+            // The stream the previous action auto-fetched, or null when none. Bare Stream resolves to the
+            // delivered file name (so IS NULL is a presence check); the properties expose name / length / text.
+            case ExpectSubjectKind.Stream:
+                return OpResult<object?>.Success(Current.LastStream is { } s ? (object?)(s.Name ?? "") : null);
+            case ExpectSubjectKind.StreamName:
+                return OpResult<object?>.Success((object?)Current.LastStream?.Name);
+            case ExpectSubjectKind.StreamLength:
+                return OpResult<object?>.Success((object?)Current.LastStream?.Length);
+            case ExpectSubjectKind.StreamText:
+                return OpResult<object?>.Success((object?)Current.LastStream?.Text);
             case ExpectSubjectKind.IsDirty:
                 return OpResult<object?>.Success((object?)(po?.IsDirty ?? false));
             case ExpectSubjectKind.IsInEdit:

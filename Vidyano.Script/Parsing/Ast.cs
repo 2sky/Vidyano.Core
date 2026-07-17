@@ -293,6 +293,15 @@ public enum ExpectSubjectKind
     Notification,
     /// <summary><c>EXPECT Notification.Type ...</c>.</summary>
     NotificationType,
+    /// <summary><c>EXPECT Stream ...</c> — presence of the stream auto-fetched by the previous action
+    /// (<c>IS NULL</c> when none). Resolves to the delivered file name for a bare value comparison.</summary>
+    Stream,
+    /// <summary><c>EXPECT Stream.Name = "invoice.pdf"</c> — the delivered file name.</summary>
+    StreamName,
+    /// <summary><c>EXPECT Stream.Length &gt; 0</c> — the byte length of the fetched stream.</summary>
+    StreamLength,
+    /// <summary><c>EXPECT Stream.Text CONTAINS "%PDF"</c> — the stream decoded as UTF-8 text.</summary>
+    StreamText,
     /// <summary><c>EXPECT IsDirty ...</c>.</summary>
     IsDirty,
     /// <summary><c>EXPECT IsInEdit ...</c>.</summary>
