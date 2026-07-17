@@ -251,6 +251,23 @@ While the picker is open the script is **frozen** to the verbs that drive, inspe
 
 ---
 
+## Running charts — `CHART`
+
+```visc
+OPEN MenuItem Home/Products
+CHART "ByColor"                       ## run a named chart of the current query
+EXPECT Chart.Data CONTAINS "Blue"     ## assert on the returned chart JSON
+CHART Detail "Sessions" "History"     ## or run a chart of a detail query
+```
+
+`CHART "<name>"` executes the server's `QueryFilter.Chart` system action for the named chart of the current query — the same call the web client's dashboard makes — and **captures** the returned chart JSON for `EXPECT Chart` / `EXPECT Chart.Data`. Unlike `ACTION`, a chart is a read-only observable of the query, **not** a navigation destination: no frame is pushed (the current query stays current), and the capture is cleared by the next executable verb, exactly like the per-verb `ClientOperation` buffer. An optional leading `Detail "<name>"` clause runs the chart against a named detail query on the current PO, mirroring `ACTION Detail "<name>"`.
+
+A chart name the server doesn't know fails the verb loudly with the server's `Missing chart <name>` notification (an `assert-notification-error`), so a typo can't pass silently.
+
+Read the result with `EXPECT Chart.Data` (the aggregated chart JSON string — assert with `CONTAINS` / `MATCHES` / `=`) or the bare `EXPECT Chart` for a presence check (`IS NULL` / `IS NOT NULL`); both spellings resolve to the same value.
+
+---
+
 ## Asserting state — `EXPECT`
 
 `EXPECT <subject> <op> <value>` is the assertion verb. Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `NOT CONTAINS`, `IS NULL`, `IS NOT NULL`, and `MATCHES "<regex>"` (1s ReDoS-guard timeout; null never matches).
@@ -290,6 +307,16 @@ EXPECT Stream IS NULL                            ## after another verb — the c
 ```
 
 When an action returns a stream, the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
+
+**Charts** (the last `CHART` result; `IS NULL` when none was captured)
+
+```visc
+EXPECT Chart.Data CONTAINS "barchart"
+EXPECT Chart.Data MATCHES "\"name\":\"Blue\",\"value\":2"
+EXPECT Chart IS NULL                             ## no chart captured (e.g. after another verb)
+```
+
+`Chart` / `Chart.Data` read the JSON of the chart the previous `CHART` verb ran (both spellings resolve to the same value; bare `Chart` reads naturally with `IS NULL`). See [Running charts](#running-charts--chart).
 
 **Retry dialog** (the open server retry; `IS NULL` when none)
 
@@ -496,6 +523,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SET <attr> = <value> \| LOOKUP "…" \| ID "…" \| FILE "<path>" \| null` | Change an attribute. `FILE` attaches a file (root-confined) to a BinaryFile/Image. |
 | `SET <attr> LANGUAGE <lang> = <value>` | Set one translation of a TranslatedString attribute (bare `SET` = current language). |
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
+| `CHART "<name>" [Detail "<n>"]` | Run a named query chart; capture its JSON for `EXPECT Chart`. |
 | `SAVE \| ACTION … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
 | `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |
