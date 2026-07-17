@@ -76,6 +76,43 @@ public sealed class RetryActionLintTests
         Assert.NotEmpty(diags);
     }
 
+    // --- CONFIRM … EXPECTING ERROR -------------------------------------------------------------
+
+    [Fact]
+    public void Confirm_Label_ExpectingError_SetsFlag()
+    {
+        var stmt = SingleStatement<ConfirmStmt>("CONFIRM \"Cancel\" EXPECTING ERROR");
+        Assert.True(stmt.ExpectError);
+        var lit = Assert.IsType<LiteralExpr>(stmt.Option);
+        Assert.Equal("Cancel", lit.Value);
+    }
+
+    [Fact]
+    public void Confirm_ById_ExpectingError_SetsFlag()
+    {
+        var stmt = SingleStatement<ConfirmStmt>("CONFIRM ID 1 EXPECTING ERROR");
+        Assert.True(stmt.ExpectError);
+        Assert.Equal(ReferenceHintKind.RawId, stmt.OptionHint);
+    }
+
+    [Fact]
+    public void Confirm_Bare_DoesNotSetFlag()
+    {
+        var stmt = SingleStatement<ConfirmStmt>("CONFIRM \"Yes\"");
+        Assert.False(stmt.ExpectError);
+    }
+
+    [Theory]
+    [InlineData("CONFIRM \"Cancel\" EXPECTING")]
+    [InlineData("CONFIRM \"Cancel\" EXPECTING WARNING")]
+    public void Confirm_ExpectingWithoutError_Diagnoses(string body)
+    {
+        var diags = VidyanoScript.Lint(body);
+        Assert.NotEmpty(diags);
+        var combined = string.Join(" || ", diags.Select(d => $"{d.Message} | {d.Hint}"));
+        Assert.Contains("ERROR", combined);
+    }
+
     // --- EXPECT RetryDialog.* ------------------------------------------------------------------
 
     [Theory]
@@ -110,6 +147,8 @@ public sealed class RetryActionLintTests
     [Theory]
     [InlineData("CONFIRM \"Yes\"")]
     [InlineData("CONFIRM ID 0")]
+    [InlineData("CONFIRM \"Cancel\" EXPECTING ERROR")]
+    [InlineData("CONFIRM ID 1 EXPECTING ERROR")]
     [InlineData("EXPECT RetryDialog.Title = \"x\"")]
     [InlineData("EXPECT RetryDialog.Message MATCHES \".+\"")]
     [InlineData("EXPECT RetryDialog.Options CONTAINS \"Yes\"")]

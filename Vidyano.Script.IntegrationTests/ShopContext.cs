@@ -302,9 +302,11 @@ public sealed class HelloWorld(ShopContext context) : CustomAction<ShopContext>(
     }
 }
 
-/// <summary>Raises a server retry dialog the first time, then resumes with the chosen option and
-/// reports it as a notification on the current PO — exercises <c>CONFIRM</c>, the
-/// <c>EXPECT RetryDialog.*</c> subjects, and reading the post-resume notification.</summary>
+/// <summary>Raises a server retry dialog the first time, then resumes with the chosen option — exercises
+/// <c>CONFIRM</c>, the <c>EXPECT RetryDialog.*</c> subjects, and reading the post-resume notification.
+/// The <c>"Yes"</c> option reports the choice as an OK notification (the happy path); the <c>"No"</c>
+/// option throws, mirroring a real Cancel branch that raises server-side — the resumed action fails with
+/// an error notification, which is what <c>CONFIRM "No" EXPECTING ERROR</c> asserts.</summary>
 public sealed class AskFirst(ShopContext context) : CustomAction<ShopContext>(context)
 {
     public override PersistentObject? Execute(CustomActionArgs e)
@@ -312,6 +314,9 @@ public sealed class AskFirst(ShopContext context) : CustomAction<ShopContext>(co
         string? chosen = null;
         if (e.Parameters == null || !e.Parameters.TryGetValue("RetryActionOption", out chosen))
             Manager.Current.RetryAction("Are you sure?", "This will proceed.", "Yes", "No");
+
+        if (chosen == "No")
+            throw new InvalidOperationException("Cancelled by user.");
 
         e.Parent!.AddNotification($"You chose: {chosen}", NotificationType.OK);
         return e.Parent;
