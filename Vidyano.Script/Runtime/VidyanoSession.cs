@@ -1685,8 +1685,8 @@ public sealed class VidyanoSession : IDisposable
                     using var buffer = new MemoryStream();
                     if (stream != null)
                     {
-                        await stream.CopyToAsync(buffer).ConfigureAwait(false);
-                        stream.Dispose();
+                        using (stream)
+                            await stream.CopyToAsync(buffer).ConfigureAwait(false);
                     }
                     _lastStream = new CapturedStream(streamName, buffer.ToArray());
                     return OpResult.Success;
