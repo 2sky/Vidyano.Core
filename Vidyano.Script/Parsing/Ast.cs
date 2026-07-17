@@ -195,6 +195,19 @@ public sealed record ActionStmt(
     string? DetailName = null,
     bool ExpectError = false) : Statement(Location);
 
+/// <summary><c>CHART "&lt;name&gt;" [Detail "&lt;name&gt;"]</c> — execute a named query chart via the server's
+/// <c>QueryFilter.Chart</c> system action (the same call the web client's dashboard makes) and capture the
+/// returned chart JSON for <c>EXPECT Chart</c>. Unlike <see cref="ActionStmt"/> a chart is a read-only
+/// observable of the query, not a navigation destination: no frame is pushed, and the capture is cleared on
+/// the next executable verb (like the per-verb ClientOperations buffer).
+/// <para><see cref="ChartName"/> is a value expression (so <c>CHART "{{name}}"</c> interpolates). An optional
+/// leading <c>Detail "&lt;name&gt;"</c> clause (<see cref="DetailName"/>) runs the chart against a named detail
+/// query on the current PO instead of the nav-stack query, mirroring <c>ACTION</c>/<c>SELECT-ROWS</c>.</para></summary>
+public sealed record ChartStmt(
+    Expression ChartName,
+    SourceLocation Location,
+    string? DetailName = null) : Statement(Location);
+
 /// <summary><c>SEARCH "text"</c> text-searches the current query in place. An optional leading
 /// <c>Detail "&lt;name&gt;"</c> clause (<see cref="DetailName"/>) retargets a named detail query on the
 /// current PO (<c>PersistentObject.Queries</c>) — searching it in place with no nav frame or selection
@@ -293,6 +306,12 @@ public enum ExpectSubjectKind
     Notification,
     /// <summary><c>EXPECT Notification.Type ...</c>.</summary>
     NotificationType,
+    /// <summary><c>EXPECT Chart ...</c> / <c>EXPECT Chart.Data ...</c> — the JSON data of the chart most
+    /// recently run by <c>CHART</c> (<c>null</c> when none was captured, e.g. after any other verb). Both
+    /// spellings resolve to the same value: bare <c>Chart</c> reads naturally with <c>IS NULL</c> for a
+    /// presence check, <c>Chart.Data</c> is the explicit form for content assertions
+    /// (<c>= / CONTAINS / MATCHES</c>).</summary>
+    Chart,
     /// <summary><c>EXPECT IsDirty ...</c>.</summary>
     IsDirty,
     /// <summary><c>EXPECT IsInEdit ...</c>.</summary>
