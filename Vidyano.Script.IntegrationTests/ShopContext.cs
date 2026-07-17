@@ -293,7 +293,7 @@ public sealed class AskFirst(ShopContext context) : CustomAction<ShopContext>(co
             Manager.Current.RetryAction("Are you sure?", "This will proceed.", "Yes", "No");
 
         if (chosen == "No")
-            throw new Exception("Cancelled by user.");
+            throw new InvalidOperationException("Cancelled by user.");
 
         e.Parent!.AddNotification($"You chose: {chosen}", NotificationType.OK);
         return e.Parent;
