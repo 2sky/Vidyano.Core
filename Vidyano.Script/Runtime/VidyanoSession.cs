@@ -27,6 +27,8 @@ public sealed class VidyanoSession : IDisposable
     private readonly Dictionary<string, object> _handles = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ClientOperation> _allOperations = new();
     private List<ClientOperation> _lastOperations = new();
+    private CapturedStream? _lastStream;                 // the last auto-fetched stream, cleared on the next verb
+    private CapturedChart? _lastChart;                   // the last CHART result, cleared on the next verb
     private readonly List<NavEntry> _navStack = new();
     private readonly ScriptHooks _hooks = new();
 
@@ -115,6 +117,25 @@ public sealed class VidyanoSession : IDisposable
     /// <summary>Clears the per-statement operations buffer. Called by the interpreter; library
     /// callers can use it directly when checkpointing between manual operations.</summary>
     public void ResetLastOperations() => _lastOperations = new List<ClientOperation>();
+
+    /// <summary>The stream auto-fetched by the most recent stream-returning action, or <c>null</c> when none
+    /// has run since the last per-verb reset. Read by <c>EXPECT Stream.Name</c> / <c>.Length</c> / <c>.Text</c>
+    /// (and bare <c>EXPECT Stream</c> for presence).</summary>
+    public CapturedStream? LastStream => _lastStream;
+
+    /// <summary>Clears the last captured stream. The interpreter calls this alongside
+    /// <see cref="ResetLastOperations"/> before every executable verb so <c>EXPECT Stream</c> reflects only
+    /// the immediately preceding verb.</summary>
+    public void ResetLastStream() => _lastStream = null;
+
+    /// <summary>The chart captured by the most recent <c>CHART</c> verb, or <c>null</c> when none has run
+    /// since the last per-verb reset. Read by <c>EXPECT Chart</c> / <c>EXPECT Chart.Data</c>.</summary>
+    public CapturedChart? LastChart => _lastChart;
+
+    /// <summary>Clears the last captured chart. The interpreter calls this alongside
+    /// <see cref="ResetLastOperations"/> before every executable verb so <c>EXPECT Chart</c> reflects only
+    /// the immediately preceding verb.</summary>
+    public void ResetLastChart() => _lastChart = null;
 
     /// <summary>The underlying Vidyano client. Exposed so library callers can drop down when needed.</summary>
     public Vidyano.Client Client { get; }
@@ -1659,10 +1680,40 @@ public sealed class VidyanoSession : IDisposable
                     ? OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, result.Notification, loc))
                     : OpResult.Success;
             }
+            // An action that returns a stream yields a "Vidyano.RegisteredStream" wrapper PO. The web client
+            // (ActionBase) auto-fetches it via GetStream and hands the bytes to Hooks.OnStream — mirror that:
+            // fetch, buffer (name, bytes) for EXPECT Stream.*, and never push the wrapper as a navigable
+            // frame. A fetch failure lands as a notification on the frame the action ran against (query action
+            // → the query, else the parent PO), faithful to ActionBase, and fails the verb so
+            // ACTION … EXPECTING ERROR can pin it. (A server OnGetStream fault is served as the stream *body*,
+            // not a transport error, so it arrives as bytes and is assertable via EXPECT Stream.Text.)
+            if (result is { FullTypeName: "Vidyano.RegisteredStream" })
+            {
+                try
+                {
+                    var (stream, streamName) = await Client.GetStreamAsync(result).ConfigureAwait(false);
+                    using var buffer = new MemoryStream();
+                    if (stream != null)
+                    {
+                        using (stream)
+                            await stream.CopyToAsync(buffer).ConfigureAwait(false);
+                    }
+                    _lastStream = new CapturedStream(streamName, buffer.ToArray());
+                    return OpResult.Success;
+                }
+                catch (Exception ex)
+                {
+                    if (action is QueryAction && (detailQuery ?? CurrentQuery) is { } sq)
+                        sq.SetNotification(ex.Message, NotificationType.Error);
+                    else
+                        CurrentPo?.SetNotification(ex.Message, NotificationType.Error);
+                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, ex.Message, loc));
+                }
+            }
             if (result != null)
             {
-                // A returned Vidyano.Notification / AddReference is already handled above, so any non-null
-                // result here is a real PersistentObject to open.
+                // A returned Vidyano.Notification / AddReference / RegisteredStream is already handled above,
+                // so any non-null result here is a real PersistentObject to open.
                 // If the top frame is already a PO, swap to the action's result (same navigation level).
                 // Otherwise push a new PO frame on top of whatever query was current (e.g. ACTION New).
                 // The server marks dialogs via StateBehavior.OpenAsDialog — including the cascading
@@ -1680,6 +1731,50 @@ public sealed class VidyanoSession : IDisposable
             return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
         }
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>Executes a named query chart via the <c>QueryFilter.Chart</c> system action — the same call the
+    /// web client's dashboard makes — and captures the returned chart JSON in <see cref="LastChart"/> for
+    /// <c>EXPECT Chart</c>. Unlike <see cref="ExecuteActionAsync"/> the returned Chart PersistentObject is
+    /// <b>not</b> pushed as a navigation frame: a chart is a read-only observable of the query, not a place to
+    /// navigate to (mirroring the web client, which renders it in a dashboard tile).
+    /// <para>The chart runs against the <c>Detail "&lt;name&gt;"</c> detail query when
+    /// <paramref name="detailName"/> is set, otherwise the current query; the query's owning
+    /// <see cref="Query.Parent"/> is posted as the parent, faithful to the sibling <c>QueryFilter.SemanticZoom</c>
+    /// call. The server surfaces a failure (e.g. an unknown chart name → a "Missing chart …" notification) on the
+    /// returned PO or the query; either fails the verb with <see cref="ErrorKind.AssertNotificationError"/>.</para></summary>
+    public async Task<OpResult> ExecuteChartAsync(string chartName, string? detailName, SourceLocation loc)
+    {
+        var qr = ResolveRowQuery(detailName, loc);
+        if (!qr.Ok) return OpResult.Fail(qr.Error!);
+        var query = qr.Value!;
+
+        try
+        {
+            var result = await Client.ExecuteActionAsync(
+                "QueryFilter.Chart", query.Parent, query, null,
+                new Dictionary<string, string> { ["name"] = chartName }).ConfigureAwait(false);
+
+            // A missing/failed chart comes back as an error notification — on the returned PO (the server's
+            // HandleChartAction adds it there) or, defensively, on the query. Fail on either, mirroring the
+            // ACTION path so the negative path stays loud.
+            if (result is { HasNotification: true, NotificationType: NotificationType.Error })
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, result.Notification, loc));
+            if (query is { HasNotification: true, NotificationType: NotificationType.Error })
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, query.Notification, loc));
+            if (result is null)
+                return OpResult.Fail(new Diagnostic(ErrorKind.ServerError,
+                    $"Chart '{chartName}' returned no result.", loc));
+
+            // HandleChartAction returns a hidden PO whose single `Data` attribute holds the aggregated chart
+            // JSON. Capture it verbatim for EXPECT Chart / Chart.Data — no navigation frame is pushed.
+            _lastChart = new CapturedChart(chartName, result.GetAttribute("Data")?.Value?.ToString());
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
     }
 
     /// <summary>Confirms the open Add-Reference picker, linking the selected rows to the parent the originating

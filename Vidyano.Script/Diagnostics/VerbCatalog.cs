@@ -156,6 +156,18 @@ public static class VerbCatalog
             ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete"],
             "action", []),
 
+        new("CHART",
+            "CHART \"<name>\"\nCHART Detail \"<name>\" \"<chart>\"",
+            "Run a named query chart and capture its data.",
+            "Executes the server's `QueryFilter.Chart` system action for the named chart of the current query "
+            + "(the same call the web client's dashboard makes) and captures the returned chart JSON for "
+            + "`EXPECT Chart` / `EXPECT Chart.Data`. Unlike `ACTION`, no navigation frame is pushed — a chart "
+            + "is a read-only observable of the query, so `CurrentQuery` is unchanged and the capture is cleared "
+            + "by the next verb. An optional leading `Detail \"<name>\"` clause runs the chart against a detail "
+            + "query. A missing chart name fails the verb with the server's `Missing chart …` notification.",
+            ["CHART \"ByColor\"", "CHART Detail \"Sessions\" \"SessionsHistory\""],
+            "action", []),
+
         new("CONFIRM",
             "CONFIRM \"<label>\"\nCONFIRM ID <index>\nCONFIRM <option> EXPECTING ERROR",
             "Answer the open server retry dialog.",

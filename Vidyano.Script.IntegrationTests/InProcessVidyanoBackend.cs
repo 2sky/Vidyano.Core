@@ -90,6 +90,14 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 var reject = model.GetOrCreateCustomAction(nameof(RejectWithNotification));
                 reject.ShowedOn = ShowedOn.PersistentObject;
 
+                // PO-level action that returns a RegisteredStream (download) — the fixture for the .visc
+                // stream auto-fetch (EXPECT Stream.*). ProductActions.OnGetStream serves the bytes.
+                var download = model.GetOrCreateCustomAction(nameof(DownloadSpec));
+                download.ShowedOn = ShowedOn.PersistentObject;
+
+                var downloadMissing = model.GetOrCreateCustomAction(nameof(DownloadMissing));
+                downloadMissing.ShowedOn = ShowedOn.PersistentObject;
+
                 // Query-level actions (toolbar, no row selection) — exercise the empty-selection payload and
                 // query-action error surfacing.
                 var import = model.GetOrCreateCustomAction(nameof(ImportProducts));
@@ -108,6 +116,8 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 administrators.AddUserRight($"{nameof(HelloWorld)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(AskFirst)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(RejectWithNotification)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(DownloadSpec)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(DownloadMissing)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(ImportProducts)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(FailOnServer)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(LinkProducts)}/{Schema}.{nameof(ProductCategory)}");

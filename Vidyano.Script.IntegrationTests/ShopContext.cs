@@ -224,6 +224,29 @@ public sealed class ProductActions(ShopContext context)
             args.PersistentObject.SetAttributeValue(nameof(Product.Echo), $"echo:{(string?)args.PersistentObject[nameof(Product.Trigger)]}");
     }
 
+    /// <summary>Serves the bytes for the stream <see cref="DownloadSpec"/> registered. The client's follow-up
+    /// <c>GetStream</c> call routes here with the key the action registered; handing back the content lets the
+    /// .visc runner's auto-fetch (mirroring the web client) deliver it to <c>EXPECT Stream.*</c>.</summary>
+    public override global::System.IO.Stream OnGetStream(GetStreamArgs e)
+    {
+        if (e.Key == DownloadSpec.StreamKey)
+            return e.GetBytes(global::System.Text.Encoding.UTF8.GetBytes(DownloadSpec.Content), DownloadSpec.FileName, "text/plain");
+        if (e.Key == DownloadMissing.StreamKey)
+            throw new global::System.Exception(DownloadMissing.FaultMessage);
+        return base.OnGetStream(e);
+    }
+
+    /// <summary>A server-side bar chart over the Products query — the same <c>OnChart</c> hook a real app
+    /// defines for a dashboard tile. Grouped by <see cref="Product.Color"/> with a per-color count, it gives
+    /// the .visc <c>CHART</c> verb a deterministic live chart to run (<c>CHART "ByColor"</c>) and assert on
+    /// (<c>EXPECT Chart.Data CONTAINS "Blue"</c>). Seed colors: Blue×2 (Widget, Faulty), Red×1, Green×1.</summary>
+    protected override void OnChart(Source<Product> source, ChartArgs args)
+    {
+        args.AddBarChart(source, "ByColor", "Products by color", chart => chart
+            .GroupBy(p => p.Color)
+            .WithValues("Count", p => (decimal?)1));
+    }
+
     /// <summary>Detail query: the products belonging to one category. Auto-discovered by name and
     /// wired as the <c>Products</c> detail panel on ProductCategory in <see cref="InProcessVidyanoBackend"/>.</summary>
     public IEnumerable<Product> ProductCategory_Products(CustomQueryArgs args)
@@ -353,4 +376,33 @@ public sealed class RejectWithNotification(ShopContext context) : CustomAction<S
 
     public override PersistentObject? Execute(CustomActionArgs e) =>
         Notification(Message, NotificationType.Error);
+}
+
+/// <summary>PO-level custom action that returns a downloadable stream via
+/// <c>Manager.Current.RegisterStream</c> (the shape a real "download PDF/report" toolbar button uses). The
+/// web client auto-fetches the returned <c>Vidyano.RegisteredStream</c> and hands the bytes to
+/// <c>Hooks.OnStream</c>; the .visc runner mirrors that fetch so <c>EXPECT Stream.Name</c> / <c>.Length</c> /
+/// <c>.Text</c> can assert the delivered file. Registered with <c>ShowedOn.PersistentObject</c> on Product.</summary>
+public sealed class DownloadSpec(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public const string StreamKey = "spec";
+    public const string FileName = "spec.txt";
+    public const string Content = "%PDF-ish spec content for Widget.";
+
+    // Registers a pending stream keyed by StreamKey; the bytes are served on the follow-up GetStream by
+    // ProductActions.OnGetStream (the faithful two-step flow the web client performs automatically).
+    public override PersistentObject? Execute(CustomActionArgs e) =>
+        Manager.Current.RegisterStream(e.Parent!, StreamKey);
+}
+
+/// <summary>Like <see cref="DownloadSpec"/>, but <see cref="ProductActions.OnGetStream"/> throws for its key —
+/// the fixture for the .visc stream FETCH-error path (a server-side download failure). Exercises the runner's
+/// auto-fetch catch block, which lands the failure as a notification and fails the ACTION.</summary>
+public sealed class DownloadMissing(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public const string StreamKey = "missing";
+    public const string FaultMessage = "Blob 'missing' could not be found.";
+
+    public override PersistentObject? Execute(CustomActionArgs e) =>
+        Manager.Current.RegisterStream(e.Parent!, StreamKey);
 }
