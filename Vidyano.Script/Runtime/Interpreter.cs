@@ -406,12 +406,14 @@ public sealed class Interpreter
 
         // Reset the per-verb observable buffers before every executable verb (but NOT before
         // EXPECT — assertions consume what the *previous* verb produced). This covers the ClientOperations
-        // buffer and the last captured CHART, so EXPECT Chart reads only the immediately preceding verb's
-        // chart. Meta statements (@var, @mode) don't talk to the server, so they leave the buffers alone too.
-        // A loop verb is structural — its body statements reset the buffers themselves — so leave it untouched.
+        // buffer, the last auto-fetched stream, and the last captured CHART, so EXPECT Stream / EXPECT Chart
+        // read only the immediately preceding verb's result. Meta statements (@var, @mode) don't talk to the
+        // server, so they leave the buffers alone too. A loop verb is structural — its body statements reset
+        // the buffers themselves — so leave it untouched for them.
         if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt)
         {
             Current.ResetLastOperations();
+            Current.ResetLastStream();
             Current.ResetLastChart();
         }
 
@@ -1267,6 +1269,16 @@ public sealed class Interpreter
                 return OpResult<object?>.Success(
                     po is not null ? (po.HasNotification ? po.NotificationType.ToString() : null)
                     : query is { HasNotification: true } ? query.NotificationType.ToString() : null);
+            // The stream the previous action auto-fetched, or null when none. Bare Stream resolves to the
+            // delivered file name (so IS NULL is a presence check); the properties expose name / length / text.
+            case ExpectSubjectKind.Stream:
+                return OpResult<object?>.Success(Current.LastStream is { } s ? (object?)(s.Name ?? "") : null);
+            case ExpectSubjectKind.StreamName:
+                return OpResult<object?>.Success((object?)Current.LastStream?.Name);
+            case ExpectSubjectKind.StreamLength:
+                return OpResult<object?>.Success((object?)Current.LastStream?.Length);
+            case ExpectSubjectKind.StreamText:
+                return OpResult<object?>.Success((object?)Current.LastStream?.Text);
             // The JSON of the chart the previous verb (CHART) ran, or null when none was captured. Both
             // `EXPECT Chart` and `EXPECT Chart.Data` land here (same value); IS NULL is the presence check.
             case ExpectSubjectKind.Chart:

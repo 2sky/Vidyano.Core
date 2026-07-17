@@ -269,6 +269,17 @@ public sealed class LintTests
     }
 
     [Fact]
+    public void StreamsSample_LintsClean()
+    {
+        var path = SamplePath("streams.visc");
+        Assert.True(File.Exists(path), $"Sample not found at {path}");
+        var body = File.ReadAllText(path);
+        var diags = VidyanoScript.Lint(body, path);
+        Assert.True(diags.Count == 0,
+            $"streams.visc should lint clean, got: {string.Join("; ", diags.Select(d => $"{d.Kind}: {d.Message}"))}");
+    }
+
+    [Fact]
     public void ChartsSample_LintsClean()
     {
         var path = SamplePath("charts.visc");

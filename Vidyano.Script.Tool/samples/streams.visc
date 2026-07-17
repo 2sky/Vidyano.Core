@@ -1,0 +1,45 @@
+### Streams — asserting a download an action returns
+###
+### This file lints cleanly with no backend. It demonstrates the `EXPECT Stream.*` subjects.
+###
+### When a custom action returns a stream (server: `Manager.Current.RegisterStream(...)`), the web client
+### automatically performs a follow-up GetStream request and delivers the bytes. The .visc runner mirrors
+### that: after such an ACTION it auto-fetches the stream and buffers it, so you can assert the observable
+### result without any extra verb — exactly as a browser user would experience the download.
+###
+###   • EXPECT Stream            — presence (IS NULL / IS NOT NULL); no stream captured yet / one was
+###   • EXPECT Stream.Name        — the delivered file name
+###   • EXPECT Stream.Length      — the byte length (numeric ops)
+###   • EXPECT Stream.Text        — the bytes decoded as UTF-8 (CONTAINS / MATCHES / =)
+###
+### Like the per-verb ClientOperation buffer, the capture reflects only the immediately preceding verb —
+### the next executable verb clears it. A server-side download fault (e.g. a missing blob) is served as the
+### stream BODY, not a transport error, so its text is assertable via Stream.Text too.
+###
+### The live round-trip is covered by Vidyano.Script.IntegrationTests (StreamTests), whose in-process model
+### returns a RegisteredStream from a DownloadSpec action and serves the bytes via OnGetStream.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+### Run an action that returns a downloadable stream; the runner auto-fetches it. No frame is pushed — the
+### PO the action ran on stays current.
+OPEN MenuItem Products
+OPEN-ROW 0
+EXPECT Stream IS NULL              ## nothing fetched yet
+ACTION DownloadSpec
+EXPECT Stream IS NOT NULL
+EXPECT Stream.Name = "spec.txt"
+EXPECT Stream.Length > 0
+EXPECT Stream.Text CONTAINS "%PDF"
+
+### The capture is per-verb: once another verb runs, the stale stream is gone.
+GO-BACK
+EXPECT Stream IS NULL
+
+### A server-side download fault arrives as the stream body (the GetStream response), not a transport
+### error — so the action still succeeds and the fault text is assertable via Stream.Text.
+OPEN-ROW 0
+ACTION DownloadMissing
+EXPECT Stream.Text MATCHES "could not be found"

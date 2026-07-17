@@ -179,6 +179,8 @@ A query action invoked with **no selection** posts an empty selection (matching 
 
 A custom action can fail two ways, and both surface as an `ACTION` failure with the message copied onto the current frame for `EXPECT Notification …` to read: the server sets an error notification on the PO/query and returns null, **or** the action *returns* a `Notification(message, Error)` result (the toast shape — `return Notification(...)`). A returned **non-error** notification (info/warning) is copied onto the frame too — so `EXPECT Notification …` can read it — but does **not** fail the verb, faithful to the toast a browser shows.
 
+An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer.
+
 ### Asserting the negative path — `EXPECTING ERROR`
 
 ```visc
@@ -293,6 +295,18 @@ EXPECT ClientOperation Refresh IS NULL
 ```
 
 `Notification` / `Notification.Type` read the current PO's notification, or the current Query's when no PO is open — so a query action's notification (e.g. an error) is assertable.
+
+**Streams** (the stream the previous action auto-fetched; `IS NULL` when none)
+
+```visc
+ACTION DownloadInvoice
+EXPECT Stream.Name = "invoice.pdf"
+EXPECT Stream.Length > 0
+EXPECT Stream.Text CONTAINS "%PDF"
+EXPECT Stream IS NULL                            ## after another verb — the capture is per-verb
+```
+
+When an action returns a stream, the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
 
 **Charts** (the last `CHART` result; `IS NULL` when none was captured)
 
@@ -518,6 +532,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |
 | `EXPECT <ref> = ID "<id>"` | Assert a reference by its document id (`ObjectId`). |
 | `EXPECT <attr> LANGUAGE <lang> = "…"` | Assert one translation of a TranslatedString attribute. |
+| `EXPECT Stream[.Name\|.Length\|.Text]` | Assert the stream an action auto-fetched (returned via `RegisterStream`). |
 | `REQUIRES <expect> \| REQUIRES TOOL <n>` | Precondition gate (unmet → skip the body). |
 | `CLEANUP` | Marker; statements after it always run. |
 | `REPEAT <n> [AS @i] … END` | Bounded repetition. |

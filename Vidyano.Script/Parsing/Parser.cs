@@ -1299,6 +1299,34 @@ public sealed class Parser
             return new ExpectSubject(ExpectSubjectKind.Notification, null, AttributeFlagKind.None, tok.Location);
         }
 
+        // EXPECT Stream / Stream.Name / Stream.Length / Stream.Text — the stream the previous action auto-fetched.
+        // Bare `Stream` (natural with IS NULL) is presence; the three properties expose name / byte length / text.
+        if (string.Equals(tok.Lexeme, "Stream", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            if (Match(TokenKind.Dot, out _))
+            {
+                if (Peek().Kind != TokenKind.Identifier)
+                {
+                    Error(ErrorKind.ParseExpected, "Expected a property name after 'Stream.'.", Peek().Location);
+                    return null;
+                }
+                var propTok = Advance();
+                if (string.Equals(propTok.Lexeme, "Name", StringComparison.OrdinalIgnoreCase))
+                    return new ExpectSubject(ExpectSubjectKind.StreamName, null, AttributeFlagKind.None, tok.Location);
+                if (string.Equals(propTok.Lexeme, "Length", StringComparison.OrdinalIgnoreCase))
+                    return new ExpectSubject(ExpectSubjectKind.StreamLength, null, AttributeFlagKind.None, tok.Location);
+                if (string.Equals(propTok.Lexeme, "Text", StringComparison.OrdinalIgnoreCase))
+                    return new ExpectSubject(ExpectSubjectKind.StreamText, null, AttributeFlagKind.None, tok.Location);
+                Error(ErrorKind.ParseUnexpectedToken,
+                    $"Stream has no property '{propTok.Lexeme}'.",
+                    propTok.Location,
+                    hint: "Use Stream.Name, Stream.Length, or Stream.Text (or bare Stream for an IS NULL presence check).");
+                return null;
+            }
+            return new ExpectSubject(ExpectSubjectKind.Stream, null, AttributeFlagKind.None, tok.Location);
+        }
+
         // EXPECT Chart / EXPECT Chart.Data — the JSON of the last CHART. Bare `Chart` (natural with IS NULL)
         // and the explicit `Chart.Data` resolve to the same value; `.Data` is the only accepted property.
         if (string.Equals(tok.Lexeme, "Chart", StringComparison.OrdinalIgnoreCase))
