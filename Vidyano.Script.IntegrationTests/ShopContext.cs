@@ -224,6 +224,17 @@ public sealed class ProductActions(ShopContext context)
             args.PersistentObject.SetAttributeValue(nameof(Product.Echo), $"echo:{(string?)args.PersistentObject[nameof(Product.Trigger)]}");
     }
 
+    /// <summary>A server-side bar chart over the Products query — the same <c>OnChart</c> hook a real app
+    /// defines for a dashboard tile. Grouped by <see cref="Product.Color"/> with a per-color count, it gives
+    /// the .visc <c>CHART</c> verb a deterministic live chart to run (<c>CHART "ByColor"</c>) and assert on
+    /// (<c>EXPECT Chart.Data CONTAINS "Blue"</c>). Seed colors: Blue×2 (Widget, Faulty), Red×1, Green×1.</summary>
+    protected override void OnChart(Source<Product> source, ChartArgs args)
+    {
+        args.AddBarChart(source, "ByColor", "Products by color", chart => chart
+            .GroupBy(p => p.Color)
+            .WithValues("Count", p => (decimal?)1));
+    }
+
     /// <summary>Detail query: the products belonging to one category. Auto-discovered by name and
     /// wired as the <c>Products</c> detail panel on ProductCategory in <see cref="InProcessVidyanoBackend"/>.</summary>
     public IEnumerable<Product> ProductCategory_Products(CustomQueryArgs args)

@@ -1,0 +1,44 @@
+### CHART — running a query chart and asserting its data
+###
+### This file lints cleanly with no backend. It demonstrates the `CHART` verb and the
+### `EXPECT Chart` / `EXPECT Chart.Data` subjects.
+###
+### `CHART "<name>"` runs the server's `QueryFilter.Chart` system action for the named chart of the
+### current query — the same call the web client's dashboard makes — and CAPTURES the returned chart
+### JSON. Unlike ACTION, a chart is a read-only observable of the query, NOT a navigation destination:
+###   • no frame is pushed (the current query stays current), and
+###   • the capture is cleared by the next executable verb, like the per-verb ClientOperation buffer.
+###
+### Read the result with `EXPECT Chart.Data` (the aggregated chart JSON — assert with CONTAINS / MATCHES
+### / =) or the bare `EXPECT Chart` for a presence check (IS NULL / IS NOT NULL). A chart name the server
+### doesn't know fails the verb loudly with the server's "Missing chart <name>" notification.
+###
+### The live round-trip is exercised by Vidyano.Script.IntegrationTests (ChartTests), whose in-process
+### model registers a "ByColor" bar chart via ProductActions.OnChart.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+### Run a named chart of the current query and assert on the returned JSON. No nav frame is pushed —
+### the Products query is still current afterwards.
+OPEN MenuItem Products
+CHART "ByColor"
+EXPECT NavStack.Top.Kind = "Query"                       ## chart pushed nothing; still on the list
+EXPECT Chart.Data CONTAINS "barchart"
+EXPECT Chart.Data MATCHES "\"name\":\"Blue\",\"value\":2"
+
+### The capture is per-verb: once another verb runs, the stale chart is gone.
+SEARCH "Widget"
+EXPECT Chart IS NULL
+
+### A leading Detail "<name>" clause runs the chart against a named detail query on the current PO,
+### mirroring ACTION Detail "<name>".
+OPEN MenuItem ProductCategories
+OPEN-ROW WHERE Name = "Tools"
+CHART Detail "ProductCategory_Products" "ByColor"
+EXPECT Chart.Data CONTAINS "barchart"
+
+### An unknown chart name is refused server-side — the run fails on the "Missing chart" notification.
+### (Shown here as a comment so the sample stays green; uncomment against a live server to see it fail.)
+### CHART "NoSuchChart"

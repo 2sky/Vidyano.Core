@@ -338,6 +338,7 @@ public sealed class Interpreter
                 }
             case SetStmt s:                    return await DoSet(s).ConfigureAwait(false);
             case ActionStmt a:                 return await DoAction(a).ConfigureAwait(false);
+            case ChartStmt ch:                 return await DoChart(ch).ConfigureAwait(false);
             case ConfirmStmt cf:               return await DoConfirm(cf).ConfigureAwait(false);
             case AddReferenceStmt ar:          return await DoAddReference(ar).ConfigureAwait(false);
             case SearchStmt q:                 return await DoSearch(q).ConfigureAwait(false);
@@ -403,12 +404,16 @@ public sealed class Interpreter
         var isMetaStmt = stmt is VariableAssignment or ModeDirective;
         if (!isMetaStmt) _statementsExecuted = true;
 
-        // Reset the per-verb ClientOperations buffer before every executable verb (but NOT before
-        // EXPECT — assertions consume what the *previous* verb produced). Meta statements
-        // (@var, @mode) don't talk to the server, so they leave the buffer alone too. A loop verb is
-        // structural — its body statements reset the buffer themselves — so leave it untouched for them.
+        // Reset the per-verb observable buffers before every executable verb (but NOT before
+        // EXPECT — assertions consume what the *previous* verb produced). This covers the ClientOperations
+        // buffer and the last captured CHART, so EXPECT Chart reads only the immediately preceding verb's
+        // chart. Meta statements (@var, @mode) don't talk to the server, so they leave the buffers alone too.
+        // A loop verb is structural — its body statements reset the buffers themselves — so leave it untouched.
         if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt)
+        {
             Current.ResetLastOperations();
+            Current.ResetLastChart();
+        }
 
         // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the gate. Only
         // meta statements, SAVE @initial, and EXPECTs that observe the @initial scope are allowed through;
@@ -731,6 +736,15 @@ public sealed class Interpreter
         }
         var res = await Current.ExecuteActionAsync(a.ActionName, parameters, option, a.OptionHint, a.Location, a.DetailName).ConfigureAwait(false);
         return a.ExpectError ? WrapExpectingError(a, res) : Wrap(a, res);
+    }
+
+    private async Task<StatementResult> DoChart(ChartStmt ch)
+    {
+        var nameRes = EvaluateExpression(ch.ChartName);
+        if (!nameRes.Ok) return Fail(ch, nameRes.Error!);
+        var chartName = AsString(nameRes.Value);
+        var res = await Current.ExecuteChartAsync(chartName, ch.DetailName, ch.Location).ConfigureAwait(false);
+        return Wrap(ch, res);
     }
 
     private async Task<StatementResult> DoConfirm(ConfirmStmt cf)
@@ -1253,6 +1267,10 @@ public sealed class Interpreter
                 return OpResult<object?>.Success(
                     po is not null ? (po.HasNotification ? po.NotificationType.ToString() : null)
                     : query is { HasNotification: true } ? query.NotificationType.ToString() : null);
+            // The JSON of the chart the previous verb (CHART) ran, or null when none was captured. Both
+            // `EXPECT Chart` and `EXPECT Chart.Data` land here (same value); IS NULL is the presence check.
+            case ExpectSubjectKind.Chart:
+                return OpResult<object?>.Success(Current.LastChart?.Data);
             case ExpectSubjectKind.IsDirty:
                 return OpResult<object?>.Success((object?)(po?.IsDirty ?? false));
             case ExpectSubjectKind.IsInEdit:
