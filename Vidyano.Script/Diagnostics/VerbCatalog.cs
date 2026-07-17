@@ -157,15 +157,18 @@ public static class VerbCatalog
             "action", []),
 
         new("CONFIRM",
-            "CONFIRM \"<label>\"\nCONFIRM ID <index>",
+            "CONFIRM \"<label>\"\nCONFIRM ID <index>\nCONFIRM <option> EXPECTING ERROR",
             "Answer the open server retry dialog.",
             "Answers the modal retry dialog a server action raised mid-execution (the web client's "
             + "`onRetryAction`), resuming the paused ACTION/SAVE with the chosen option. `\"<label>\"` "
             + "matches one of the offered option labels; `ID <index>` picks by position. When the retry "
             + "carried a PersistentObject for extra input, `SET` its attributes before CONFIRM — the edits "
-            + "ride back to the server with the confirmation. Fails with `state-no-retry-pending` when no "
-            + "dialog is open.",
-            ["CONFIRM \"Yes\"", "CONFIRM ID 0"],
+            + "ride back to the server with the confirmation. A trailing `EXPECTING ERROR` asserts the "
+            + "negative path: it passes only if the resumed action fails with a server error notification "
+            + "(the archetypal 'Cancel' branch that throws / returns an error), and fails if the resume "
+            + "succeeds; the notification stays readable via a following `EXPECT Notification`. Fails with "
+            + "`state-no-retry-pending` when no dialog is open.",
+            ["CONFIRM \"Yes\"", "CONFIRM ID 0", "CONFIRM \"Cancel\" EXPECTING ERROR"],
             "action", []),
 
         new("ADD-REFERENCE",

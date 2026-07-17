@@ -746,7 +746,7 @@ public sealed class Interpreter
                 cf.Location,
                 Hint: "CONFIRM \"Yes\"  •  CONFIRM ID 0"));
         var res = await Current.ConfirmRetryAsync(ov.Value, cf.OptionHint, cf.Location).ConfigureAwait(false);
-        return Wrap(cf, res);
+        return cf.ExpectError ? WrapExpectingError(cf, res) : Wrap(cf, res);
     }
 
     private async Task<StatementResult> DoAddReference(AddReferenceStmt ar)

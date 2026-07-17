@@ -50,3 +50,15 @@ SELECT-ROWS 0
 ACTION Delete
 CONFIRM "No"
 EXPECT RetryDialog.Title IS NULL
+
+### --- Declining into a server-side failure — CONFIRM ... EXPECTING ERROR ------------------------
+### Some "Cancel" branches don't just decline — they raise a server error (throw / return an error
+### notification). Answering that option resumes an action that FAILS. Assert that negative path with
+### the EXPECTING ERROR suffix (mirroring SAVE/ACTION): the CONFIRM passes only if the resumed action
+### surfaces a server error notification, and the message stays readable on the current PO afterward.
+OPEN MenuItem Customers
+SELECT-ROWS 0
+ACTION Delete
+CONFIRM "Cancel" EXPECTING ERROR
+EXPECT Notification.Type = "Error"
+EXPECT Notification CONTAINS "Cancelled"

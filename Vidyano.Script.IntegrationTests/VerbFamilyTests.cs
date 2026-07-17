@@ -573,6 +573,57 @@ public sealed class VerbFamilyTests
             """));
     }
 
+    [Fact]
+    public async Task Confirm_ExpectingError_AbsorbsResumeFailure()
+    {
+        // The "No" option throws server-side; the resumed action fails with an error notification. EXPECTING
+        // ERROR asserts that negative path, and the notification stays readable on the current PO afterward.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            ACTION AskFirst
+            EXPECT NavStack.Top.Kind = "RetryDialog"
+            CONFIRM "No" EXPECTING ERROR
+            EXPECT Notification.Type = "Error"
+            EXPECT Notification MATCHES "Cancelled"
+            """));
+    }
+
+    [Fact]
+    public async Task Confirm_BareOnResumeFailure_FailsLoudly()
+    {
+        // Without EXPECTING ERROR, a resume that errors server-side is a genuine failure — the negative path
+        // must not pass silently. Pins that CONFIRM surfaces the resumed action's error notification.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            ACTION AskFirst
+            CONFIRM "No"
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertNotificationError);
+    }
+
+    [Fact]
+    public async Task Confirm_ExpectingError_OnSuccess_Fails()
+    {
+        // Inverse guard: EXPECTING ERROR on a resume that SUCCEEDS must fail — the asserted negative path never
+        // fired. Mirrors the other verbs' EXPECTING-ERROR-on-success guards.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            ACTION AskFirst
+            CONFIRM "Yes" EXPECTING ERROR
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertExpectedError);
+    }
+
     // --- ADD-REFERENCE (custom AddReference picker round-trip) -----------------------------------
     //
     // LinkProducts is a PO-level action on ProductCategory that returns AddReference("Products"); the .visc

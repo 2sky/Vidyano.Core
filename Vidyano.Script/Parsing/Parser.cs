@@ -759,7 +759,9 @@ public sealed class Parser
         }
         var optionExpr = ParseValueExpression();
         if (optionExpr == null) return null;
-        return new ConfirmStmt(optionExpr, optionHint, loc);
+        var expectError = TryConsumeExpectingError(out var malformed);
+        if (malformed) return null;
+        return new ConfirmStmt(optionExpr, optionHint, loc, expectError);
     }
 
     /// <summary><c>ADD-REFERENCE</c> (confirm the picker's current selection) or, with an inline selector,

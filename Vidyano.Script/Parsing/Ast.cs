@@ -260,8 +260,13 @@ public sealed record ForEachRowStmt(
 /// retry's offered options: <see cref="OptionHint"/>=<see cref="ReferenceHintKind.RawId"/> treats the value
 /// as an int index into them, otherwise it is matched against the option labels (mirroring
 /// <c>ACTION X = &lt;option&gt;</c>). Any <c>SET</c>s applied to the retry's PersistentObject while the
-/// dialog was open ride back to the server with the confirmation.</summary>
-public sealed record ConfirmStmt(Expression Option, ReferenceHintKind? OptionHint, SourceLocation Location) : Statement(Location);
+/// dialog was open ride back to the server with the confirmation.
+/// <para><see cref="ExpectError"/> (the trailing <c>EXPECTING ERROR</c> suffix) asserts the negative path:
+/// the CONFIRM passes only if the resumed action fails with a server error notification (a retry option that
+/// throws / returns an error), and fails if the resume unexpectedly succeeds or merely parks a further retry.
+/// The notification stays readable via a following <c>EXPECT Notification …</c>, consistent with
+/// <c>ACTION … EXPECTING ERROR</c>.</para></summary>
+public sealed record ConfirmStmt(Expression Option, ReferenceHintKind? OptionHint, SourceLocation Location, bool ExpectError = false) : Statement(Location);
 
 /// <summary><c>ADD-REFERENCE</c> / <c>ADD-REFERENCE &lt;index&gt;</c> / <c>ADD-REFERENCE WHERE &lt;col&gt; = &lt;value&gt;</c>
 /// — confirm the open Add-Reference picker, linking the selected rows by posting the faithful

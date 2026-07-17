@@ -184,13 +184,14 @@ A custom action can fail two ways, and both surface as an `ACTION` failure with 
 ```visc
 SAVE EXPECTING ERROR
 ACTION Delete EXPECTING ERROR
+CONFIRM "Cancel" EXPECTING ERROR
 OPEN PersistentObject "Customer" "deleted-id" EXPECTING ERROR
 OPEN Query "RestrictedOrders" EXPECTING ERROR
 OPEN MenuItem Admin/Users EXPECTING ERROR
 OPEN-ROW WHERE Name = "Faulty" EXPECTING ERROR
 ```
 
-This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION`, that expected failure is the server's error notification — whether the server set it on the PO/query and returned null, or the action *returned* it as a `Notification(…, Error)` result — which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form.
+This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION` / `CONFIRM`, that expected failure is the server's error notification — whether the server set it on the PO/query and returned null, or the action *returned* it as a `Notification(…, Error)` result — which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form. For `CONFIRM` it asserts that **answering a server retry dialog** resumes an action that then fails (a retry option that throws / returns an error — the archetypal "Cancel" branch); see [Server retry dialogs](#server-retry-dialogs--confirm).
 
 All three `OPEN` forms take the suffix to assert the open is **refused** — the `.visc` equivalent of "this should not open":
 
@@ -215,6 +216,15 @@ CONFIRM "Yes"                         ## or: CONFIRM ID 0
 ```
 
 While a dialog is open the script is **frozen** to `CONFIRM` / `SET` / `EXPECT` (anything else trips `state-retry-pending`). `CONFIRM` picks an option by label or `ID <index>` and **resumes the action**. If the retry carried a PO for extra input, `SET` its attributes first — `CurrentPo` is the retry PO while the dialog is open, so the edits ride back with the confirmation.
+
+Answering a dialog can itself resume an action that **fails** — the archetypal "Cancel" branch that throws or returns an error notification server-side. Assert that negative path with the `EXPECTING ERROR` suffix (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)): the `CONFIRM` then passes only if the resumed action surfaces a server error notification, and fails if it succeeds (or merely parks a *further* retry, which you'd answer with another `CONFIRM`). The notification stays on the current PO/query, so `EXPECT Notification …` still pins the message:
+
+```visc
+ACTION AppNotificationSend
+CONFIRM "Cancel" EXPECTING ERROR
+EXPECT Notification.Type = "Error"
+EXPECT Notification CONTAINS "Cancelled"
+```
 
 ### Add-Reference pickers — `ADD-REFERENCE`
 
@@ -482,10 +492,10 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SET <attr> = <value> \| LOOKUP "…" \| ID "…" \| FILE "<path>" \| null` | Change an attribute. `FILE` attaches a file (root-confined) to a BinaryFile/Image. |
 | `SET <attr> LANGUAGE <lang> = <value>` | Set one translation of a TranslatedString attribute (bare `SET` = current language). |
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
-| `SAVE \| ACTION … EXPECTING ERROR` | Assert the negative (error-notification) path. |
+| `SAVE \| ACTION \| CONFIRM … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
 | `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |
-| `CONFIRM "<label>" \| CONFIRM ID <i>` | Answer an open server retry dialog. |
+| `CONFIRM "<label>" \| CONFIRM ID <i> [EXPECTING ERROR]` | Answer an open server retry dialog (`EXPECTING ERROR` asserts the resumed action fails). |
 | `ADD-REFERENCE [<i> \| WHERE <col> = <value>]` | Confirm an Add-Reference picker an `ACTION` opened, linking the selected (or inline-selected) rows. |
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |
 | `EXPECT <ref> = ID "<id>"` | Assert a reference by its document id (`ObjectId`). |
