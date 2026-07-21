@@ -59,7 +59,7 @@
     "package": "npx @vscode/vsce package"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "vscode-languageclient": "^10.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
