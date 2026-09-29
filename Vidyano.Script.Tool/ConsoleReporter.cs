@@ -88,6 +88,7 @@ public static class ConsoleReporter
             EditStmt                   => "EDIT",
             CancelStmt                 => "CANCEL",
             SaveStmt sv                => sv.ExpectError ? "SAVE EXPECTING ERROR" : "SAVE",
+            SetStmt { DetailAttribute: { } da } s => $"SET Detail Attribute \"{Markup.Escape(da)}\" ROW … {Markup.Escape(s.Attribute)} = …",
             SetStmt s                  => $"SET {Markup.Escape(s.Attribute)} = …",
             ActionStmt a               => $"ACTION {Markup.Escape(a.ActionName)}{(a.ExpectError ? " EXPECTING ERROR" : "")}",
             SearchStmt q               => q.DetailName is null ? "SEARCH …" : $"SEARCH Detail \"{Markup.Escape(q.DetailName)}\" …",
@@ -100,6 +101,7 @@ public static class ConsoleReporter
             SignOutStmt so             => so.SessionName is null ? "SIGN-OUT" : $"SIGN-OUT @{so.SessionName}",
             GoBackStmt                 => "GO-BACK",
             SelectRowsStmt sr          => $"SELECT-ROWS {DescribeSelectTarget(sr)}",
+            AddRowStmt ar              => $"ADD-ROW Detail Attribute \"{Markup.Escape(ar.AttributeName)}\"",
             DeleteRowStmt dr           => $"DELETE-ROW Detail Attribute \"{Markup.Escape(dr.AttributeName)}\"",
             _                          => stmt.GetType().Name,
         };

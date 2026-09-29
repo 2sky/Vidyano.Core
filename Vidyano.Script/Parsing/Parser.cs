@@ -142,6 +142,7 @@ public sealed class Parser
             "OPEN-ROW"    => ParseOpenRow(tok.Location),
             "SELECT-ROWS" => ParseSelectRows(tok.Location),
             "DELETE-ROW"  => ParseDeleteRow(tok.Location),
+            "ADD-ROW"     => ParseAddRow(tok.Location),
             "GO-BACK"     => new GoBackStmt(tok.Location),
             "FOLLOW"      => ParseFollow(tok.Location),
             "EDIT"        => new EditStmt(null, tok.Location),
@@ -578,22 +579,34 @@ public sealed class Parser
         return t.Value as string ?? t.Lexeme;
     }
 
-    /// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c>.</summary>
-    private Statement? ParseDeleteRow(SourceLocation loc)
+    /// <summary>Parses the mandatory <c>Detail Attribute "&lt;name&gt;"</c> target of a row verb.</summary>
+    private string? ParseRequiredDetailAttribute(string verb, string usage)
     {
-        const string usage = "DELETE-ROW Detail Attribute \"Certificates\" WHERE SerialNumber = \"0A1B\"";
         if (Peek().Kind != TokenKind.Identifier || !string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
         {
-            Error(ErrorKind.ParseExpected, "DELETE-ROW needs 'Detail Attribute \"<name>\"'.", Peek().Location, hint: usage);
+            Error(ErrorKind.ParseExpected, $"{verb} needs 'Detail Attribute \"<name>\"'.", Peek().Location, hint: usage);
             return null;
         }
         Advance();
         var attribute = TryParseDetailAttributeName();
         if (attribute == null)
-        {
             Error(ErrorKind.ParseExpected, "Expected 'Attribute \"<name>\"' after 'Detail'.", Peek().Location, hint: usage);
-            return null;
-        }
+        return attribute;
+    }
+
+    /// <summary><c>ADD-ROW Detail Attribute "&lt;name&gt;"</c>.</summary>
+    private Statement? ParseAddRow(SourceLocation loc)
+    {
+        var attribute = ParseRequiredDetailAttribute("ADD-ROW", "ADD-ROW Detail Attribute \"Lines\"");
+        return attribute == null ? null : new AddRowStmt(attribute, loc);
+    }
+
+    /// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c>.</summary>
+    private Statement? ParseDeleteRow(SourceLocation loc)
+    {
+        const string usage = "DELETE-ROW Detail Attribute \"Certificates\" WHERE SerialNumber = \"0A1B\"";
+        var attribute = ParseRequiredDetailAttribute("DELETE-ROW", usage);
+        if (attribute == null) return null;
 
         if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "WHERE", StringComparison.OrdinalIgnoreCase))
         {
@@ -636,6 +649,28 @@ public sealed class Parser
         {
             scope = TryConsumeScopePrefix();
             if (scope == null) return null;
+        }
+
+        // Optional detail-row prefix: SET Detail Attribute "Lines" ROW <i> Quantity = …. Only taken when the full
+        // `Detail Attribute "<string>"` shape follows, so a plain attribute named Detail still parses.
+        string? detailAttribute = null;
+        Expression? rowIndex = null;
+        if (scope == null && Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase)
+            && _pos + 2 < _tokens.Count
+            && _tokens[_pos + 1].Kind == TokenKind.Identifier && string.Equals(_tokens[_pos + 1].Lexeme, "Attribute", StringComparison.OrdinalIgnoreCase)
+            && _tokens[_pos + 2].Kind == TokenKind.String)
+        {
+            Advance();
+            detailAttribute = TryParseDetailAttributeName();
+            if (Peek().Kind != TokenKind.Identifier || !string.Equals(Peek().Lexeme, "ROW", StringComparison.OrdinalIgnoreCase))
+            {
+                Error(ErrorKind.ParseExpected, "Expected 'ROW <index> <column>' after 'Detail Attribute \"<name>\"'.", Peek().Location,
+                    hint: "SET Detail Attribute \"Lines\" ROW 0 Quantity = 2");
+                return null;
+            }
+            Advance();
+            rowIndex = ParseValueExpression();
+            if (rowIndex == null) return null;
         }
 
         var attrName = ParseDottedAttributeName();
@@ -682,7 +717,7 @@ public sealed class Parser
 
         var value = ParseValueExpression();
         if (value == null) return null;
-        return new SetStmt(null, attrName, value, hint, loc, scope, valueKind, language);
+        return new SetStmt(null, attrName, value, hint, loc, scope, valueKind, language, detailAttribute, rowIndex);
     }
 
     /// <summary>Reads an attribute name token sequence of the form <c>Identifier (. Identifier)*</c>

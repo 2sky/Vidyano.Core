@@ -695,28 +695,34 @@ public sealed class VidyanoSession : IDisposable
         return OpResult<IReadOnlyList<PersistentObject>>.Success(r.Value!.Objects.Where(o => !o.IsDeleted).ToList());
     }
 
-    /// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c> — mark a row of a
-    /// detail attribute <c>IsDeleted</c> so the next SAVE sends it in the server's <c>DeletedObjects</c>. Obeys the
-    /// gate of the web client's delete button: the PO must be in edit, the attribute not read-only, and the parent
-    /// new or the details query offering a <c>Delete</c> action. A WHERE match must be unique.</summary>
-    public OpResult DeleteDetailAttributeRow(string attributeName, int? index, string? column, object? value, SourceLocation loc)
+    /// <summary>Resolves a detail attribute a row verb may change, with the web client's gate on its row
+    /// editor: the PO must be in edit and the attribute writable. <paramref name="requiredAction"/> additionally
+    /// requires that action on the attribute's details query (<c>New</c> for the add button; <c>Delete</c> for the
+    /// delete button, which a new PO shows regardless).</summary>
+    private OpResult<PersistentObjectAttributeAsDetail> ResolveEditableDetailAttribute(string name, string verb, string? requiredAction, SourceLocation loc)
     {
-        var r = ResolveDetailAttribute(attributeName, loc);
-        if (!r.Ok) return OpResult.Fail(r.Error!);
+        var r = ResolveDetailAttribute(name, loc);
+        if (!r.Ok) return r;
         var attr = r.Value!;
 
         if (!CurrentPo!.IsInEdit)
-            return OpResult.Fail(new Diagnostic(ErrorKind.GuardEditModeRequired,
-                "DELETE-ROW needs the PersistentObject to be in edit mode.", loc, Hint: "Call EDIT first."));
+            return OpResult<PersistentObjectAttributeAsDetail>.Fail(new Diagnostic(ErrorKind.GuardEditModeRequired,
+                $"{verb} needs the PersistentObject to be in edit mode.", loc, Hint: "Call EDIT first."));
         if (attr.IsReadOnly)
-            return OpResult.Fail(new Diagnostic(ErrorKind.GuardAttributeReadOnly,
-                $"Attribute '{attributeName}' is read-only — the UI offers no row delete.", loc));
-        if (!CurrentPo.IsNew && !(attr.Details?.Actions.Any(a => a.Name == "Delete") ?? false))
-            return OpResult.Fail(new Diagnostic(ErrorKind.GuardActionNotAvailable,
-                $"Attribute '{attributeName}' has no Delete action — the UI offers no row delete.", loc));
+            return OpResult<PersistentObjectAttributeAsDetail>.Fail(new Diagnostic(ErrorKind.GuardAttributeReadOnly,
+                $"Attribute '{name}' is read-only — the UI offers no row editing.", loc));
+        if (requiredAction is not null
+            && !(requiredAction == "Delete" && CurrentPo.IsNew)
+            && !(attr.Details?.Actions.Any(a => a.Name == requiredAction) ?? false))
+            return OpResult<PersistentObjectAttributeAsDetail>.Fail(new Diagnostic(ErrorKind.GuardActionNotAvailable,
+                $"Attribute '{name}' has no {requiredAction} action — the UI offers no {verb}.", loc));
+        return r;
+    }
 
+    /// <summary>Picks one visible (not deleted) row by index or by a unique <paramref name="column"/> match.</summary>
+    private static OpResult<PersistentObject> ResolveDetailRow(PersistentObjectAttributeAsDetail attr, int? index, string? column, object? value, string verb, SourceLocation loc)
+    {
         var rows = attr.Objects.Where(o => !o.IsDeleted).ToList();
-        PersistentObject target;
         if (column is not null)
         {
             var matches = new List<PersistentObject>();
@@ -725,31 +731,85 @@ public sealed class VidyanoSession : IDisposable
             {
                 var cell = row.GetAttribute(column);
                 if (cell is null)
-                    return OpResult.Fail(new Diagnostic(ErrorKind.ResolveAttribute,
-                        $"Row of '{attributeName}' has no column '{column}'.", loc,
+                    return OpResult<PersistentObject>.Fail(new Diagnostic(ErrorKind.ResolveAttribute,
+                        $"Row of '{attr.Name}' has no column '{column}'.", loc,
                         Hint: Suggester.Hint(column, row.Attributes.Select(a => a.Name))));
                 if (string.Equals(Vidyano.Client.ToServiceString(cell.Value), expected, StringComparison.Ordinal))
                     matches.Add(row);
             }
             if (matches.Count != 1)
-                return OpResult.Fail(new Diagnostic(ErrorKind.AssertFailed,
+                return OpResult<PersistentObject>.Fail(new Diagnostic(ErrorKind.AssertFailed,
                     matches.Count == 0
-                        ? $"No row of '{attributeName}' where {column} = \"{expected}\" ({rows.Count} rows)."
-                        : $"Row match for {column} = \"{expected}\" is ambiguous ({matches.Count} rows). Tighten the value, or use DELETE-ROW <index>.",
+                        ? $"No row of '{attr.Name}' where {column} = \"{expected}\" ({rows.Count} rows)."
+                        : $"Row match for {column} = \"{expected}\" is ambiguous ({matches.Count} rows). Tighten the value, or use {verb} <index>.",
                     loc));
-            target = matches[0];
-        }
-        else
-        {
-            var idx = index ?? -1;
-            if (idx < 0 || idx >= rows.Count)
-                return OpResult.Fail(new Diagnostic(ErrorKind.AssertFailed,
-                    $"Row index {idx} is out of range ('{attributeName}' has {rows.Count} rows).", loc));
-            target = rows[idx];
+            return OpResult<PersistentObject>.Success(matches[0]);
         }
 
-        target.IsDeleted = true;
+        var idx = index ?? -1;
+        if (idx < 0 || idx >= rows.Count)
+            return OpResult<PersistentObject>.Fail(new Diagnostic(ErrorKind.AssertFailed,
+                $"Row index {idx} is out of range ('{attr.Name}' has {rows.Count} rows).", loc));
+        return OpResult<PersistentObject>.Success(rows[idx]);
+    }
+
+    /// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c> — remove a row of a
+    /// detail attribute as the web client's delete button does (<see cref="PersistentObjectAttributeAsDetail.DeleteObject"/>:
+    /// an existing row is flagged so the next SAVE sends it in the server's <c>DeletedObjects</c>, a new row is dropped).
+    /// A WHERE match must be unique.</summary>
+    public OpResult DeleteDetailAttributeRow(string attributeName, int? index, string? column, object? value, SourceLocation loc)
+    {
+        var r = ResolveEditableDetailAttribute(attributeName, "DELETE-ROW", "Delete", loc);
+        if (!r.Ok) return OpResult.Fail(r.Error!);
+        var row = ResolveDetailRow(r.Value!, index, column, value, "DELETE-ROW", loc);
+        if (!row.Ok) return OpResult.Fail(row.Error!);
+
+        r.Value!.DeleteObject(row.Value!);
         return OpResult.Success;
+    }
+
+    /// <summary><c>ADD-ROW Detail Attribute "&lt;name&gt;"</c> — append a new row, created server-side by the details
+    /// query's <c>New</c> action exactly like the web client's add button. The row becomes the last one; fill it with
+    /// <c>SET Detail Attribute "&lt;name&gt;" ROW &lt;i&gt; &lt;col&gt; = …</c>, and the next SAVE sends it to the server.</summary>
+    public async Task<OpResult> AddDetailAttributeRowAsync(string attributeName, SourceLocation loc)
+    {
+        var r = ResolveEditableDetailAttribute(attributeName, "ADD-ROW", "New", loc);
+        if (!r.Ok) return OpResult.Fail(r.Error!);
+        var attr = r.Value!;
+
+        try
+        {
+            var row = await attr.NewObjectAsync().ConfigureAwait(false);
+            if (row is { HasNotification: true, NotificationType: NotificationType.Error })
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, row.Notification, loc));
+            if (row is null)
+            {
+                var error = attr.Details is { HasNotification: true, NotificationType: NotificationType.Error } dq ? dq.Notification
+                    : CurrentPo is { HasNotification: true, NotificationType: NotificationType.Error } po ? po.Notification
+                    : $"The New action on '{attributeName}' returned no row.";
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, error, loc));
+            }
+
+            attr.AddObjects(row);
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    /// <summary><c>SET Detail Attribute "&lt;name&gt;" ROW &lt;i&gt; &lt;col&gt; = …</c> — change a cell of a detail-attribute
+    /// row (new or existing), with the same value forms and guards as a plain <c>SET</c> on the row's attribute.</summary>
+    public async Task<OpResult> SetDetailAttributeRowCellAsync(string attributeName, int rowIndex, string column, object? value, SourceLocation loc,
+        GuardMode mode = GuardMode.Navigation, ReferenceHint? hint = null, string? language = null, (string FileName, byte[] Data)? file = null)
+    {
+        var r = ResolveEditableDetailAttribute(attributeName, "SET on a row", requiredAction: null, loc);
+        if (!r.Ok) return OpResult.Fail(r.Error!);
+        var row = ResolveDetailRow(r.Value!, rowIndex, column: null, value: null, "SET", loc);
+        if (!row.Ok) return OpResult.Fail(row.Error!);
+
+        return await SetAttributeOnAsync(row.Value!, column, value, loc, mode, hint, file, language).ConfigureAwait(false);
     }
 
     /// <summary><c>FOLLOW &lt;attr&gt; [AS @handle]</c> — navigate from a reference attribute on the current

@@ -132,7 +132,7 @@ public static class VerbCatalog
             "edit", []),
 
         new("SET",
-            "SET <attr> = <value>\nSET <attr> = LOOKUP \"<display>\"\nSET <attr> = ID \"<key>\"\nSET <attr> = FILE \"<path>\"\nSET <attr> LANGUAGE <lang> = <value>\nSET <attr> = null",
+            "SET <attr> = <value>\nSET <attr> = LOOKUP \"<display>\"\nSET <attr> = ID \"<key>\"\nSET <attr> = FILE \"<path>\"\nSET <attr> LANGUAGE <lang> = <value>\nSET <attr> = null\nSET Detail Attribute \"<name>\" ROW <i> <col> = <value>",
             "Change an attribute value.",
             "Writes an attribute. A bare value is a literal write (reference attrs auto-resolve via "
             + "Options/Lookup). `LOOKUP` matches `Options[].DisplayValue`; `ID` matches the raw key; "
@@ -214,6 +214,15 @@ public static class VerbCatalog
             + "set explicit rows. Replaces the selection, never accumulates.",
             ["SELECT-ROWS ALL", "SELECT-ROWS WHERE Name = \"Acme\"", "SELECT-ROWS NONE"],
             "query", []),
+
+        new("ADD-ROW",
+            "ADD-ROW Detail Attribute \"<name>\"",
+            "Add a row to a detail attribute (AsDetail).",
+            "Creates the row with the details query's `New` action, as the web client's add button does, and appends "
+            + "it as the last row. Fill it with `SET Detail Attribute \"<name>\" ROW <i> <col> = <value>`; the next "
+            + "`SAVE` sends it to the server. Needs edit mode, a writable attribute, and a `New` action on the details query.",
+            ["ADD-ROW Detail Attribute \"Lines\""],
+            "edit", []),
 
         new("DELETE-ROW",
             "DELETE-ROW Detail Attribute \"<name>\" <i | WHERE <col> = <value>>",
