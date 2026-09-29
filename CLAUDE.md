@@ -67,7 +67,7 @@ Use conditional compilation when necessary:
 
 When updating versions:
 1. Update `<Version>` in Vidyano.Core.csproj
-2. Version format: Major.Minor.Patch (currently 5.51.0)
+2. Version format: Major.Minor.Patch (currently 5.69.0)
 
 ## Development Notes
 
