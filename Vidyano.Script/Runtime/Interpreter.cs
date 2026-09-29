@@ -327,7 +327,13 @@ public sealed class Interpreter
             case FollowStmt fl:                return await DoFollow(fl).ConfigureAwait(false);
             case SelectRowsStmt sr:            return await DoSelectRows(sr).ConfigureAwait(false);
             case DeleteRowStmt dr:             return DoDeleteRow(dr);
-            case AddRowStmt ar:                return Wrap(ar, await Current.AddDetailAttributeRowAsync(ar.AttributeName, ar.Location).ConfigureAwait(false));
+            case AddRowStmt ar:
+                {
+                    var added = await Current.AddDetailAttributeRowAsync(ar.AttributeName, ar.Location).ConfigureAwait(false);
+                    if (!added.Ok) return Fail(ar, added.Error!);
+                    if (ar.IndexVar is { } iv) _vars[iv] = (long)added.Value;
+                    return Wrap(ar, OpResult.Success);
+                }
             case GoBackStmt gb:                return Wrap(stmt, Current.GoBack(gb.Location));
             case EditStmt e:                   return Wrap(stmt, Current.Edit(e.Location));
             case CancelStmt c:                 return Wrap(stmt, Current.Cancel(c.Location));

@@ -597,8 +597,11 @@ public sealed class Parser
     /// <summary><c>ADD-ROW Detail Attribute "&lt;name&gt;"</c>.</summary>
     private Statement? ParseAddRow(SourceLocation loc)
     {
-        var attribute = ParseRequiredDetailAttribute("ADD-ROW", "ADD-ROW Detail Attribute \"Lines\"");
-        return attribute == null ? null : new AddRowStmt(attribute, loc);
+        var attribute = ParseRequiredDetailAttribute("ADD-ROW", "ADD-ROW Detail Attribute \"Lines\" AS @line");
+        if (attribute == null) return null;
+        var indexVar = ParseOptionalAs();
+        if (indexVar == null && IsAsKeyword(_tokens[_pos - 1])) return null;
+        return new AddRowStmt(attribute, loc, indexVar);
     }
 
     /// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c>.</summary>

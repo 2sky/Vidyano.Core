@@ -76,10 +76,11 @@ public sealed class DetailAttributeRowsTests
         var result = await Run(OpenTools + """
 
             EDIT
-            ADD-ROW Detail Attribute "Products"
+            ADD-ROW Detail Attribute "Products" AS @new
+            EXPECT {{new}} = 2
             EXPECT Detail Attribute "Products" TotalItems = 3
-            SET Detail Attribute "Products" ROW 2 Name = "Sprocket"
-            EXPECT Detail Attribute "Products" ROW 2 Name = "Sprocket"
+            SET Detail Attribute "Products" ROW {{new}} Name = "Sprocket"
+            EXPECT Detail Attribute "Products" ROW {{new}} Name = "Sprocket"
             EXPECT IsDirty = true
             SAVE
             OPEN MenuItem Home/Products

@@ -770,32 +770,33 @@ public sealed class VidyanoSession : IDisposable
 
     /// <summary><c>ADD-ROW Detail Attribute "&lt;name&gt;"</c> — append a new row, created server-side by the details
     /// query's <c>New</c> action exactly like the web client's add button. The row becomes the last one; fill it with
-    /// <c>SET Detail Attribute "&lt;name&gt;" ROW &lt;i&gt; &lt;col&gt; = …</c>, and the next SAVE sends it to the server.</summary>
-    public async Task<OpResult> AddDetailAttributeRowAsync(string attributeName, SourceLocation loc)
+    /// <c>SET Detail Attribute "&lt;name&gt;" ROW &lt;i&gt; &lt;col&gt; = …</c>, and the next SAVE sends it to the server.
+    /// Returns the new row's index among the visible rows.</summary>
+    public async Task<OpResult<int>> AddDetailAttributeRowAsync(string attributeName, SourceLocation loc)
     {
         var r = ResolveEditableDetailAttribute(attributeName, "ADD-ROW", "New", loc);
-        if (!r.Ok) return OpResult.Fail(r.Error!);
+        if (!r.Ok) return OpResult<int>.Fail(r.Error!);
         var attr = r.Value!;
 
         try
         {
             var row = await attr.NewObjectAsync().ConfigureAwait(false);
             if (row is { HasNotification: true, NotificationType: NotificationType.Error })
-                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, row.Notification, loc));
+                return OpResult<int>.Fail(new Diagnostic(ErrorKind.AssertNotificationError, row.Notification, loc));
             if (row is null)
             {
                 var error = attr.Details is { HasNotification: true, NotificationType: NotificationType.Error } dq ? dq.Notification
                     : CurrentPo is { HasNotification: true, NotificationType: NotificationType.Error } po ? po.Notification
                     : $"The New action on '{attributeName}' returned no row.";
-                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, error, loc));
+                return OpResult<int>.Fail(new Diagnostic(ErrorKind.AssertNotificationError, error, loc));
             }
 
             attr.AddObjects(row);
-            return OpResult.Success;
+            return OpResult<int>.Success(attr.Objects.Count(o => !o.IsDeleted) - 1);
         }
         catch (Exception ex)
         {
-            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+            return OpResult<int>.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
         }
     }
 

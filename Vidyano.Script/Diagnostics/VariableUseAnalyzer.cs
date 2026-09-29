@@ -81,6 +81,7 @@ internal static class VariableUseAnalyzer
                 case ExpectsDirective ed: foreach (var n in ed.Names) declared.Add(n); break;
                 case VariableAssignment va: declared.Add(va.Name); break;
                 case ToolCallStmt { ResultVariable: { } rv }: declared.Add(rv); break;
+                case AddRowStmt { IndexVar: { } ai }: declared.Add(ai); break;
                 case RepeatStmt r:
                     if (r.IndexVar is { } iv) declared.Add(iv);
                     CollectDeclarations(r.Body, declared);

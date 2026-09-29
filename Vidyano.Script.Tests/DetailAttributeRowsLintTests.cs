@@ -63,6 +63,14 @@ public sealed class DetailAttributeRowsLintTests
         Assert.Equal("Lines", Single<AddRowStmt>("ADD-ROW Detail Attribute \"Lines\"").AttributeName);
 
     [Fact]
+    public void AddRow_As_BindsIndexVar_AndLintsClean()
+    {
+        const string body = "ADD-ROW Detail Attribute \"Lines\" AS @line\nSET Detail Attribute \"Lines\" ROW {{line}} Quantity = 2";
+        Assert.Equal("line", Single<AddRowStmt>("ADD-ROW Detail Attribute \"Lines\" AS @line").IndexVar);
+        Assert.Empty(VidyanoScript.Lint(body));
+    }
+
+    [Fact]
     public void SetRowCell_Parses()
     {
         var s = Single<SetStmt>("SET Detail Attribute \"Lines\" ROW 1 Product = LOOKUP \"Widget\"");
@@ -102,6 +110,7 @@ public sealed class DetailAttributeRowsLintTests
     [InlineData("EXPECT Detail Attribute \"C\" ROW 0")]
     [InlineData("ADD-ROW")]
     [InlineData("ADD-ROW Detail \"C\"")]
+    [InlineData("ADD-ROW Detail Attribute \"C\" AS")]
     [InlineData("SET Detail Attribute \"C\" Name = 1")]
     public void Malformed_ReportsDiagnostic(string body) =>
         Assert.NotEmpty(VidyanoScript.Lint(body));

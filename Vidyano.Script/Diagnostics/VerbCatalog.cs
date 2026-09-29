@@ -216,12 +216,13 @@ public static class VerbCatalog
             "query", []),
 
         new("ADD-ROW",
-            "ADD-ROW Detail Attribute \"<name>\"",
+            "ADD-ROW Detail Attribute \"<name>\" [AS @i]",
             "Add a row to a detail attribute (AsDetail).",
             "Creates the row with the details query's `New` action, as the web client's add button does, and appends "
-            + "it as the last row. Fill it with `SET Detail Attribute \"<name>\" ROW <i> <col> = <value>`; the next "
+            + "it as the last row. `AS @i` binds the new row's index (read `{{i}}`); fill it with "
+            + "`SET Detail Attribute \"<name>\" ROW {{i}} <col> = <value>`; the next "
             + "`SAVE` sends it to the server. Needs edit mode, a writable attribute, and a `New` action on the details query.",
-            ["ADD-ROW Detail Attribute \"Lines\""],
+            ["ADD-ROW Detail Attribute \"Lines\" AS @line", "SET Detail Attribute \"Lines\" ROW {{line}} Quantity = 2"],
             "edit", []),
 
         new("DELETE-ROW",
