@@ -215,8 +215,18 @@ public static class VerbCatalog
             ["SELECT-ROWS ALL", "SELECT-ROWS WHERE Name = \"Acme\"", "SELECT-ROWS NONE"],
             "query", []),
 
+        new("DELETE-ROW",
+            "DELETE-ROW Detail Attribute \"<name>\" <i | WHERE <col> = <value>>",
+            "Remove a row of a detail attribute (AsDetail).",
+            "Marks the row `IsDeleted`, as the web client's row delete button does, so the next `SAVE` carries it "
+            + "to the server in `DeletedObjects`. Needs edit mode, a writable attribute, and (on an existing PO) a "
+            + "`Delete` action on the attribute's details query. A `WHERE` match must be unique. Read the rows with "
+            + "`EXPECT Detail Attribute \"<name>\" TotalItems` / `ROW <i> <col>`.",
+            ["DELETE-ROW Detail Attribute \"Certificates\" 0", "DELETE-ROW Detail Attribute \"Certificates\" WHERE SerialNumber = \"0A1B\""],
+            "edit", []),
+
         new("EXPECT",
-            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>\nEXPECT Detail \"<name>\" Action <X> IS [NOT] AVAILABLE | VISIBLE",
+            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>\nEXPECT Detail \"<name>\" Action <X> IS [NOT] AVAILABLE | VISIBLE\nEXPECT Detail Attribute \"<name>\" TotalItems <op> <n>\nEXPECT Detail Attribute \"<name>\" ROW <i> <col> <op> <value>",
             "Assert on session/PO/query state.",
             "Asserts on `NavStack.*`, `TotalItems`, `Selection.*`, `IsInEdit`, `ClientOperation`, "
             + "`RetryDialog.*` (Title / Message / Options of an open server retry), attributes, "

@@ -100,6 +100,7 @@ public static class ConsoleReporter
             SignOutStmt so             => so.SessionName is null ? "SIGN-OUT" : $"SIGN-OUT @{so.SessionName}",
             GoBackStmt                 => "GO-BACK",
             SelectRowsStmt sr          => $"SELECT-ROWS {DescribeSelectTarget(sr)}",
+            DeleteRowStmt dr           => $"DELETE-ROW Detail Attribute \"{Markup.Escape(dr.AttributeName)}\"",
             _                          => stmt.GetType().Name,
         };
 
@@ -128,6 +129,8 @@ public static class ConsoleReporter
             ExpectSubjectKind.IsDirty              => "IsDirty",
             ExpectSubjectKind.IsInEdit             => "IsInEdit",
             ExpectSubjectKind.TotalItems           => "TotalItems",
+            ExpectSubjectKind.DetailAttributeRows  => $"Detail Attribute \"{Markup.Escape(s.Name ?? "?")}\" TotalItems",
+            ExpectSubjectKind.DetailAttributeCell  => $"Detail Attribute \"{Markup.Escape(s.Name ?? "?")}\" ROW … {Markup.Escape(s.MetadataKey ?? "?")}",
             ExpectSubjectKind.AttributeType        => $"Attribute {Markup.Escape(s.Name ?? "?")} TYPE",
             ExpectSubjectKind.AttributeTag         => $"Attribute {Markup.Escape(s.Name ?? "?")} TAG",
             ExpectSubjectKind.AttributeTypeHint    => $"Attribute {Markup.Escape(s.Name ?? "?")} TYPEHINT {Markup.Escape(s.MetadataKey ?? "?")}",

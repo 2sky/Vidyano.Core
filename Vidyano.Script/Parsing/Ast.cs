@@ -89,6 +89,13 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// ambiguous WHERE match) stays loud, never absorbed.</para></summary>
 public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null, string? RowVar = null, bool ExpectError = false) : Statement(Location);
 
+/// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c> — remove a row
+/// from a detail attribute (<c>PersistentObjectAttributeAsDetail</c>) on the current PO, as the web client's row
+/// delete button does: the row is marked <c>IsDeleted</c> and the following <c>SAVE</c> carries it to the server
+/// (<c>DeletedObjects</c>). Exactly one of <see cref="Index"/> / <see cref="MatchColumn"/> addresses the row;
+/// a <c>WHERE</c> match must be unique (strict, like <c>OPEN-ROW WHERE</c>).</summary>
+public sealed record DeleteRowStmt(string AttributeName, Expression? Index, string? MatchColumn, ExpectOp? MatchOp, Expression? MatchValue, SourceLocation Location) : Statement(Location);
+
 /// <summary><c>SELECT-ROWS &lt;target&gt;</c> — set the selection on the resolved Query so a
 /// selection-gated action (e.g. Delete) can run. Always replaces the current selection; never pushes a
 /// navigation frame. The target modes:
@@ -401,6 +408,13 @@ public enum ExpectSubjectKind
     /// or VISIBLE (= <c>!IsHidden</c>). Distinct from the <c>Detail … &lt;query-subject&gt;</c> form
     /// (which redirects to a query-family subject) because the flag check itself is the assertion.</summary>
     DetailQueryFlag,
+    /// <summary><c>EXPECT Detail Attribute "X" TotalItems = n</c> — number of rows (not deleted) a detail
+    /// attribute holds. <see cref="ExpectSubject.Name"/> holds the attribute name.</summary>
+    DetailAttributeRows,
+    /// <summary><c>EXPECT Detail Attribute "X" ROW &lt;i&gt; &lt;col&gt; = "..."</c> — a cell of a detail-attribute row.
+    /// <see cref="ExpectSubject.Name"/> is the attribute, <see cref="ExpectSubject.RowIndex"/> the row,
+    /// <see cref="ExpectSubject.MetadataKey"/> the row attribute (column) name.</summary>
+    DetailAttributeCell,
     /// <summary><c>EXPECT RetryDialog.Title = "..."</c> — the title of the open server retry dialog
     /// (<c>null</c> when none is open).</summary>
     RetryTitle,
@@ -435,7 +449,7 @@ public enum ExpectSubjectKind
 /// <c>EXPECT Title LANGUAGE nl = "..."</c> form on an <see cref="ExpectSubjectKind.Attribute"/> subject: the
 /// assertion then compares that one translation of a <c>TranslatedString</c> attribute, symmetric with
 /// <c>SET Title LANGUAGE nl = "..."</c>.</summary>
-public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null, string? DetailName = null, ReferenceHintKind? Hint = null, Expression? Language = null);
+public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, AttributeFlagKind Flag, SourceLocation Location, Expression? Lhs = null, string? Scope = null, string? MetadataKey = null, string? DetailName = null, ReferenceHintKind? Hint = null, Expression? Language = null, Expression? RowIndex = null);
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.
 /// <see cref="Available"/> is <c>IsVisible &amp;&amp; !IsReadOnly</c> — the same guard

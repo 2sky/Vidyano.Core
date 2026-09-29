@@ -141,6 +141,7 @@ public sealed class Parser
             "OPEN"        => ParseOpen(tok.Location),
             "OPEN-ROW"    => ParseOpenRow(tok.Location),
             "SELECT-ROWS" => ParseSelectRows(tok.Location),
+            "DELETE-ROW"  => ParseDeleteRow(tok.Location),
             "GO-BACK"     => new GoBackStmt(tok.Location),
             "FOLLOW"      => ParseFollow(tok.Location),
             "EDIT"        => new EditStmt(null, tok.Location),
@@ -560,6 +561,57 @@ public sealed class Parser
         return column != null
             ? new SelectRowsStmt(All: false, None: false, Index: null, MatchColumn: column, MatchOp: matchOp, MatchValue: value, DetailName: detailName, Location: loc)
             : new SelectRowsStmt(All: false, None: false, Index: index, MatchColumn: null, MatchOp: null, MatchValue: null, DetailName: detailName, Location: loc);
+    }
+
+    /// <summary>Consumes the <c>Attribute "&lt;name&gt;"</c> pair that follows <c>Detail</c> when the target is a
+    /// detail <em>attribute</em> (AsDetail rows) rather than a detail query. The name must be a string literal:
+    /// that is what tells it apart from a detail query that happens to be named <c>Attribute</c>. Returns
+    /// <c>null</c> (consuming nothing) when the pair is absent.</summary>
+    private string? TryParseDetailAttributeName()
+    {
+        if (Peek().Kind != TokenKind.Identifier || !string.Equals(Peek().Lexeme, "Attribute", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (_pos + 1 >= _tokens.Count || _tokens[_pos + 1].Kind != TokenKind.String)
+            return null;
+        Advance();
+        var t = Advance();
+        return t.Value as string ?? t.Lexeme;
+    }
+
+    /// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c>.</summary>
+    private Statement? ParseDeleteRow(SourceLocation loc)
+    {
+        const string usage = "DELETE-ROW Detail Attribute \"Certificates\" WHERE SerialNumber = \"0A1B\"";
+        if (Peek().Kind != TokenKind.Identifier || !string.Equals(Peek().Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
+        {
+            Error(ErrorKind.ParseExpected, "DELETE-ROW needs 'Detail Attribute \"<name>\"'.", Peek().Location, hint: usage);
+            return null;
+        }
+        Advance();
+        var attribute = TryParseDetailAttributeName();
+        if (attribute == null)
+        {
+            Error(ErrorKind.ParseExpected, "Expected 'Attribute \"<name>\"' after 'Detail'.", Peek().Location, hint: usage);
+            return null;
+        }
+
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "WHERE", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            var column = ParseDottedAttributeName();
+            if (column == null) return null;
+            if (!Match(TokenKind.Equals, out _))
+            {
+                Error(ErrorKind.ParseExpected, "DELETE-ROW WHERE currently supports only '='.", Peek().Location, hint: usage);
+                return null;
+            }
+            var value = ParseValueExpression();
+            if (value == null) return null;
+            return new DeleteRowStmt(attribute, null, column, ExpectOp.Eq, value, loc);
+        }
+
+        var index = ParseValueExpression();
+        return index == null ? null : new DeleteRowStmt(attribute, index, null, null, null, loc);
     }
 
     /// <summary>Parses a detail-query name after the <c>Detail</c> keyword: a string literal or a bare
@@ -1212,6 +1264,27 @@ public sealed class Parser
         ExpectSubjectKind.QueryMetadata or ExpectSubjectKind.QueryNavigationHints or
         ExpectSubjectKind.QueryPoProperty or ExpectSubjectKind.QueryColumn;
 
+    private ExpectSubject? ParseDetailAttributeSubject(string attribute, SourceLocation loc)
+    {
+        const string usage = "EXPECT Detail Attribute \"Certificates\" TotalItems = 2  •  EXPECT Detail Attribute \"Certificates\" ROW 0 Name = \"root\"";
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "TotalItems", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            return new ExpectSubject(ExpectSubjectKind.DetailAttributeRows, attribute, AttributeFlagKind.None, loc);
+        }
+        if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "ROW", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            var index = ParseValueExpression();
+            if (index == null) return null;
+            var column = ParseDottedAttributeName();
+            if (column == null) return null;
+            return new ExpectSubject(ExpectSubjectKind.DetailAttributeCell, attribute, AttributeFlagKind.None, loc, MetadataKey: column, RowIndex: index);
+        }
+        Error(ErrorKind.ParseExpected, "Expected 'TotalItems' or 'ROW <index> <column>' after 'Detail Attribute \"<name>\"'.", Peek().Location, hint: usage);
+        return null;
+    }
+
     private ExpectSubject? ParseExpectSubject()
     {
         var tok = Peek();
@@ -1221,6 +1294,11 @@ public sealed class Parser
         if (tok.Kind == TokenKind.Identifier && string.Equals(tok.Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
         {
             Advance();
+            // EXPECT Detail Attribute "<name>" TotalItems | ROW <i> <col> — rows of a detail attribute.
+            var detailAttribute = TryParseDetailAttributeName();
+            if (detailAttribute != null)
+                return ParseDetailAttributeSubject(detailAttribute, tok.Location);
+
             var detailName = ParseDetailName();
             if (detailName == null) return null;
 
