@@ -71,6 +71,62 @@ public sealed class DetailAttributeRowsTests
     }
 
     [Fact]
+    public async Task AddRow_SetCells_ThenSave_CreatesTheRowOnTheServer()
+    {
+        var result = await Run(OpenTools + """
+
+            EDIT
+            ADD-ROW Detail Attribute "Products"
+            EXPECT Detail Attribute "Products" TotalItems = 3
+            SET Detail Attribute "Products" ROW 2 Name = "Sprocket"
+            EXPECT Detail Attribute "Products" ROW 2 Name = "Sprocket"
+            EXPECT IsDirty = true
+            SAVE
+            OPEN MenuItem Home/Products
+            EXPECT TotalItems = 5
+            OPEN-ROW WHERE Name = "Sprocket"
+            """);
+        Assert.True(result.Ok, result.Describe());
+    }
+
+    [Fact]
+    public async Task SetRowCell_OnExistingRow_MarksTheParentDirty()
+    {
+        var result = await Run(OpenTools + """
+
+            EDIT
+            SET Detail Attribute "Products" ROW 0 Color = "Purple"
+            EXPECT Detail Attribute "Products" ROW 0 Color = "Purple"
+            EXPECT IsDirty = true
+            """);
+        Assert.True(result.Ok, result.Describe());
+    }
+
+    [Fact]
+    public async Task DeleteRow_OfANewRow_DropsIt()
+    {
+        var result = await Run(OpenTools + """
+
+            EDIT
+            ADD-ROW Detail Attribute "Products"
+            DELETE-ROW Detail Attribute "Products" 2
+            EXPECT Detail Attribute "Products" TotalItems = 2
+            """);
+        Assert.True(result.Ok, result.Describe());
+    }
+
+    [Fact]
+    public async Task AddRow_OutsideEdit_IsRefused()
+    {
+        var result = await Run(OpenTools + """
+
+            ADD-ROW Detail Attribute "Products"
+            """);
+        Assert.False(result.Ok);
+        Assert.Contains("edit mode", result.Describe());
+    }
+
+    [Fact]
     public async Task DeleteRow_OutsideEdit_IsRefused()
     {
         var result = await Run(OpenTools + """

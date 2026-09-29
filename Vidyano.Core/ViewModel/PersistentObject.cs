@@ -300,6 +300,9 @@ namespace Vidyano.ViewModel
                 var endEdit = GetAction("EndEdit");
                 if (endEdit != null)
                     endEdit.CanExecute = value;
+
+                if (value && OwnerDetailAttribute?.Parent is { } owner)
+                    owner.IsDirty = true;
             }
         }
 

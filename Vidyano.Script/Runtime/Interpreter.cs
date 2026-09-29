@@ -327,6 +327,7 @@ public sealed class Interpreter
             case FollowStmt fl:                return await DoFollow(fl).ConfigureAwait(false);
             case SelectRowsStmt sr:            return await DoSelectRows(sr).ConfigureAwait(false);
             case DeleteRowStmt dr:             return DoDeleteRow(dr);
+            case AddRowStmt ar:                return Wrap(ar, await Current.AddDetailAttributeRowAsync(ar.AttributeName, ar.Location).ConfigureAwait(false));
             case GoBackStmt gb:                return Wrap(stmt, Current.GoBack(gb.Location));
             case EditStmt e:                   return Wrap(stmt, Current.Edit(e.Location));
             case CancelStmt c:                 return Wrap(stmt, Current.Cancel(c.Location));
@@ -647,6 +648,9 @@ public sealed class Interpreter
         var v = EvaluateExpression(s.Value);
         if (!v.Ok) return Fail(s, v.Error!);
 
+        if (s.DetailAttribute is not null)
+            return await DoSetDetailRowCell(s, v.Value).ConfigureAwait(false);
+
         // SET attr = FILE "<path>" — the RHS is a path. Read the file (confined to the FILE root) and hand
         // the (name, bytes) to the session, which formats it for the target attribute's data type
         // (BinaryFile → "<name>|<base64>", Image → base64). FILE never combines with a reference hint (the
@@ -675,6 +679,36 @@ public sealed class Interpreter
         var res = s.Scope is null
             ? await Current.SetAttributeAsync(s.Attribute, v.Value, s.Location, _mode, hint, language).ConfigureAwait(false)
             : await Current.SetScopedAttributeAsync(s.Scope, s.Attribute, v.Value, hint, s.Location, _mode, language).ConfigureAwait(false);
+        return Wrap(s, res);
+    }
+
+    /// <summary><c>SET Detail Attribute "&lt;name&gt;" ROW &lt;i&gt; &lt;col&gt; = …</c> — the same value forms as a plain SET
+    /// (FILE / LANGUAGE / LOOKUP / ID), aimed at a cell of a detail-attribute row.</summary>
+    private async Task<StatementResult> DoSetDetailRowCell(SetStmt s, object? value)
+    {
+        var iv = EvaluateExpression(s.RowIndex!);
+        if (!iv.Ok) return Fail(s, iv.Error!);
+        if (!TryCoerceInt(iv.Value, out var rowIndex))
+            return Fail(s, new Diagnostic(ErrorKind.ParseInvalidValue, "SET Detail Attribute … ROW needs an integer index.", s.Location));
+
+        (string FileName, byte[] Data)? file = null;
+        if (s.ValueKind == SetValueKind.File)
+        {
+            var read = ReadContainedFile(AsString(value), s.Location);
+            if (!read.Ok) return Fail(s, read.Error!);
+            file = read.Value;
+        }
+
+        string? language = null;
+        if (s.Language is not null)
+        {
+            var langRes = EvaluateExpression(s.Language);
+            if (!langRes.Ok) return Fail(s, langRes.Error!);
+            language = AsString(langRes.Value);
+        }
+
+        ReferenceHint? hint = s.Hint is null ? null : new ReferenceHint(s.Hint.Value, AsString(value));
+        var res = await Current.SetDetailAttributeRowCellAsync(s.DetailAttribute!, rowIndex, s.Attribute, file is null ? value : null, s.Location, _mode, hint, language, file).ConfigureAwait(false);
         return Wrap(s, res);
     }
 

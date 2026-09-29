@@ -94,6 +94,11 @@ public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLoca
 /// delete button does: the row is marked <c>IsDeleted</c> and the following <c>SAVE</c> carries it to the server
 /// (<c>DeletedObjects</c>). Exactly one of <see cref="Index"/> / <see cref="MatchColumn"/> addresses the row;
 /// a <c>WHERE</c> match must be unique (strict, like <c>OPEN-ROW WHERE</c>).</summary>
+/// <summary><c>ADD-ROW Detail Attribute "&lt;name&gt;"</c> — append a new row to a detail attribute on the current PO,
+/// created by the details query's <c>New</c> action as the web client's add button does. The row becomes the last one;
+/// <c>SET Detail Attribute "&lt;name&gt;" ROW &lt;i&gt; &lt;col&gt; = …</c> fills it.</summary>
+public sealed record AddRowStmt(string AttributeName, SourceLocation Location) : Statement(Location);
+
 public sealed record DeleteRowStmt(string AttributeName, Expression? Index, string? MatchColumn, ExpectOp? MatchOp, Expression? MatchValue, SourceLocation Location) : Statement(Location);
 
 /// <summary><c>SELECT-ROWS &lt;target&gt;</c> — set the selection on the resolved Query so a
@@ -175,7 +180,9 @@ public enum SetValueKind
 /// <c>TranslatedString</c> attribute. <c>null</c> means the bare form: for a TranslatedString attribute it
 /// targets the session's current language; for any other type it is the ordinary value write. The clause
 /// is mutually exclusive with <see cref="Hint"/> / a <see cref="SetValueKind.File"/> RHS (parser-enforced).</param>
-public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location, string? Scope = null, SetValueKind ValueKind = SetValueKind.Value, Expression? Language = null) : Statement(Location);
+/// <param name="DetailAttribute"><c>SET Detail Attribute "Lines" ROW 0 Quantity = 2</c> — the detail (AsDetail) attribute
+/// whose row <see cref="RowIndex"/> owns <see cref="Attribute"/>; <c>null</c> for a plain attribute.</param>
+public sealed record SetStmt(string? Handle, string Attribute, Expression Value, ReferenceHintKind? Hint, SourceLocation Location, string? Scope = null, SetValueKind ValueKind = SetValueKind.Value, Expression? Language = null, string? DetailAttribute = null, Expression? RowIndex = null) : Statement(Location);
 
 /// <summary><c>ACTION Approve [(Param=Value, ...)]</c> or <c>ACTION Delete = "Yes, delete"</c> /
 /// <c>ACTION Delete = ID 0</c>. The <c>= &lt;option&gt;</c> form picks an entry from
