@@ -96,8 +96,9 @@ public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLoca
 /// a <c>WHERE</c> match must be unique (strict, like <c>OPEN-ROW WHERE</c>).</summary>
 /// <summary><c>ADD-ROW Detail Attribute "&lt;name&gt;"</c> — append a new row to a detail attribute on the current PO,
 /// created by the details query's <c>New</c> action as the web client's add button does. The row becomes the last one;
-/// <c>SET Detail Attribute "&lt;name&gt;" ROW &lt;i&gt; &lt;col&gt; = …</c> fills it.</summary>
-public sealed record AddRowStmt(string AttributeName, SourceLocation Location) : Statement(Location);
+/// <c>SET Detail Attribute "&lt;name&gt;" ROW &lt;i&gt; &lt;col&gt; = …</c> fills it. <see cref="IndexVar"/> (<c>AS @i</c>) binds the
+/// new row's index as a variable, read as <c>{{i}}</c>, so the script needn't hard-code it.</summary>
+public sealed record AddRowStmt(string AttributeName, SourceLocation Location, string? IndexVar = null) : Statement(Location);
 
 public sealed record DeleteRowStmt(string AttributeName, Expression? Index, string? MatchColumn, ExpectOp? MatchOp, Expression? MatchValue, SourceLocation Location) : Statement(Location);
 

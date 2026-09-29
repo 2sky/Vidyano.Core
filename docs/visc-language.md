@@ -131,15 +131,15 @@ EXPECT Detail Attribute "Certificates" TotalItems = 2
 EXPECT Detail Attribute "Certificates" ROW 0 Name = "root"     ## a cell of row 0
 EDIT
 DELETE-ROW Detail Attribute "Certificates" WHERE SerialNumber = "0A1B"   ## or an index
-ADD-ROW Detail Attribute "Certificates"                       ## appended as the last row
-SET Detail Attribute "Certificates" ROW 1 Name = "intermediate"          ## fill a cell of any row
+ADD-ROW Detail Attribute "Certificates" AS @new              ## appended as the last row; @new = its index
+SET Detail Attribute "Certificates" ROW {{new}} Name = "intermediate"    ## fill a cell of any row
 SAVE                                                          ## deleted rows arrive in DeletedObjects, new rows in Objects
 ```
 
 - **Rows** are the ones not deleted; indexes and `TotalItems` count only those, so they shift after a `DELETE-ROW`.
 - **`DELETE-ROW`** marks the row `IsDeleted` (as the web client's row delete button does); nothing reaches the server until `SAVE`. A `WHERE` match must be unique (strict, like `OPEN-ROW WHERE`); zero/many matches and out-of-range indexes fail.
 - **Gating** mirrors the web client's delete button: the PO must be in edit (`guard-edit-mode-required`), the attribute not read-only (`guard-attribute-read-only`), and — unless the PO is new — the attribute's details query must offer a `Delete` action (`guard-action-not-available`).
-- **`ADD-ROW`** runs the details query's `New` action (the web client's add button) and appends the returned row; it needs a `New` action on the details query. The web client's picker for a `LookupAttribute` and its dialog for an `OpenAsDialog` row are not simulated — set the lookup/cells with `SET … ROW` instead.
+- **`ADD-ROW`** runs the details query's `New` action (the web client's add button) and appends the returned row; it needs a `New` action on the details query. `AS @i` binds the new row's index (read `{{i}}`, like `REPEAT … AS @i`) — it is a plain index, so a later `DELETE-ROW` of an earlier row shifts it. The web client's picker for a `LookupAttribute` and its dialog for an `OpenAsDialog` row are not simulated — set the lookup/cells with `SET … ROW` instead.
 - **`SET Detail Attribute "<name>" ROW <i> <col> = …`** takes every `SET` value form (`LOOKUP` / `ID` / `FILE` / `LANGUAGE` / `null`) and the same hidden/read-only guards, applied to the row's attribute; changing a row marks the parent dirty.
 - `DELETE-ROW` on a row added in this edit drops it instead of flagging it, as the web client does.
 
@@ -552,7 +552,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `GO-BACK` | Pop the top nav frame. |
 | `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place. |
 | `SELECT-ROWS <ALL \| ALL EXCEPT … \| NONE \| <i> \| WHERE …>` | Set the selection for a selection-gated action. |
-| `ADD-ROW Detail Attribute "<n>"` | Append a new row (details query `New`) to a detail attribute. |
+| `ADD-ROW Detail Attribute "<n>" [AS @i]` | Append a new row (details query `New`) to a detail attribute. |
 | `SET Detail Attribute "<n>" ROW <i> <col> = <value>` | Change a cell of a detail-attribute row. |
 | `DELETE-ROW Detail Attribute "<n>" <i \| WHERE …>` | Remove a row of a detail (`AsDetail`) attribute; `SAVE` sends it as deleted. |
 | `EDIT` / `CANCEL` / `SAVE` | PO edit lifecycle. |
