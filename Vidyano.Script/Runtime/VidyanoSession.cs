@@ -665,6 +665,93 @@ public sealed class VidyanoSession : IDisposable
     public OpResult<Query> ResolveForEachQuery(string? detailName, SourceLocation loc) =>
         ResolveRowQuery(detailName, loc);
 
+    // --- Detail attribute rows (AsDetail) -------------------------------------------------------
+
+    private OpResult<PersistentObjectAttributeAsDetail> ResolveDetailAttribute(string name, SourceLocation loc)
+    {
+        if (CurrentPo is null)
+            return OpResult<PersistentObjectAttributeAsDetail>.Fail(new Diagnostic(ErrorKind.StateNoCurrentPo, "No current PersistentObject.", loc));
+        var attr = CurrentPo.GetAttribute(name);
+        if (attr is null)
+            return OpResult<PersistentObjectAttributeAsDetail>.Fail(new Diagnostic(
+                ErrorKind.ResolveAttribute,
+                $"Attribute '{name}' does not exist on {CurrentPo.Type}.",
+                loc,
+                Hint: Suggester.Hint(name, CurrentPo.Attributes.Select(a => a.Name))));
+        if (attr is not PersistentObjectAttributeAsDetail asDetail)
+            return OpResult<PersistentObjectAttributeAsDetail>.Fail(new Diagnostic(
+                ErrorKind.GuardNotReachable,
+                $"Attribute '{name}' on {CurrentPo.Type} is not a detail attribute (AsDetail) — it has no rows.",
+                loc));
+        return OpResult<PersistentObjectAttributeAsDetail>.Success(asDetail);
+    }
+
+    /// <summary>The rows of a detail attribute the user still sees: <c>IsDeleted</c> rows are excluded, like the
+    /// server's <c>PersistentObjectAttributeAsDetail.Objects</c>. Row indexes address this list.</summary>
+    public OpResult<IReadOnlyList<PersistentObject>> GetDetailAttributeRows(string attributeName, SourceLocation loc)
+    {
+        var r = ResolveDetailAttribute(attributeName, loc);
+        if (!r.Ok) return OpResult<IReadOnlyList<PersistentObject>>.Fail(r.Error!);
+        return OpResult<IReadOnlyList<PersistentObject>>.Success(r.Value!.Objects.Where(o => !o.IsDeleted).ToList());
+    }
+
+    /// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c> — mark a row of a
+    /// detail attribute <c>IsDeleted</c> so the next SAVE sends it in the server's <c>DeletedObjects</c>. Obeys the
+    /// gate of the web client's delete button: the PO must be in edit, the attribute not read-only, and the parent
+    /// new or the details query offering a <c>Delete</c> action. A WHERE match must be unique.</summary>
+    public OpResult DeleteDetailAttributeRow(string attributeName, int? index, string? column, object? value, SourceLocation loc)
+    {
+        var r = ResolveDetailAttribute(attributeName, loc);
+        if (!r.Ok) return OpResult.Fail(r.Error!);
+        var attr = r.Value!;
+
+        if (!CurrentPo!.IsInEdit)
+            return OpResult.Fail(new Diagnostic(ErrorKind.GuardEditModeRequired,
+                "DELETE-ROW needs the PersistentObject to be in edit mode.", loc, Hint: "Call EDIT first."));
+        if (attr.IsReadOnly)
+            return OpResult.Fail(new Diagnostic(ErrorKind.GuardAttributeReadOnly,
+                $"Attribute '{attributeName}' is read-only — the UI offers no row delete.", loc));
+        if (!CurrentPo.IsNew && !(attr.Details?.Actions.Any(a => a.Name == "Delete") ?? false))
+            return OpResult.Fail(new Diagnostic(ErrorKind.GuardActionNotAvailable,
+                $"Attribute '{attributeName}' has no Delete action — the UI offers no row delete.", loc));
+
+        var rows = attr.Objects.Where(o => !o.IsDeleted).ToList();
+        PersistentObject target;
+        if (column is not null)
+        {
+            var matches = new List<PersistentObject>();
+            var expected = value as string ?? Vidyano.Client.ToServiceString(value);
+            foreach (var row in rows)
+            {
+                var cell = row.GetAttribute(column);
+                if (cell is null)
+                    return OpResult.Fail(new Diagnostic(ErrorKind.ResolveAttribute,
+                        $"Row of '{attributeName}' has no column '{column}'.", loc,
+                        Hint: Suggester.Hint(column, row.Attributes.Select(a => a.Name))));
+                if (string.Equals(Vidyano.Client.ToServiceString(cell.Value), expected, StringComparison.Ordinal))
+                    matches.Add(row);
+            }
+            if (matches.Count != 1)
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertFailed,
+                    matches.Count == 0
+                        ? $"No row of '{attributeName}' where {column} = \"{expected}\" ({rows.Count} rows)."
+                        : $"Row match for {column} = \"{expected}\" is ambiguous ({matches.Count} rows). Tighten the value, or use DELETE-ROW <index>.",
+                    loc));
+            target = matches[0];
+        }
+        else
+        {
+            var idx = index ?? -1;
+            if (idx < 0 || idx >= rows.Count)
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertFailed,
+                    $"Row index {idx} is out of range ('{attributeName}' has {rows.Count} rows).", loc));
+            target = rows[idx];
+        }
+
+        target.IsDeleted = true;
+        return OpResult.Success;
+    }
+
     /// <summary><c>FOLLOW &lt;attr&gt; [AS @handle]</c> — navigate from a reference attribute on the current
     /// PO to the PersistentObject it points at, pushing a PO frame. This is the .visc equivalent of the web
     /// client's "open" affordance next to a reference field: it honors the same <c>CanOpen</c> gate

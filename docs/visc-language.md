@@ -122,6 +122,23 @@ SELECT-ROWS Detail "Lines" ALL           ## optional leading Detail clause, orth
 - **`ALL EXCEPT <i|WHERE>`** is inverse selection — the addressed rows become the server-side exclusion set.
 - **`<i>` / `WHERE` / `NONE`** set explicit rows and clear the flag. A zero-match `WHERE` is not an error — the selection just becomes empty.
 
+## Detail-attribute rows — `DELETE-ROW`
+
+A **detail attribute** (`AsDetail`) inlines a list of rows on a persistent object — distinct from a detail *query* (`Detail "<name>"`). Address it with `Detail Attribute "<name>"` (the string literal after `Attribute` is what tells it apart from a detail query named `Attribute`).
+
+```visc
+EXPECT Detail Attribute "Certificates" TotalItems = 2
+EXPECT Detail Attribute "Certificates" ROW 0 Name = "root"     ## a cell of row 0
+EDIT
+DELETE-ROW Detail Attribute "Certificates" WHERE SerialNumber = "0A1B"   ## or an index
+SAVE                                                          ## the server sees the row in DeletedObjects
+```
+
+- **Rows** are the ones not deleted; indexes and `TotalItems` count only those, so they shift after a `DELETE-ROW`.
+- **`DELETE-ROW`** marks the row `IsDeleted` (as the web client's row delete button does); nothing reaches the server until `SAVE`. A `WHERE` match must be unique (strict, like `OPEN-ROW WHERE`); zero/many matches and out-of-range indexes fail.
+- **Gating** mirrors the web client's delete button: the PO must be in edit (`guard-edit-mode-required`), the attribute not read-only (`guard-attribute-read-only`), and — unless the PO is new — the attribute's details query must offer a `Delete` action (`guard-action-not-available`).
+- There is no `ADD-ROW` yet.
+
 ## Editing & saving
 
 ```visc
@@ -383,6 +400,8 @@ EXPECT Action Delete IS NOT AVAILABLE   ## gated out (e.g. server DisableActions
 EXPECT Action Export IS VISIBLE
 ```
 
+**Detail-attribute rows** — `EXPECT Detail Attribute "<name>" TotalItems <op> <n>` and `EXPECT Detail Attribute "<name>" ROW <i> <col> <op> <value>` read the rows of an `AsDetail` attribute (see [`DELETE-ROW`](#detail-attribute-rows--delete-row)). Both work under `REQUIRES`.
+
 **Detail redirection** — query-family subjects (`TotalItems`, `Selection.*`, `Query.*`) accept a leading `Detail "<name>"` to target a detail query on the current PO. It reads what the detail holds in memory (no forced search), so load it first with `SEARCH Detail "<name>"` if needed. The same clause also targets a named **action** on that detail — symmetric with `ACTION Detail "<name>" <X>` — resolving the action against the detail's own actions alone (never the master PO, which may carry a same-named action):
 
 ```visc
@@ -529,6 +548,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `GO-BACK` | Pop the top nav frame. |
 | `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place. |
 | `SELECT-ROWS <ALL \| ALL EXCEPT … \| NONE \| <i> \| WHERE …>` | Set the selection for a selection-gated action. |
+| `DELETE-ROW Detail Attribute "<n>" <i \| WHERE …>` | Remove a row of a detail (`AsDetail`) attribute; `SAVE` sends it as deleted. |
 | `EDIT` / `CANCEL` / `SAVE` | PO edit lifecycle. |
 | `SET <attr> = <value> \| LOOKUP "…" \| ID "…" \| FILE "<path>" \| null` | Change an attribute. `FILE` attaches a file (root-confined) to a BinaryFile/Image. |
 | `SET <attr> LANGUAGE <lang> = <value>` | Set one translation of a TranslatedString attribute (bare `SET` = current language). |

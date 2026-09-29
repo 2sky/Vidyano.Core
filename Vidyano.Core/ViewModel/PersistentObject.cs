@@ -147,6 +147,15 @@ namespace Vidyano.ViewModel
             get { return GetProperty<bool>(); }
         }
 
+        /// <summary>True for a row of a detail attribute (<see cref="PersistentObjectAttributeAsDetail"/>) that was
+        /// removed: it stays in <see cref="PersistentObjectAttributeAsDetail.Objects"/> and is sent to the server
+        /// flagged, which surfaces it in the attribute's <c>DeletedObjects</c> on save.</summary>
+        public bool IsDeleted
+        {
+            get { return GetProperty<bool>(); }
+            set { SetProperty(value); }
+        }
+
         public bool IsNew
         {
             get { return GetProperty<bool>(); }
@@ -560,7 +569,7 @@ namespace Vidyano.ViewModel
 
         protected override string[] GetServiceProperties()
         {
-            return new[] { "id", "type", "objectId", "isNew", "isHidden", "bulkObjectIds", "securityToken", "metadata", "tag", "navigationHints" };
+            return new[] { "id", "type", "objectId", "isNew", "isDeleted", "isHidden", "bulkObjectIds", "securityToken", "metadata", "tag", "navigationHints" };
         }
 
         internal override JObject ToServiceObject()

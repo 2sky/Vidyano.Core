@@ -326,6 +326,7 @@ public sealed class Interpreter
             case OpenRowStmt or:               return await DoOpenRow(or).ConfigureAwait(false);
             case FollowStmt fl:                return await DoFollow(fl).ConfigureAwait(false);
             case SelectRowsStmt sr:            return await DoSelectRows(sr).ConfigureAwait(false);
+            case DeleteRowStmt dr:             return DoDeleteRow(dr);
             case GoBackStmt gb:                return Wrap(stmt, Current.GoBack(gb.Location));
             case EditStmt e:                   return Wrap(stmt, Current.Edit(e.Location));
             case CancelStmt c:                 return Wrap(stmt, Current.Cancel(c.Location));
@@ -593,6 +594,27 @@ public sealed class Interpreter
         // expression, so there's nothing to evaluate — delegate straight to the session.
         var res = await Current.FollowAsync(f.Attribute, f.AsHandle, f.Location).ConfigureAwait(false);
         return Wrap(f, res);
+    }
+
+    private StatementResult DoDeleteRow(DeleteRowStmt dr)
+    {
+        int? index = null;
+        object? matchValue = null;
+        if (dr.MatchColumn != null)
+        {
+            var mv = EvaluateExpression(dr.MatchValue!);
+            if (!mv.Ok) return Fail(dr, mv.Error!);
+            matchValue = mv.Value;
+        }
+        else
+        {
+            var v = EvaluateExpression(dr.Index!);
+            if (!v.Ok) return Fail(dr, v.Error!);
+            if (!TryCoerceInt(v.Value, out var idx))
+                return Fail(dr, new Diagnostic(ErrorKind.ParseInvalidValue, "DELETE-ROW needs an integer index.", dr.Location));
+            index = idx;
+        }
+        return Wrap(dr, Current.DeleteDetailAttributeRow(dr.AttributeName, index, dr.MatchColumn, matchValue, dr.Location));
     }
 
     private async Task<StatementResult> DoSelectRows(SelectRowsStmt sr)
@@ -1291,6 +1313,31 @@ public sealed class Interpreter
                 if (query is null)
                     return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT TotalItems needs a current Query.", loc));
                 return OpResult<object?>.Success((object?)query.TotalItems);
+            case ExpectSubjectKind.DetailAttributeRows:
+                {
+                    var rows = Current.GetDetailAttributeRows(subj.Name!, loc);
+                    if (!rows.Ok) return Fail<object?>(rows.Error!);
+                    return OpResult<object?>.Success((object?)rows.Value!.Count);
+                }
+            case ExpectSubjectKind.DetailAttributeCell:
+                {
+                    var rows = Current.GetDetailAttributeRows(subj.Name!, loc);
+                    if (!rows.Ok) return Fail<object?>(rows.Error!);
+                    var iv = EvaluateExpression(subj.RowIndex!);
+                    if (!iv.Ok) return Fail<object?>(iv.Error!);
+                    if (!TryCoerceInt(iv.Value, out var rowIdx))
+                        return Fail<object?>(new Diagnostic(ErrorKind.ParseInvalidValue, "EXPECT Detail Attribute … ROW needs an integer index.", loc));
+                    if (rowIdx < 0 || rowIdx >= rows.Value!.Count)
+                        return Fail<object?>(new Diagnostic(ErrorKind.AssertFailed,
+                            $"Row index {rowIdx} is out of range ('{subj.Name}' has {rows.Value!.Count} rows).", loc));
+                    var row = rows.Value[rowIdx];
+                    var cell = row.GetAttribute(subj.MetadataKey!);
+                    if (cell is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.ResolveAttribute,
+                            $"Row of '{subj.Name}' has no column '{subj.MetadataKey}'.", loc,
+                            Hint: Suggester.Hint(subj.MetadataKey!, row.Attributes.Select(a => a.Name))));
+                    return OpResult<object?>.Success(cell.Value);
+                }
             case ExpectSubjectKind.SelectionCount:
                 if (query is null)
                     return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Selection.Count needs a current Query.", loc));
