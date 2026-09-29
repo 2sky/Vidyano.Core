@@ -11,7 +11,7 @@
   <ItemGroup>
     <!-- The full Vidyano server library (brings the Minimal API + the Microsoft.AspNetCore.App
          framework reference); Vidyano.Core supplies the client this demo drives the server with. -->
-    <PackageReference Include="Vidyano" Version="6.0.20260615.6438" />
+    <PackageReference Include="Vidyano" Version="6.0.20260927.6605" />
     <ProjectReference Include="..\Vidyano.Core\Vidyano.Core.csproj" />
   </ItemGroup>
 
