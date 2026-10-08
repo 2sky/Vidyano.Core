@@ -290,6 +290,16 @@ public sealed class LintTests
             $"charts.visc should lint clean, got: {string.Join("; ", diags.Select(d => $"{d.Kind}: {d.Message}"))}");
     }
 
+    [Fact]
+    public void FollowNavigateSample_LintsClean()
+    {
+        var path = SamplePath("follow-navigate.visc");
+        Assert.True(File.Exists(path), $"Sample not found at {path}");
+        var diags = VidyanoScript.Lint(File.ReadAllText(path), path);
+        Assert.True(diags.Count == 0,
+            $"follow-navigate.visc should lint clean, got: {string.Join("; ", diags.Select(d => $"{d.Kind}: {d.Message}"))}");
+    }
+
     private static string SamplePath(string fileName)
     {
         // Walk up from the test assembly's location to the repo root, then into the tool samples.

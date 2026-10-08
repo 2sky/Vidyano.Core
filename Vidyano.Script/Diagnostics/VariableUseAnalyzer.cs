@@ -20,7 +20,7 @@ namespace Vidyano.Script.Diagnostics;
 /// <see cref="VidyanoScript.Lint"/> only and does not gate <see cref="VidyanoScript.RunAsync"/>.</para>
 /// <para><b>Reads are the <c>{{x}}</c> form only.</b> The bare <c>@x</c> syntax is a reserved-scope
 /// reference (<c>@session.attr</c>), which the parser already validates. The non-variable interpolation
-/// forms (<c>{{@today}}</c>, <c>{{@session.X}}</c>, <c>{{env:NAME}}</c>, <c>{{Messages.X}}</c>) resolve
+/// forms (<c>{{@today}}</c>, <c>{{@session.X}}</c>, <c>{{env:NAME}}</c>, <c>{{Messages.X}}</c>, <c>{{PO.X}}</c>) resolve
 /// through their own machinery, not the variable table, so they are skipped here.</para>
 /// </remarks>
 internal static class VariableUseAnalyzer
@@ -95,8 +95,8 @@ internal static class VariableUseAnalyzer
     }
 
     /// <summary>True when an interpolation body is a plain variable name — not a built-in (<c>@…</c>),
-    /// a scoped attribute read (<c>@scope.attr</c>), an env lookup (<c>env:NAME</c>), or a client-message
-    /// lookup (<c>Messages.X</c>). Mirrors the dispatch order in the interpreter's interpolation evaluator
+    /// a scoped attribute read (<c>@scope.attr</c>), an env lookup (<c>env:NAME</c>), a client-message
+    /// lookup (<c>Messages.X</c>), or a current-PO read (<c>PO.X</c>). Mirrors the dispatch order in the interpreter's interpolation evaluator
     /// so the two never disagree on what counts as a variable.</summary>
     private static bool IsPlainVariable(string inner)
     {
@@ -104,6 +104,7 @@ internal static class VariableUseAnalyzer
         if (inner[0] == '@') return false;                                              // built-in or @scope.attr
         if (inner.StartsWith("env:", StringComparison.OrdinalIgnoreCase)) return false; // environment lookup
         if (inner.StartsWith("Messages.", StringComparison.Ordinal)) return false;      // client-message lookup
+        if (inner.StartsWith("PO.", StringComparison.Ordinal)) return false;            // current-PO value
         return true;
     }
 
