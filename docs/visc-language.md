@@ -33,7 +33,7 @@ Comments start with `##` (inline) or `###` (a *step header* that groups followin
 
 A few concepts the whole language is built on:
 
-- **The navigation stack.** `OPEN`/`OPEN-ROW`/`FOLLOW` push frames; `GO-BACK`/`SAVE` pop them. The top frame is the "current" Query or PersistentObject (PO) — the implicit target of `SEARCH`, `EDIT`, `SET`, `ACTION`, and most `EXPECT`s. This mirrors the browser's back-stack.
+- **The navigation stack.** `OPEN`/`OPEN-ROW`/`FOLLOW`/`FOLLOW-NAVIGATE` push frames; `GO-BACK`/`SAVE` pop them. The top frame is the "current" Query or PersistentObject (PO) — the implicit target of `SEARCH`, `EDIT`, `SET`, `ACTION`, and most `EXPECT`s. This mirrors the browser's back-stack.
 - **Sessions.** A script has one **default** session and any number of **named** ones, each with its own cookie jar / identity. `USE` switches which is active; all observable state swaps with it.
 - **Totality.** `.visc` is **total** — every script provably halts. The only control flow is gates (`REQUIRES`/`CLEANUP`) and *bounded* loops (`REPEAT`, `FOR-EACH ROW`) whose bound is fixed before they run. There is no `WHILE`, no recursion, no arithmetic. Genuine computation belongs in a [`TOOL`](#tool) or the host. This is a deliberate constraint, not a missing feature.
 
@@ -85,6 +85,7 @@ The names `session`, `user`, and `application` are reserved; `@session = …` is
 | `OPEN-ROW Detail "<name>" <i\|WHERE …>` | Select from the named detail query on the current PO instead of the current Query. The `Detail` clause is orthogonal to the index/`WHERE` choice. |
 | `OPEN-ROW <…> EXPECTING ERROR` | Assert the row's PO load is **refused** server-side. Leaves the error on the still-current calling query, so `EXPECT Notification` can follow (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)). |
 | `FOLLOW <attr> [AS @h]` | Navigate from a **reference** attribute on the current PO to the PO it points at, pushing a PO frame — the equivalent of the web client's "open" affordance next to a reference field. Honors the same `CanOpen` gate the UI uses. It does **not** change the reference (that's `SET`). |
+| `FOLLOW-NAVIGATE [AS @h]` | Open the page the previous verb's `Navigate(path)` client operation points at — what the browser does when the server navigates it. Pushes a PO or Query frame. |
 | `GO-BACK` | Pop the top frame (the browser back button). Refuses when the top is a PO in edit (`SAVE`/`CANCEL` first) and when already at the root. |
 
 `<value>` in a `WHERE` is in **service-string form** — the same convention as `SET`. Only `=` is supported.
@@ -94,6 +95,21 @@ OPEN MenuItem Sales/Orders
 OPEN-ROW WHERE Number = "SO-1001"
 FOLLOW Customer AS @cust       ## jump to the referenced Customer PO
 ```
+
+### Following a server `Navigate` — `FOLLOW-NAVIGATE`
+
+An action whose server code calls `Manager.Current.QueueClientOperation(ExecuteMethodOperation.Navigate("<path>"))` sends the browser to another page. `EXPECT ClientOperation Navigate = "<path>"` asserts the operation; `FOLLOW-NAVIGATE` opens the page:
+
+```visc
+ACTION ChargePointDiagnostics                ## server: Navigate("vesta-charge-point/vestaChargePoints/9001")
+EXPECT ClientOperation Navigate CONTAINS "vesta-charge-point/"
+FOLLOW-NAVIGATE AS @cp                       ## pushes the VestaChargePoint PO
+EXPECT PO.ObjectId = "vestaChargePoints/9001"
+```
+
+- **Which Navigate.** The one queued by the **immediately preceding** verb (`EXPECT`s in between don't count as verbs). None fails with `state-no-navigate`; more than one fails with `resolve-navigate` (the paths are in the diagnostic details).
+- **Route resolution** mirrors the web client, using the Application's `Routes`: a route name matches **raw or kebab-cased** (`VestaChargePoint` / `vesta-charge-point`), optionally behind a program-unit prefix (`Charging/vesta-charge-point/…`). A PersistentObject route takes everything after its first `/` as the object id, so ids containing `/` survive intact; a Query route takes no id. The raw forms `[<pu>/]persistent-object.<type-or-id>[/<objectId>]` and `[<pu>/]query.<id>` work too. A path no route matches fails with `resolve-navigate` and a "did you mean" over the route names.
+- The target opens like `OPEN PersistentObject` / `OPEN Query` (no parent, as the browser does) and pushes on top of the current frame.
 
 ## Searching
 
@@ -203,7 +219,18 @@ A query action invoked with **no selection** posts an empty selection (matching 
 
 A custom action can fail two ways, and both surface as an `ACTION` failure with the message copied onto the current frame for `EXPECT Notification …` to read: the server sets an error notification on the PO/query and returns null, **or** the action *returns* a `Notification(message, Error)` result (the toast shape — `return Notification(...)`). A returned **non-error** notification (info/warning) is copied onto the frame too — so `EXPECT Notification …` can read it — but does **not** fail the verb, faithful to the toast a browser shows.
 
-An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer.
+An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer. The stream is fetched exactly once, whichever `ACTION` form ran it (an `= "option"` action is fetched by Core itself and handed to the runner).
+
+The built-in query **exports** — `ACTION ExportToExcel` / `ACTION ExportToCsv` — download the same way. Like the web client, the runner runs them as a single `GetStream` request (the action's parent and query, never `ExecuteAction`), so the generated file lands in `EXPECT Stream.*` with no extra verb and no frame pushed. The whole query is exported as the client holds it — the selection is not sent, exactly as in the browser — and a `Detail "<name>"` clause exports a detail query. An export that fails server-side is served as an `Error.txt` stream whose `Stream.Text` carries the message.
+
+```visc
+OPEN MenuItem Home/Products
+ACTION ExportToCsv
+EXPECT Stream.Name = "Products.csv"
+EXPECT Stream.Text CONTAINS "Widget"
+ACTION ExportToExcel
+EXPECT Stream.Text MATCHES "^PK"                ## an .xlsx is a zip package
+```
 
 ### Asserting the negative path — `EXPECTING ERROR`
 
@@ -226,9 +253,17 @@ All three `OPEN` forms take the suffix to assert the open is **refused** — the
 - **`OPEN Query <id>`** — a refused query-load (no such query, or access-denied).
 - **`OPEN MenuItem <path>`** — a path that does not resolve in this user's menu (the natural way to assert a permission/visibility boundary), or a refused load of the entry it points at.
 
-Two caveats apply to those three OPEN forms (but **not** to `OPEN-ROW`, below): Core throws away the error PO/query on a refused open, so **no frame is pushed and `EXPECT Notification` cannot follow** (the message is only in the run diagnostic); and because Core collapses every open failure into one error channel, a refused open is **indistinguishable from a transport fault** here (unlike SAVE/ACTION, which a transport fault still fails). To assert a row is gone *and* read state afterwards, prefer a query re-search (`SELECT-ROWS WHERE … → EXPECT Selection.Count = 0`).
+A refused open pushes **no frame**, yet the server's refusal message is still readable: until the next verb, `EXPECT Notification` / `EXPECT Notification.Type` read **the refusal** (type `Error`) — the error the browser shows for a record it can't open — even when an earlier frame is still on top:
 
-**`OPEN-ROW … EXPECTING ERROR`** asserts a row whose PO **load** is refused server-side (e.g. its `OnLoad` ends in an error). Unlike the three OPEN forms, it does **not** suffer the "can't read the notification" caveat: a refused row-open sets the error on the **still-current calling query** (no PO frame is pushed, so that query stays the top frame), mirroring the web client. So `EXPECT Notification` / `EXPECT Notification.Type = "Error"` **can** follow it to pin the message. Only the refused *load* (a `server-error`) is absorbed — a bad row *selection* (index out of range, or a `WHERE` matching no/many rows) is a client-side authoring fault that still fails loudly.
+```visc
+OPEN PersistentObject "ChargePointConnector" "{{connectorId}}" EXPECTING ERROR
+EXPECT NavStack.Depth = 0
+EXPECT Notification CONTAINS "card is not accepted on this connector"
+```
+
+One caveat applies to those three OPEN forms: because Core collapses every open failure into one error channel, a refused open is **indistinguishable from a transport fault** here (unlike SAVE/ACTION, which a transport fault still fails) — pin the message with `EXPECT Notification` to tell them apart. To assert a row is gone *and* read state afterwards, prefer a query re-search (`SELECT-ROWS WHERE … → EXPECT Selection.Count = 0`).
+
+**`OPEN-ROW … EXPECTING ERROR`** asserts a row whose PO **load** is refused server-side (e.g. its `OnLoad` ends in an error). A refused row-open sets the error on the **still-current calling query** (no PO frame is pushed, so that query stays the top frame), mirroring the web client, so `EXPECT Notification` / `EXPECT Notification.Type = "Error"` read it there. It only works when a query lists the record; to open a record by id, use `OPEN PersistentObject … EXPECTING ERROR`. Only the refused *load* (a `server-error`) is absorbed — a bad row *selection* (index out of range, or a `WHERE` matching no/many rows) is a client-side authoring fault that still fails loudly.
 
 ### Server retry dialogs — `CONFIRM`
 
@@ -274,6 +309,18 @@ ADD-REFERENCE                             ## confirm the selection → reaches t
 ACTION LinkProducts
 ADD-REFERENCE WHERE Name = "Gadget"       ## or: ADD-REFERENCE <index>
 ```
+
+The **built-in Add button of a detail query** (its `AddReference` action — offered when the query has a lookup source) works the same way. As in the web client, the `ACTION` posts nothing: it opens a **lookup clone** of the detail query (rows from its lookup source) as the picker, and `ADD-REFERENCE` posts `Query.AddReference` against the detail query itself (no `AddAction`), reaching its `OnAddReference`:
+
+```visc
+OPEN-ROW WHERE Name = "Tools"
+ACTION Detail "Members" AddReference      ## opens the lookup picker — nothing is posted yet
+EXPECT TotalItems = 2                     ## the picker lists the lookup source
+ADD-REFERENCE WHERE Name = "Gadget"       ## posts Query.AddReference on the Members detail
+SEARCH Detail "Members"                   ## reload the detail to see the new row
+```
+
+When the query also offers `New`, the client folds both into one `AddReference` action with options (`New …`, `Existing`); `ACTION Detail "Members" AddReference = "Existing"` (or `= ID <last>`) opens the same picker, while the `New` option runs `New`.
 
 While the picker is open the script is **frozen** to the verbs that drive, inspect, confirm, or dismiss it — `SEARCH` / `SELECT-ROWS` / `EXPECT` / `REQUIRES`, plus `ADD-REFERENCE` (confirm) and `GO-BACK` (dismiss without linking); anything else trips `state-add-reference-pending`. Confirming with **no selection** fails loudly (an add that adds nothing is always a mistake), and `ADD-REFERENCE` with **no picker open** fails with `state-no-add-reference-pending`. On success the picker frame pops, revealing the record beneath; reload its detail (`SEARCH Detail "<name>"`) to see the new link.
 
@@ -341,7 +388,7 @@ EXPECT Stream.Text CONTAINS "%PDF"
 EXPECT Stream IS NULL                            ## after another verb — the capture is per-verb
 ```
 
-When an action returns a stream, the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
+When an action returns a stream — or is one of the built-in exports (`ExportToExcel` / `ExportToCsv`) — the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
 
 **Charts** (the last `CHART` result; `IS NULL` when none was captured)
 
@@ -407,6 +454,16 @@ Missing bag keys produce `null` — assert with `IS NULL` / `IS NOT NULL`.
 EXPECT Action Delete IS NOT AVAILABLE   ## gated out (e.g. server DisableActions)
 EXPECT Action Export IS VISIBLE
 ```
+
+**Absent attributes & columns** — `EXPECT Attribute <name> IS [NOT] PRESENT` and `EXPECT Query.Columns[<name>] IS [NOT] PRESENT` assert whether an attribute is on the PO (`PO.Attributes`) or a column on the query — e.g. one the server removed with `RemoveAttribute` / `RemoveColumns`. Presence ignores visibility (a hidden attribute is present; use `IS [NOT] VISIBLE` for that). It is the **only** assertion a missing name satisfies: every other `EXPECT` on it still fails with `resolve-attribute`, so a typo is never mistaken for an absent field.
+
+```visc
+EXPECT Attribute DefaultPublicKwhPriceEuro IS NOT PRESENT
+EXPECT Query.Columns[DefaultPublicKwhPriceEuro] IS NOT PRESENT
+EXPECT Detail "Prices" Query.Columns[Price] IS PRESENT    ## Detail-redirectable
+```
+
+A query row's cells are its query's columns, so a column that isn't present has no cell in any row; a present-but-empty cell is `EXPECT {{@row.<col>}} IS NULL` inside `FOR-EACH ROW … AS @row`.
 
 **Detail-attribute rows** — `EXPECT Detail Attribute "<name>" TotalItems <op> <n>` and `EXPECT Detail Attribute "<name>" ROW <i> <col> <op> <value>` read the rows of an `AsDetail` attribute (see [Detail-attribute rows](#detail-attribute-rows)). Both work under `REQUIRES`.
 
@@ -477,6 +534,24 @@ SET Code = "ACME-{{@random}}"
 - **User variables** are assigned `@name = …` and read `{{name}}` (no `@`). A loop index (`AS @i`) reads the same — `{{i}}` — but a loop **row** keeps the `@`: read a cell as `{{@row.<col>}}` (or use the bare handle `@row` for `OPEN-ROW @row`).
 - **Built-ins** `{{@today}} {{@now}} {{@uuid}} {{@random}}` are evaluated **on each reference** (like `DateTime.Now` / `rng.Next()`), so capture into a variable to freeze a value for reuse. `--seed`/`Seed` fixes the `@uuid`/`@random` sequence (independent streams); `--now`/`Now` anchors the clock, which then flows by real elapsed time.
 - **In-string interpolation** — `{{…}}` holes resolve inside `"…"` literals using the same machinery, so values compose. Escape a literal brace as `\{`.
+
+### Values of the current record — `{{PO.…}}`
+
+`{{PO.<prop>}}` and `{{PO.Attr.<name>}}` read the current PersistentObject (the top PO frame), so a script can keep a value it saw on a record — typically the id of a record it created — and reuse it later:
+
+```visc
+@name = "CP-{{@uuid}}"
+OPEN MenuItem Home/ChargePoints
+ACTION New
+SET Name = "{{name}}"
+SAVE                                   ## the saved frame pops …
+OPEN-ROW WHERE Name = "{{name}}"       ## … so re-open it to read its id
+@cpId = {{PO.ObjectId}}
+@vendor = {{PO.Attr.Vendor}}
+OPEN PersistentObject "ChargePoint" "{{cpId}}" EXPECTING ERROR
+```
+
+Each form yields exactly what the matching `EXPECT` compares: `{{PO.Attr.<name>}}` is `EXPECT <name>` (the attribute value, with the same hidden-attribute guard — navigation mode rejects a hidden attribute), `{{PO.Metadata.<key>}}` / `{{PO.NavigationHints.<key>}}` are the bag lookups, and `{{PO.<prop>}}` is `EXPECT PO.<prop>` (`ObjectId`, `Type`, `FullTypeName`, `Label`, `Breadcrumb`, `IsNew`, `IsHidden`, `Tag`). Attributes sit under `Attr.` so one named `Type` or `Label` never shadows the PO property. With no PO frame on top it fails with `state-no-current-po`; capture into a variable to keep the value once you navigate away.
 
 ### Declaring host-supplied variables — `@expects`
 
@@ -553,6 +628,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `OPEN MenuItem <path>` | Push a Query frame. |
 | `OPEN-ROW <i \| WHERE … \| @row> [Detail "<n>"]` | Push a PO frame from a row. |
 | `FOLLOW <attr> [AS @h]` | Open the PO a reference attribute points at. |
+| `FOLLOW-NAVIGATE [AS @h]` | Open the page the previous verb's `Navigate(path)` points at. |
 | `GO-BACK` | Pop the top nav frame. |
 | `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place; a server-rejected search fails the verb. |
 | `SELECT-ROWS <ALL \| ALL EXCEPT … \| NONE \| <i> \| WHERE …>` | Set the selection for a selection-gated action. |
@@ -565,10 +641,10 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `CHART "<name>" [Detail "<n>"]` | Run a named query chart; capture its JSON for `EXPECT Chart`. |
 | `SAVE \| ACTION \| CONFIRM \| SEARCH … EXPECTING ERROR` | Assert the negative (error-notification) path. |
-| `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
+| `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` reads the refusal until the next verb). |
 | `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |
 | `CONFIRM "<label>" \| CONFIRM ID <i> [EXPECTING ERROR]` | Answer an open server retry dialog (`EXPECTING ERROR` asserts the resumed action fails). |
-| `ADD-REFERENCE [<i> \| WHERE <col> = <value>]` | Confirm an Add-Reference picker an `ACTION` opened, linking the selected (or inline-selected) rows. |
+| `ADD-REFERENCE [<i> \| WHERE <col> = <value>]` | Confirm an Add-Reference picker an `ACTION` opened (a custom `AddReference(...)` result or a query's built-in `AddReference`), linking the selected (or inline-selected) rows. |
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |
 | `EXPECT <ref> = ID "<id>"` | Assert a reference by its document id (`ObjectId`). |
 | `EXPECT <attr> LANGUAGE <lang> = "…"` | Assert one translation of a TranslatedString attribute. |

@@ -34,15 +34,16 @@ CANCEL
 ACTION Delete EXPECTING ERROR
 
 ### All three OPEN forms take the suffix to assert the open is REFUSED — "this should not open".
-### Two differences from SAVE/ACTION: Core discards the error PO/query, so NO frame is pushed and
-### `EXPECT Notification` can't follow (the message is only in the run diagnostic); and a refused open
-### is indistinguishable from a transport fault here. To assert a row is gone AND read state after,
-### prefer a query re-search (SELECT-ROWS WHERE … → EXPECT Selection.Count = 0).
+### Differences from SAVE/ACTION: NO frame is pushed — instead, until the next verb, `EXPECT Notification`
+### reads the server's refusal message (type Error); and a refused open is indistinguishable from a
+### transport fault here (pin the message to tell them apart). To assert a row is gone AND read state
+### after, prefer a query re-search (SELECT-ROWS WHERE … → EXPECT Selection.Count = 0).
 GO-BACK
 
 ### OPEN PersistentObject — a point-load by id (deleted / not-found / access-denied).
 OPEN PersistentObject "Customer" "deleted-id" EXPECTING ERROR
 EXPECT NavStack.Top.Kind = "Query"   ## still on the list — the refused open pushed nothing
+EXPECT Notification MATCHES ".+"     ## …but the refusal message is readable until the next verb
 
 ### OPEN Query — a query that doesn't exist or the user may not open.
 OPEN Query "RestrictedOrders" EXPECTING ERROR
@@ -51,9 +52,8 @@ OPEN Query "RestrictedOrders" EXPECTING ERROR
 OPEN MenuItem Admin/Users EXPECTING ERROR
 
 ### OPEN-ROW — a row whose PersistentObject LOAD is refused server-side (e.g. its OnLoad ends in an error).
-### UNLIKE the three OPEN forms above, a refused row-open is NOT subject to the "can't read the notification"
-### caveat: it pushes no PO frame but sets the error on the still-current calling query (mirroring the web
-### client), so EXPECT Notification CAN follow it to pin the message. A bad row SELECTION (out-of-range index,
+### It pushes no PO frame but sets the error on the still-current calling query (mirroring the web
+### client), so EXPECT Notification reads it there. A bad row SELECTION (out-of-range index,
 ### or a WHERE matching no/many rows) is a client-side authoring fault and still fails loudly.
 OPEN MenuItem Customers
 OPEN-ROW WHERE Name = "Unloadable" EXPECTING ERROR

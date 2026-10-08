@@ -73,7 +73,7 @@ public static class VerbCatalog
             + "mode `OPEN PersistentObject`/`OPEN Query` require reachability; `OPEN MenuItem` walks the "
             + "user's menu. Any OPEN form takes a trailing `EXPECTING ERROR` to assert the open is refused "
             + "(not-found / access-denied / unresolved menu path) — it passes only if the open fails and "
-            + "pushes no frame (so `EXPECT Notification` can't follow).",
+            + "pushes no frame; until the next verb `EXPECT Notification` reads the server's refusal message.",
             ["OPEN MenuItem Sales/Customers", "OPEN Query Customers AS @customers", "OPEN PersistentObject \"Customer\" \"42\" AS @c", "OPEN PersistentObject \"Customer\" \"deleted-id\" EXPECTING ERROR", "OPEN MenuItem Admin/Users EXPECTING ERROR"],
             "navigation", []),
 
@@ -106,6 +106,18 @@ public static class VerbCatalog
             + "same gate the UI uses (a non-empty reference the signed-in user may read) and loads the target "
             + "the same way opening a query row does. It does NOT change the reference — that is what `SET` does.",
             ["FOLLOW Customer AS @c"],
+            "navigation", []),
+
+        new("FOLLOW-NAVIGATE",
+            "FOLLOW-NAVIGATE [AS @h]",
+            "Open the page a server Navigate points at.",
+            "Opens the page the previous verb's `Navigate(path)` client operation points at, as the browser does "
+            + "when the server navigates it (`EXPECT`s in between are fine). The path resolves through the "
+            + "application's routes — route names raw or kebab-cased, an optional program-unit prefix, and the raw "
+            + "`persistent-object.<id>[/<objectId>]` / `query.<id>` forms — to a PersistentObject (everything after "
+            + "the route's first `/` is the object id) or a Query, pushed like `OPEN`. No Navigate fails with "
+            + "`state-no-navigate`; several, or a path no route matches, fail with `resolve-navigate`.",
+            ["FOLLOW-NAVIGATE", "FOLLOW-NAVIGATE AS @cp"],
             "navigation", []),
 
         new("EDIT",
@@ -152,8 +164,10 @@ public static class VerbCatalog
             + "`EXPECTING ERROR` + `EXPECT Notification`); a returned non-error notification is shown but "
             + "passes. When the server result is an `AddReference` (a custom action that returns "
             + "`AddReference(\"<query>\")`), the action opens a picker dialog instead of a PO frame — confirm "
-            + "it with `ADD-REFERENCE`.",
-            ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete"],
+            + "it with `ADD-REFERENCE`. An action that returns a stream — or a built-in export "
+            + "(`ExportToExcel` / `ExportToCsv`, run as one `GetStream` like the web client) — is downloaded "
+            + "automatically, no frame pushed, for `EXPECT Stream.*`.",
+            ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete", "ACTION ExportToExcel"],
             "action", []),
 
         new("CHART",
@@ -187,7 +201,9 @@ public static class VerbCatalog
             "ADD-REFERENCE\nADD-REFERENCE <index>\nADD-REFERENCE WHERE <col> = <value>",
             "Confirm an open Add-Reference picker.",
             "Confirms the Add-Reference picker an `ACTION` opened (when that action's server result is an "
-            + "`AddReference`), linking the selected rows by posting the faithful `Query.AddReference` call. "
+            + "`AddReference`, or for a query's built-in `AddReference` action — e.g. a detail query's Add button, "
+            + "whose picker is a lookup clone of the query), linking the selected rows by posting the faithful "
+            + "`Query.AddReference` call. "
             + "While the picker is open the script is frozen to `SEARCH` / `SELECT-ROWS` / `EXPECT` (inspect) "
             + "and `ADD-REFERENCE` / `GO-BACK` (confirm / dismiss). The bare form confirms the picker's "
             + "current selection (from a prior `SELECT-ROWS`); the inline `<index>` / `WHERE` selector selects "
@@ -248,7 +264,9 @@ public static class VerbCatalog
             + "compares one translation of a TranslatedString attribute, symmetric with `SET … LANGUAGE`. "
             + "`MATCHES` is a regex assertion (1s ReDoS guard). Numeric and date/time subjects compare by value "
             + "(locale-independent), the literal in the same invariant form `SET` uses. `Detail \"<name>\"` redirects query-family subjects, "
-            + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone).",
+            + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone). "
+            + "`Attribute <X> IS [NOT] PRESENT` / `Query.Columns[<X>] IS [NOT] PRESENT` assert an attribute or column exists "
+            + "(e.g. one the server removed) — the only assertion a missing name satisfies.",
             ["EXPECT Status = \"Approved\"", "EXPECT Customer = ID \"people/acme\"", "EXPECT Title LANGUAGE nl = \"Hulpmiddel\"", "EXPECT TotalItems >= 1"],
             "assert", []),
 

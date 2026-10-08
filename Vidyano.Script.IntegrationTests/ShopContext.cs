@@ -77,6 +77,8 @@ public sealed class ShopContext : NullTargetContext
         [
             new Document { Id = "1", Name = "Spec" },
         ]);
+
+        DownloadSpec.Fetches = 0;
     }
 
     // English / Dutch / German title — the languages must match the WithLanguage(...) set in the backend.
@@ -161,6 +163,11 @@ public sealed class Product
     /// SET of this fails with <c>guard-attribute-read-only</c> even in <c>direct</c> mode. Visible so the
     /// read-only guard is what's exercised, not the hidden one.</summary>
     public string? Locked { get; set; }
+
+    /// <summary>A model attribute the server always strips: <see cref="ProductActions.OnLoad"/> removes the
+    /// attribute (<c>RemoveAttribute</c>) and <see cref="ProductActions.QueryExecuted"/> the column
+    /// (<c>RemoveColumns</c>) — the fixture for <c>EXPECT Attribute / Query.Columns[…] IS NOT PRESENT</c>.</summary>
+    public string? Discontinued { get; set; }
 }
 
 public sealed class ProductCategory
@@ -206,6 +213,14 @@ public sealed class ProductActions(ShopContext context)
 
         obj[nameof(Product.Secret)].Visibility = AttributeVisibility.Never;
         obj[nameof(Product.Locked)].IsReadOnly = true;
+        obj.RemoveAttribute(nameof(Product.Discontinued));
+    }
+
+    public override void QueryExecuted(QueryExecutedArgs args)
+    {
+        base.QueryExecuted(args);
+
+        args.RemoveColumns(nameof(Product.Discontinued));
     }
 
     /// <summary>Fails the text search on <see cref="ShopContext.UnsearchableText"/> — a deterministic server-side
@@ -247,7 +262,10 @@ public sealed class ProductActions(ShopContext context)
     public override global::System.IO.Stream OnGetStream(GetStreamArgs e)
     {
         if (e.Key == DownloadSpec.StreamKey)
+        {
+            Interlocked.Increment(ref DownloadSpec.Fetches);
             return e.GetBytes(global::System.Text.Encoding.UTF8.GetBytes(DownloadSpec.Content), DownloadSpec.FileName, "text/plain");
+        }
         if (e.Key == DownloadMissing.StreamKey)
             throw new global::System.Exception(DownloadMissing.FaultMessage);
         return base.OnGetStream(e);
@@ -272,6 +290,28 @@ public sealed class ProductActions(ShopContext context)
 
         var categoryId = args.Parent.ObjectId;
         return Context.Products.Where(p => p.Category == categoryId);
+    }
+
+    /// <summary>A second per-category products detail query, wired with a <c>LookupSource</c> in
+    /// <see cref="InProcessVidyanoBackend"/> so the server offers its BUILT-IN <c>AddReference</c> action (the
+    /// detail query's Add button). Kept separate from <see cref="ProductCategory_Products"/> so the existing detail
+    /// and detail-attribute tests see an unchanged action set.</summary>
+    public IEnumerable<Product> ProductCategory_Members(CustomQueryArgs args)
+    {
+        args.EnsureParent(nameof(ProductCategory));
+
+        var categoryId = args.Parent.ObjectId;
+        return Context.Products.Where(p => p.Category == categoryId);
+    }
+
+    /// <summary>The lookup source of <see cref="ProductCategory_Members"/>: the products NOT yet in the category —
+    /// what the built-in AddReference picker lists (the client runs the detail query as a lookup).</summary>
+    public IEnumerable<Product> ProductCategory_Candidates(CustomQueryArgs args)
+    {
+        args.EnsureParent(nameof(ProductCategory));
+
+        var categoryId = args.Parent.ObjectId;
+        return Context.Products.Where(p => p.Category != categoryId);
     }
 
     /// <summary>The server half of the .visc <c>ADD-REFERENCE</c> round-trip. The <see cref="LinkProducts"/>
@@ -406,10 +446,31 @@ public sealed class DownloadSpec(ShopContext context) : CustomAction<ShopContext
     public const string FileName = "spec.txt";
     public const string Content = "%PDF-ish spec content for Widget.";
 
+    /// <summary>How many times <see cref="ProductActions.OnGetStream"/> served this stream since the last
+    /// <see cref="ShopContext.Reset"/> — pins that one ACTION downloads it exactly once.</summary>
+    public static int Fetches;
+
     // Registers a pending stream keyed by StreamKey; the bytes are served on the follow-up GetStream by
     // ProductActions.OnGetStream (the faithful two-step flow the web client performs automatically).
     public override PersistentObject? Execute(CustomActionArgs e) =>
         Manager.Current.RegisterStream(e.Parent!, StreamKey);
+}
+
+/// <summary>PO-level custom action that queues a <c>Navigate(path)</c> client operation — what a real action does
+/// to send the browser to another page (e.g. <c>Navigate("vesta-charge-point/vestaChargePoints/9001")</c>). The
+/// path comes from the <c>Path</c> parameter so each test picks its route form; <c>Twice=true</c> queues it twice
+/// (the ambiguous case). Returns null so the PO frame stays put — the .visc <c>FOLLOW-NAVIGATE</c> verb opens the
+/// target. Registered with <c>ShowedOn.PersistentObject</c> on Product.</summary>
+public sealed class NavigateTo(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public override PersistentObject? Execute(CustomActionArgs e)
+    {
+        var path = e.Parameters?.GetValueOrDefault("Path") ?? "";
+        Manager.Current.QueueClientOperation(global::Vidyano.Service.ClientOperations.ExecuteMethodOperation.Navigate(path));
+        if (e.Parameters?.GetValueOrDefault("Twice") == "true")
+            Manager.Current.QueueClientOperation(global::Vidyano.Service.ClientOperations.ExecuteMethodOperation.Navigate(path));
+        return null;
+    }
 }
 
 /// <summary>Like <see cref="DownloadSpec"/>, but <see cref="ProductActions.OnGetStream"/> throws for its key —
