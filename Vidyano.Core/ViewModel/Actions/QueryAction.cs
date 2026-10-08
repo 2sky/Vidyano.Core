@@ -7,12 +7,12 @@ namespace Vidyano.ViewModel.Actions
         protected internal QueryAction(Definition definition, PersistentObject parent, Query query)
             : base(definition, parent, query)
         {
-            CanExecute = definition.SelectionRule(0);
+            CanExecute = SelectionRule(0);
         }
 
         internal void Invalidate(int selectedItemsCount)
         {
-            CanExecute = definition.SelectionRule(selectedItemsCount);
+            CanExecute = SelectionRule(selectedItemsCount);
         }
 
         public override async Task<PersistentObject> Execute(object option)

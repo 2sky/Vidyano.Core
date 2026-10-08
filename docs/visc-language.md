@@ -338,7 +338,7 @@ ADD-REFERENCE WHERE Name = "Gadget"       ## posts Query.AddReference on the Mem
 EXPECT Detail "Members" TotalItems = 3    ## AddReference refreshes on completion: the detail is re-searched
 ```
 
-When the query also offers `New`, the client folds both into one `AddReference` action with options (`New …`, `Existing`); `ACTION Detail "Members" AddReference = "Existing"` (or `= ID <last>`) opens the same picker, while the `New` option runs `New`.
+When the query also offers `New`, it is a separate action, as in the web client: `ACTION Detail "Members" New` opens a new record, and `AddReference` takes no option.
 
 While the picker is open the script is **frozen** to the verbs that drive, inspect, confirm, or dismiss it — `SEARCH` / `SELECT-ROWS` / `EXPECT` / `REQUIRES`, plus `ADD-REFERENCE` (confirm) and `GO-BACK` (dismiss without linking); anything else trips `state-add-reference-pending`. Confirming with **no selection** fails loudly (an add that adds nothing is always a mistake), and `ADD-REFERENCE` with **no picker open** fails with `state-no-add-reference-pending`. On success the picker frame pops, revealing the record beneath. Closing the picker refreshes what the browser would (see [Refreshing after an action](#refreshing-after-an-action)): the built-in Add re-searches its detail, and so does a custom action run on a query; a PersistentObject action such as `LinkProducts` has no query, so reload the detail (`SEARCH Detail "<name>"`) to see the new link — a user would have to as well.
 
@@ -472,6 +472,8 @@ Missing bag keys produce `null` — assert with `IS NULL` / `IS NOT NULL`.
 EXPECT Action Delete IS NOT AVAILABLE   ## gated out (e.g. server DisableActions)
 EXPECT Action Export IS VISIBLE
 ```
+
+Built-in actions answer as the web client shows them (see [Core action gating](core.md#running-actions)): `Edit` is visible outside edit, `EndEdit` / `CancelEdit` inside it (`EndEdit` available once dirty; `CancelEdit` on a `StayInEdit` record only once dirty); `BulkEdit` takes any number of selected rows unless the query sets `disableBulkEdit` (then exactly one); `New` and `AddReference` are separate actions.
 
 **Absent attributes & columns** — `EXPECT Attribute <name> IS [NOT] PRESENT` and `EXPECT Query.Columns[<name>] IS [NOT] PRESENT` assert whether an attribute is on the PO (`PO.Attributes`) or a column on the query — e.g. one the server removed with `RemoveAttribute` / `RemoveColumns`. Presence ignores visibility (a hidden attribute is present; use `IS [NOT] VISIBLE` for that). It is the **only** assertion a missing name satisfies: every other `EXPECT` on it still fails with `resolve-attribute`, so a typo is never mistaken for an absent field.
 

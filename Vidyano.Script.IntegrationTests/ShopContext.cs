@@ -75,7 +75,10 @@ public sealed class ShopContext : NullTargetContext
         documents.Clear();
         documents.AddRange(
         [
+            // Two documents so BulkEdit has more than one row to edit: Document has no PersistentObjectActions
+            // class, so the server leaves disableBulkEdit off for its query (unlike Products / ProductCategories).
             new Document { Id = "1", Name = "Spec" },
+            new Document { Id = "2", Name = "Notes" },
         ]);
 
         DownloadSpec.Fetches = 0;
@@ -351,6 +354,11 @@ public sealed class ProductCategoryActions(ShopContext context)
         base.OnLoad(obj, parent);
 
         obj.AddQuery(nameof(ProductActions.ProductCategory_Products));
+
+        // "Electronics" opens StayInEdit: the fixture for CancelEdit's gating on an always-in-edit object
+        // (only available once dirty, as in the web client).
+        if (obj.ObjectId == "2")
+            obj.StateBehavior |= StateBehavior.StayInEdit;
     }
 }
 
