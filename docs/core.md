@@ -96,6 +96,12 @@ if (approve is { CanExecute: true })
     await approve.Execute(null);
 ```
 
+An action's `IsVisible` / `CanExecute` follow the web client's rules, so a UI built on Core shows what a browser would:
+
+- **Query actions** are gated by their server selection rule against the selected row count (with `AllSelected`, the rows select-all covers). `BulkEdit` is limited to exactly one row only on a query the server marks `disableBulkEdit`; on any other query it edits every selected row (the save carries `bulkObjectIds`).
+- **`New` and `AddReference`** are two independent actions. (Core 5.69 and earlier folded them into one `AddReference` action with `New …` / `Existing` options and hid both originals.)
+- **`Edit` / `EndEdit` / `CancelEdit`** toggle with `IsInEdit`: `Edit` shows outside edit, `EndEdit` and `CancelEdit` inside it. `EndEdit` can execute once the object is dirty; `CancelEdit` can execute in edit, but on a `StayInEdit` object only once it is dirty.
+
 ### Downloading files
 
 An action that returns a stream (server: `Manager.Current.RegisterStream(...)`) comes back from `Execute` as a `Vidyano.RegisteredStream` PO; `Execute` downloads it for you and hands it to `Hooks.OnStream(name, stream)` — override that to save or inspect the file (the stream is disposed when the hook returns). Calling `client.ExecuteActionAsync` directly skips that step; fetch it yourself with `client.GetStreamAsync(registeredStream)`.
