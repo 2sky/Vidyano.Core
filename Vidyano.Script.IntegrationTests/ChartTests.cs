@@ -66,14 +66,16 @@ public sealed class ChartTests
     public async Task Chart_IsClearedByTheNextVerb()
     {
         // The capture is per-verb, like the ClientOperations buffer: after CHART, EXPECT Chart reads it, but
-        // once another executable verb runs (SEARCH), the stale chart is gone.
+        // once another executable verb runs (SEARCH), the stale chart is gone. The search is empty on purpose:
+        // any text search on Products currently hits a server NRE (date-column text search), which SEARCH now
+        // surfaces as a failure.
         AssertOk(await Run("""
             SIGN-IN admin / admin
             OPEN MenuItem Home/Products
             EXPECT Chart IS NULL
             CHART "ByColor"
             EXPECT Chart IS NOT NULL
-            SEARCH "Widget"
+            SEARCH ""
             EXPECT Chart IS NULL
             """));
     }

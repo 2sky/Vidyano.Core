@@ -6,8 +6,8 @@ using Xunit;
 namespace Vidyano.Script.Tests;
 
 /// <summary>
-/// Parser/grammar coverage for the <c>EXPECTING ERROR</c> suffix on the fallible verbs SAVE and
-/// ACTION. The suffix flips the verb's success polarity at run time (it passes iff the server returns
+/// Parser/grammar coverage for the <c>EXPECTING ERROR</c> suffix on the fallible verbs SAVE,
+/// ACTION and SEARCH. The suffix flips the verb's success polarity at run time (it passes iff the server returns
 /// an error notification); these tests only assert the parse shape — runtime polarity needs a live
 /// server, like the rest of the session-driving behavior. Lint-only, mirroring
 /// <see cref="GrammarRefreshLintTests"/>.
@@ -111,6 +111,51 @@ public sealed class ExpectingErrorLintTests
         Assert.True(stmt.ExpectError);
     }
 
+    // --- SEARCH EXPECTING ERROR ----------------------------------------------------------------
+
+    [Fact]
+    public void Search_ExpectingError_SetsFlag()
+    {
+        var stmt = SingleStatement<SearchStmt>("SEARCH \"Boom\" EXPECTING ERROR");
+        var lit = Assert.IsType<LiteralExpr>(stmt.Text);
+        Assert.Equal("Boom", lit.Value);
+        Assert.True(stmt.ExpectError);
+    }
+
+    [Fact]
+    public void Search_Bare_DoesNotSetFlag()
+    {
+        var stmt = SingleStatement<SearchStmt>("SEARCH \"Boom\"");
+        Assert.False(stmt.ExpectError);
+    }
+
+    [Fact]
+    public void SearchDetail_NoText_ExpectingError_SetsFlag()
+    {
+        // The detail form's text is optional, so EXPECTING right after the name is the suffix, not the text.
+        var stmt = SingleStatement<SearchStmt>("SEARCH Detail \"Lines\" EXPECTING ERROR");
+        Assert.Equal("Lines", stmt.DetailName);
+        Assert.Null(stmt.Text);
+        Assert.True(stmt.ExpectError);
+    }
+
+    [Fact]
+    public void SearchDetail_WithText_ExpectingError_SetsFlag()
+    {
+        var stmt = SingleStatement<SearchStmt>("SEARCH Detail \"Lines\" \"Boom\" EXPECTING ERROR");
+        Assert.Equal("Lines", stmt.DetailName);
+        Assert.NotNull(stmt.Text);
+        Assert.True(stmt.ExpectError);
+    }
+
+    [Fact]
+    public void Search_NoText_ExpectingError_Diagnoses()
+    {
+        // A current-query SEARCH needs text — EXPECTING must not be swallowed as the search text.
+        var diags = VidyanoScript.Lint("SEARCH EXPECTING ERROR");
+        Assert.Contains(diags, d => d.Message.Contains("SEARCH needs text"));
+    }
+
     // --- Malformed suffix (EXPECTING not followed by ERROR) ------------------------------------
 
     [Theory]
@@ -118,6 +163,8 @@ public sealed class ExpectingErrorLintTests
     [InlineData("SAVE EXPECTING FOO")]
     [InlineData("ACTION Delete EXPECTING")]
     [InlineData("ACTION Delete EXPECTING WARNING")]
+    [InlineData("SEARCH Boom EXPECTING")]
+    [InlineData("SEARCH Detail \"Lines\" EXPECTING FOO")]
     public void ExpectingWithoutError_Diagnoses(string body)
     {
         var diags = VidyanoScript.Lint(body);
@@ -134,6 +181,8 @@ public sealed class ExpectingErrorLintTests
     [InlineData("ACTION Delete EXPECTING ERROR")]
     [InlineData("ACTION Delete = \"Yes\" EXPECTING ERROR")]
     [InlineData("ACTION Detail \"Lines\" Delete EXPECTING ERROR")]
+    [InlineData("SEARCH \"Boom\" EXPECTING ERROR")]
+    [InlineData("SEARCH Detail \"Lines\" EXPECTING ERROR")]
     public void DocumentedForms_LintClean(string body)
     {
         AssertClean(body);

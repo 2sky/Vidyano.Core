@@ -10,7 +10,8 @@ namespace Vidyano.Script.IntegrationTests;
 /// API — no config files, no database. Fixtures are deterministic so assertions like
 /// <c>EXPECT TotalItems = 3</c> are stable. Shaped to exercise each .visc verb family: an editable PO
 /// (EDIT/SET/SAVE), a reference (SET/FOLLOW), a detail query (SEARCH/EXPECT Detail), a custom action
-/// returning a notification (ACTION), a save that fails on a sentinel (SAVE EXPECTING ERROR), a
+/// returning a notification (ACTION), a save that fails on a sentinel (SAVE EXPECTING ERROR), a text
+/// search that fails on a sentinel (SEARCH EXPECTING ERROR), a
 /// BinaryFile attribute (SET = FILE), an action that raises a retry dialog (CONFIRM), and a
 /// multi-lingual <see cref="Product.Title"/> (SET/EXPECT … LANGUAGE; languages live in
 /// <see cref="InProcessVidyanoBackend"/>).
@@ -28,6 +29,12 @@ public sealed class ShopContext : NullTargetContext
     /// mirroring the web client). It carries no category, so the per-category detail counts other tests assert
     /// are unaffected.</summary>
     public const string UnloadableProductName = "Faulty";
+
+    /// <summary>The search text <see cref="ProductActions.OnTextSearch"/> rejects by throwing — the search-time
+    /// analog of <see cref="FailOnServer"/>. The client lands the failed ExecuteQuery as an Error notification on
+    /// the searched query, which <c>SEARCH</c> must surface (and <c>SEARCH … EXPECTING ERROR</c> can assert).
+    /// Applies to every Products query, so the per-category detail query fails the same way.</summary>
+    public const string UnsearchableText = "Boom";
 
     // NullTargetContext persists through these collections, which are process-global (the Minimal API
     // has no per-app data store). Tests share one booted app, so each test re-seeds via Reset() to stay
@@ -222,6 +229,16 @@ public sealed class ProductActions(ShopContext context)
         base.QueryExecuted(args);
 
         args.RemoveColumns(nameof(Product.Discontinued));
+    }
+
+    /// <summary>Fails the text search on <see cref="ShopContext.UnsearchableText"/> — a deterministic server-side
+    /// search error, independent of the server's own text-search handlers.</summary>
+    protected override Source<Product> OnTextSearch(Source<Product> source, TextSearchArgs args)
+    {
+        if (args.Text == ShopContext.UnsearchableText)
+            throw new InvalidOperationException($"Searching for '{ShopContext.UnsearchableText}' is not supported.");
+
+        return base.OnTextSearch(source, args);
     }
 
     public override void OnSave(PersistentObject obj)
