@@ -94,6 +94,39 @@ public sealed class RefreshTests
     }
 
     [Fact]
+    public async Task OptionAction_RefreshKeepsTheSelection()
+    {
+        // `ACTION X = "label"` runs through Core's ActionBase.Execute(option), not the direct call: it must refresh by
+        // the same rules (KeepSelectionOnRefresh).
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            SELECT-ROWS WHERE Name = "Widget"
+            ACTION AddSampleWithOptions = "Quietly"
+            EXPECT TotalItems = 5
+            EXPECT Selection.Count = 1
+            """));
+    }
+
+    [Theory]
+    [InlineData("""= "Announce" """)]          // Core's Execute(option)
+    [InlineData("""(MenuLabel="Announce")""")] // the direct call
+    public async Task Action_ReturningANotification_StillReSearchesTheGrid(string form)
+    {
+        // The web client shows a returned notification once the re-search is done instead of skipping the re-search.
+        AssertOk(await Run($$"""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            SELECT-ROWS WHERE Name = "Widget"
+            ACTION AddSampleWithOptions {{form}}
+            EXPECT TotalItems = 5
+            EXPECT Selection.Count = 1
+            EXPECT Notification = "{{AddSampleWithOptions.Announcement}}"
+            EXPECT Notification.Type = "OK"
+            """));
+    }
+
+    [Fact]
     public async Task Action_OnADetailQuery_ReSearchesTheDetail()
     {
         AssertOk(await Run("""

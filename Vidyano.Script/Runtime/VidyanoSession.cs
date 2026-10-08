@@ -2080,13 +2080,17 @@ public sealed class VidyanoSession : IDisposable
             // action ran against — the query for a query action, else the parent PO — so EXPECT
             // Notification can read it, and never push it as a navigable frame. Fail the op only on an
             // Error (so ACTION/SAVE … EXPECTING ERROR pins it); an info/warning notification surfaces but
-            // passes, faithful to the toast a browser shows.
+            // passes, faithful to the toast a browser shows. Core's Execute(option) has already placed it — after its
+            // refresh, and only if that search left no error of its own — so only the direct call copies it here.
             if (result is { FullTypeName: "Vidyano.Notification" })
             {
-                if (action is QueryAction && (detailQuery ?? CurrentQuery) is { } notifiedQuery)
-                    notifiedQuery.SetNotification(result.Notification, result.NotificationType);
-                else
-                    CurrentPo?.SetNotification(result.Notification, result.NotificationType);
+                if (optionLabel is null)
+                {
+                    if (action is QueryAction && (detailQuery ?? CurrentQuery) is { } notifiedQuery)
+                        notifiedQuery.SetNotification(result.Notification, result.NotificationType);
+                    else
+                        CurrentPo?.SetNotification(result.Notification, result.NotificationType);
+                }
 
                 return result.NotificationType == NotificationType.Error
                     ? OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, result.Notification, loc))
