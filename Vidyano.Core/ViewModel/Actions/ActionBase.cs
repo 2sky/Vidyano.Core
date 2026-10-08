@@ -26,8 +26,9 @@ namespace Vidyano.ViewModel.Actions
             Query = query;
 
             Options = definition.Options;
+            SelectionRule = definition.SelectionRule;
 
-            client = ((ViewModelBase)query ?? parent).Client;
+            client =((ViewModelBase)query ?? parent).Client;
             Command = new ActionCommand(async obj => await client.Hooks.OnActionCommand(this, obj).ConfigureAwait(false), _ => CanExecute, this, "CanExecute");
 
             CanExecute = query == null;
@@ -63,7 +64,11 @@ namespace Vidyano.ViewModel.Actions
             set => SetProperty(ref _CanExecute, value);
         }
 
-        public bool HasSelectionRule => definition.SelectionRule != ExpressionParser.AlwaysTrue;
+        // Starts as the definition's rule; a query may tighten it for its own action (Query: disableBulkEdit)
+        // without touching the definition every query in the session shares.
+        internal Func<int, bool> SelectionRule { get; set; }
+
+        public bool HasSelectionRule => SelectionRule != ExpressionParser.AlwaysTrue;
 
         internal virtual Definition[] DependentActions => Array.Empty<Definition>();
 

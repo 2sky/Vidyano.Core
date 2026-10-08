@@ -62,10 +62,13 @@ namespace Vidyano.ViewModel
             else
                 PinnedActions = Actions = Array.Empty<QueryAction>();
 
-            var newAction = Actions.OfType<New>().FirstOrDefault();
-            var addAction = Actions.FirstOrDefault(a => a.Name == "AddReference");
-            if (newAction != null && addAction != null)
-                Actions = EnumerableEx.Return(new AddAndNewAction(newAction, addAction)).Concat(Actions).ToArray();
+            // Like the web client (query.ts), a query the server marks disableBulkEdit bulk-edits one row at a time;
+            // any other query keeps the server's BulkEdit selection rule.
+            if ((bool?)model["disableBulkEdit"] == true && GetAction("BulkEdit") is QueryAction bulkEdit)
+            {
+                bulkEdit.SelectionRule = ExpressionParser.Get("=1");
+                bulkEdit.Invalidate(0);
+            }
 
             var result = (JObject)model["result"];
             if (result != null)

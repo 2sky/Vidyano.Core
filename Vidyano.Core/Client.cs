@@ -582,9 +582,6 @@ namespace Vidyano
                 CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
 
                 await UpdateSession(response).ConfigureAwait(false);
-
-                var bulkEdit = Actions["BulkEdit"];
-                bulkEdit.SelectionRule = ExpressionParser.Get("=1");
             }
             catch (Exception e)
             {
