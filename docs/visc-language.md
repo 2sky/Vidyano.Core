@@ -238,9 +238,17 @@ All three `OPEN` forms take the suffix to assert the open is **refused** — the
 - **`OPEN Query <id>`** — a refused query-load (no such query, or access-denied).
 - **`OPEN MenuItem <path>`** — a path that does not resolve in this user's menu (the natural way to assert a permission/visibility boundary), or a refused load of the entry it points at.
 
-Two caveats apply to those three OPEN forms (but **not** to `OPEN-ROW`, below): Core throws away the error PO/query on a refused open, so **no frame is pushed and `EXPECT Notification` cannot follow** (the message is only in the run diagnostic); and because Core collapses every open failure into one error channel, a refused open is **indistinguishable from a transport fault** here (unlike SAVE/ACTION, which a transport fault still fails). To assert a row is gone *and* read state afterwards, prefer a query re-search (`SELECT-ROWS WHERE … → EXPECT Selection.Count = 0`).
+A refused open pushes **no frame**, yet the server's refusal message is still readable: until the next verb, `EXPECT Notification` / `EXPECT Notification.Type` read **the refusal** (type `Error`) — the error the browser shows for a record it can't open — even when an earlier frame is still on top:
 
-**`OPEN-ROW … EXPECTING ERROR`** asserts a row whose PO **load** is refused server-side (e.g. its `OnLoad` ends in an error). Unlike the three OPEN forms, it does **not** suffer the "can't read the notification" caveat: a refused row-open sets the error on the **still-current calling query** (no PO frame is pushed, so that query stays the top frame), mirroring the web client. So `EXPECT Notification` / `EXPECT Notification.Type = "Error"` **can** follow it to pin the message. Only the refused *load* (a `server-error`) is absorbed — a bad row *selection* (index out of range, or a `WHERE` matching no/many rows) is a client-side authoring fault that still fails loudly.
+```visc
+OPEN PersistentObject "ChargePointConnector" "{{connectorId}}" EXPECTING ERROR
+EXPECT NavStack.Depth = 0
+EXPECT Notification CONTAINS "card is not accepted on this connector"
+```
+
+One caveat applies to those three OPEN forms: because Core collapses every open failure into one error channel, a refused open is **indistinguishable from a transport fault** here (unlike SAVE/ACTION, which a transport fault still fails) — pin the message with `EXPECT Notification` to tell them apart. To assert a row is gone *and* read state afterwards, prefer a query re-search (`SELECT-ROWS WHERE … → EXPECT Selection.Count = 0`).
+
+**`OPEN-ROW … EXPECTING ERROR`** asserts a row whose PO **load** is refused server-side (e.g. its `OnLoad` ends in an error). A refused row-open sets the error on the **still-current calling query** (no PO frame is pushed, so that query stays the top frame), mirroring the web client, so `EXPECT Notification` / `EXPECT Notification.Type = "Error"` read it there. It only works when a query lists the record; to open a record by id, use `OPEN PersistentObject … EXPECTING ERROR`. Only the refused *load* (a `server-error`) is absorbed — a bad row *selection* (index out of range, or a `WHERE` matching no/many rows) is a client-side authoring fault that still fails loudly.
 
 ### Server retry dialogs — `CONFIRM`
 
@@ -600,7 +608,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `CHART "<name>" [Detail "<n>"]` | Run a named query chart; capture its JSON for `EXPECT Chart`. |
 | `SAVE \| ACTION \| CONFIRM … EXPECTING ERROR` | Assert the negative (error-notification) path. |
-| `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
+| `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` reads the refusal until the next verb). |
 | `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |
 | `CONFIRM "<label>" \| CONFIRM ID <i> [EXPECTING ERROR]` | Answer an open server retry dialog (`EXPECTING ERROR` asserts the resumed action fails). |
 | `ADD-REFERENCE [<i> \| WHERE <col> = <value>]` | Confirm an Add-Reference picker an `ACTION` opened (a custom `AddReference(...)` result or a query's built-in `AddReference`), linking the selected (or inline-selected) rows. |

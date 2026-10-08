@@ -526,8 +526,8 @@ public sealed class Interpreter
             oid = AsString(o.Value);
         }
         var res = await Current.OpenPersistentObjectAsync(AsString(t.Value), oid, op.AsHandle, op.Location).ConfigureAwait(false);
-        // Unlike SAVE/ACTION, a refused point-load surfaces as a ServerError (Core throws and discards the
-        // error PO — there's no notification left to read), so the expected error kind here is ServerError.
+        // Unlike SAVE/ACTION, a refused point-load surfaces as a ServerError (Core throws; the session keeps the
+        // message as LastOpenRefusal for EXPECT Notification), so the expected error kind here is ServerError.
         return op.ExpectError ? WrapExpectingError(op, res, ErrorKind.ServerError) : Wrap(op, res);
     }
 
@@ -1339,9 +1339,15 @@ public sealed class Interpreter
                 }
             // Notification lives on whichever frame is current: the PO if one is open, otherwise the Query
             // (a query action surfaces its notification on the Query — see VidyanoSession.ExecuteActionAsync).
+            // A refused open by the previous verb pushed no frame, so its error wins — it's the message the
+            // browser would show, and the current frame's notification predates that verb.
             case ExpectSubjectKind.Notification:
+                if (Current.LastOpenRefusal is { } refusal)
+                    return OpResult<object?>.Success(refusal);
                 return OpResult<object?>.Success(po is not null ? po.Notification : query?.Notification);
             case ExpectSubjectKind.NotificationType:
+                if (Current.LastOpenRefusal is not null)
+                    return OpResult<object?>.Success(NotificationType.Error.ToString());
                 return OpResult<object?>.Success(
                     po is not null ? (po.HasNotification ? po.NotificationType.ToString() : null)
                     : query is { HasNotification: true } ? query.NotificationType.ToString() : null);
@@ -2116,9 +2122,9 @@ public sealed class Interpreter
     /// <item>SAVE / ACTION → <see cref="ErrorKind.AssertNotificationError"/> (the server returned an error
     /// notification, which the session leaves on the current PO/Query so a following
     /// <c>EXPECT Notification …</c> can still pin the message).</item>
-    /// <item>OPEN PersistentObject → <see cref="ErrorKind.ServerError"/> (a refused point-load — Core throws
-    /// and discards the error PO, so <c>EXPECT Notification</c> can NOT follow, and a transport fault is
-    /// indistinguishable from a server refusal here).</item>
+    /// <item>OPEN PersistentObject → <see cref="ErrorKind.ServerError"/> (a refused point-load — Core throws,
+    /// so no frame is pushed; the session keeps the message as <see cref="VidyanoSession.LastOpenRefusal"/> for
+    /// <c>EXPECT Notification</c>. A transport fault is indistinguishable from a server refusal here).</item>
     /// <item>OPEN Query → <see cref="ErrorKind.ResolveQuery"/> / <see cref="ErrorKind.ServerError"/>.</item>
     /// <item>OPEN MenuItem → <see cref="ErrorKind.ResolveMenuItem"/> plus the kinds a resolved leaf load can
     /// raise (<see cref="ErrorKind.ResolveQuery"/> / <see cref="ErrorKind.ServerError"/>).</item>

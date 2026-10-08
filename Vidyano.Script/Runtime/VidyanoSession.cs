@@ -139,13 +139,28 @@ public sealed class VidyanoSession : IDisposable
     /// the immediately preceding verb.</summary>
     public void ResetLastChart() => _lastChart = null;
 
-    /// <summary>Clears every per-verb observable (operations, stream, chart) in one go. The interpreter calls
-    /// this before every executable verb so the <c>EXPECT</c>s that follow read only that verb's results.</summary>
+    /// <summary>The server's refusal message when the most recent verb's open (<c>OPEN PersistentObject</c> /
+    /// <c>Query</c> / <c>MenuItem</c>, <c>FOLLOW</c>, <c>FOLLOW-NAVIGATE</c>) was refused, or <c>null</c>. A refused
+    /// open pushes no frame, so there is no PO or Query to carry the error the browser would show; this holds it for
+    /// <c>EXPECT Notification</c> until the next executable verb.</summary>
+    public string? LastOpenRefusal { get; private set; }
+
+    /// <summary>Clears every per-verb observable (operations, stream, chart, open refusal) in one go. The interpreter
+    /// calls this before every executable verb so the <c>EXPECT</c>s that follow read only that verb's results.</summary>
     public void ResetVerbObservables()
     {
         ResetLastOperations();
         ResetLastStream();
         ResetLastChart();
+        LastOpenRefusal = null;
+    }
+
+    /// <summary>A refused open: the server faulted the load (not found, access denied, an Error raised while
+    /// loading). Records the message as <see cref="LastOpenRefusal"/> and fails with a server error.</summary>
+    private OpResult RefusedOpen(Exception ex, SourceLocation loc)
+    {
+        LastOpenRefusal = ex.Message;
+        return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
     }
 
     /// <summary>The underlying Vidyano client. Exposed so library callers can drop down when needed.</summary>
@@ -243,7 +258,7 @@ public sealed class VidyanoSession : IDisposable
         }
         catch (Exception ex)
         {
-            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+            return RefusedOpen(ex, loc);
         }
     }
 
@@ -262,7 +277,7 @@ public sealed class VidyanoSession : IDisposable
         }
         catch (Exception ex)
         {
-            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+            return RefusedOpen(ex, loc);
         }
     }
 
@@ -900,7 +915,7 @@ public sealed class VidyanoSession : IDisposable
         }
         catch (Exception ex)
         {
-            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+            return RefusedOpen(ex, loc);
         }
     }
 

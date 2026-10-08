@@ -272,6 +272,48 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task OpenPo_Refused_ExpectingError_ReadsRefusalNotification()
+    {
+        // The "Faulty" product's load ends in an Error (ProductActions.OnLoad), so the point-open by id is refused.
+        // No frame is pushed, but the refusal message is what EXPECT Notification reads next — the error a browser
+        // shows for a record it can't open.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN PersistentObject "Product" "4" EXPECTING ERROR
+            EXPECT NavStack.Depth = 0
+            EXPECT Notification.Type = "Error"
+            EXPECT Notification CONTAINS "cannot be loaded"
+            """));
+    }
+
+    [Fact]
+    public async Task OpenPo_Refusal_WinsOverTheCurrentFrame_UntilTheNextVerb()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            OPEN PersistentObject "Product" "4" EXPECTING ERROR
+            EXPECT NavStack.Top.Name = "Product"
+            EXPECT PO.ObjectId = "1"
+            EXPECT Notification CONTAINS "cannot be loaded"
+            GO-BACK
+            EXPECT Notification IS NULL
+            """));
+    }
+
+    [Fact]
+    public async Task OpenQuery_Refused_ExpectingError_ReadsRefusalNotification()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN Query "NoSuchQuery" EXPECTING ERROR
+            EXPECT Notification.Type = "Error"
+            EXPECT Notification IS NOT NULL
+            """));
+    }
+
+    [Fact]
     public async Task OpenPo_ExistingId_ExpectingError_Fails()
     {
         // Inverse guard: EXPECTING ERROR on an id that DOES open must fail (the asserted negative path

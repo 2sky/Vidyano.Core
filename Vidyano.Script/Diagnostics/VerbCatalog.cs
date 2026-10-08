@@ -73,7 +73,7 @@ public static class VerbCatalog
             + "mode `OPEN PersistentObject`/`OPEN Query` require reachability; `OPEN MenuItem` walks the "
             + "user's menu. Any OPEN form takes a trailing `EXPECTING ERROR` to assert the open is refused "
             + "(not-found / access-denied / unresolved menu path) — it passes only if the open fails and "
-            + "pushes no frame (so `EXPECT Notification` can't follow).",
+            + "pushes no frame; until the next verb `EXPECT Notification` reads the server's refusal message.",
             ["OPEN MenuItem Sales/Customers", "OPEN Query Customers AS @customers", "OPEN PersistentObject \"Customer\" \"42\" AS @c", "OPEN PersistentObject \"Customer\" \"deleted-id\" EXPECTING ERROR", "OPEN MenuItem Admin/Users EXPECTING ERROR"],
             "navigation", []),
 
