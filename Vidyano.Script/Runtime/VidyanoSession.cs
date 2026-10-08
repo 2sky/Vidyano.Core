@@ -106,6 +106,15 @@ public sealed class VidyanoSession : IDisposable
         // fields above). Returns "-1" (Core's cancel sentinel) whenever no park is armed — a retry raised
         // outside an ACTION/SAVE window has no dialog to surface, so cancelling keeps it from hanging.
         _hooks.RetryActionHandler = HandleRetryFromHookAsync;
+
+        // Core's ActionBase.Execute (the ACTION X = "option" path) fetches a returned RegisteredStream itself
+        // and delivers it through Hooks.OnStream — buffer that delivery so the session never fetches it twice.
+        _hooks.StreamObserver = (name, stream) =>
+        {
+            using var buffer = new MemoryStream();
+            stream.CopyTo(buffer);
+            _lastStream = new CapturedStream(name, buffer.ToArray());
+        };
     }
 
     /// <summary>All client operations seen since the session started, in arrival order.</summary>
@@ -1857,6 +1866,9 @@ public sealed class VidyanoSession : IDisposable
             && (optionLabel is null || optionLabel == action.Options[^1]))
             return await OpenBuiltInAddReferenceAsync(addSource, addReferenceParent, parameters, loc).ConfigureAwait(false);
 
+        // Cleared up front so a stream from an earlier call can't stand in for this action's download.
+        _lastStream = null;
+
         // Run the server call(s) inside the parking coroutine: a RetryAction raised by Core's
         // ExecuteAction loop parks the action here and surfaces as a dialog frame the script answers
         // with CONFIRM (see the coroutine fields). With no retry it behaves exactly as a direct await.
@@ -1864,6 +1876,24 @@ public sealed class VidyanoSession : IDisposable
         {
         try
         {
+            // The built-in exports never reach ExecuteAction in the web client (actions.ts ExportToExcel /
+            // ExportToCsv): they post a single GetStream that runs the action and returns the file. Mirror it —
+            // the action's own parent + query, no selection (the web client exports the whole query), and the
+            // option folded into the parameters the way Action._getParameters does.
+            if (action is QueryAction && action.Name is "ExportToExcel" or "ExportToCsv")
+            {
+                var exportParameters = parameters?.ToDictionary(kv => kv.Key, kv => kv.Value);
+                if (optionLabel is not null)
+                    exportParameters = new Dictionary<string, string>
+                    {
+                        ["MenuOption"] = Vidyano.Client.ToServiceString(Array.IndexOf(action.Options, optionLabel)),
+                        ["MenuLabel"] = optionLabel,
+                    };
+                return await CaptureStreamAsync(
+                    () => Client.GetStreamAsync("Query." + action.Name, action.Parent, action.Query, parameters: exportParameters),
+                    action.Query, loc).ConfigureAwait(false);
+            }
+
             PersistentObject? result;
             if (optionLabel is not null)
             {
@@ -1935,33 +1965,18 @@ public sealed class VidyanoSession : IDisposable
             }
             // An action that returns a stream yields a "Vidyano.RegisteredStream" wrapper PO. The web client
             // (ActionBase) auto-fetches it via GetStream and hands the bytes to Hooks.OnStream — mirror that:
-            // fetch, buffer (name, bytes) for EXPECT Stream.*, and never push the wrapper as a navigable
-            // frame. A fetch failure lands as a notification on the frame the action ran against (query action
-            // → the query, else the parent PO), faithful to ActionBase, and fails the verb so
-            // ACTION … EXPECTING ERROR can pin it. (A server OnGetStream fault is served as the stream *body*,
-            // not a transport error, so it arrives as bytes and is assertable via EXPECT Stream.Text.)
+            // fetch, buffer (name, bytes) for EXPECT Stream.*, and never push the wrapper as a navigable frame.
             if (result is { FullTypeName: "Vidyano.RegisteredStream" })
             {
-                try
-                {
-                    var (stream, streamName) = await Client.GetStreamAsync(result).ConfigureAwait(false);
-                    using var buffer = new MemoryStream();
-                    if (stream != null)
-                    {
-                        using (stream)
-                            await stream.CopyToAsync(buffer).ConfigureAwait(false);
-                    }
-                    _lastStream = new CapturedStream(streamName, buffer.ToArray());
+                if (optionLabel is null)
+                    return await CaptureStreamAsync(() => Client.GetStreamAsync(result), action.Query, loc).ConfigureAwait(false);
+
+                // Core's Execute(option) already fetched it: delivered through Hooks.OnStream (→ _lastStream),
+                // or, on a fetch fault, set as an error notification on the frame the action ran against.
+                if (_lastStream is not null)
                     return OpResult.Success;
-                }
-                catch (Exception ex)
-                {
-                    if (action is QueryAction && (detailQuery ?? CurrentQuery) is { } sq)
-                        sq.SetNotification(ex.Message, NotificationType.Error);
-                    else
-                        CurrentPo?.SetNotification(ex.Message, NotificationType.Error);
-                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, ex.Message, loc));
-                }
+                var fault = action.Query is { } faultQuery ? faultQuery.Notification : CurrentPo?.Notification;
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, fault ?? $"Action '{name}' returned a stream that could not be downloaded.", loc));
             }
             if (result != null)
             {
@@ -2001,6 +2016,34 @@ public sealed class VidyanoSession : IDisposable
 
         _navStack.Add(new AddReferenceEntry(picker, parent, "AddReference", source, parameters));
         return OpResult.Success;
+    }
+
+    /// <summary>Downloads a file the way the web client's <c>getStream</c> does and buffers it in
+    /// <see cref="LastStream"/> — for a returned <c>Vidyano.RegisteredStream</c> and for the built-in exports.
+    /// A failed fetch (non-2xx) lands as an error notification on the frame the action ran against
+    /// (<paramref name="actionQuery"/> for a query action, else the current PO), faithful to <c>ActionBase</c>,
+    /// and fails the verb so <c>ACTION … EXPECTING ERROR</c> can pin it. A server-side fault is served as the
+    /// stream <i>body</i>, not a transport error, so it arrives as bytes and is assertable via
+    /// <c>EXPECT Stream.Text</c>.</summary>
+    private async Task<OpResult> CaptureStreamAsync(Func<Task<Tuple<Stream, string>>> fetch, Query? actionQuery, SourceLocation loc)
+    {
+        try
+        {
+            var (stream, streamName) = await fetch().ConfigureAwait(false);
+            using var buffer = new MemoryStream();
+            using (stream)
+                await stream.CopyToAsync(buffer).ConfigureAwait(false);
+            _lastStream = new CapturedStream(streamName, buffer.ToArray());
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            if (actionQuery is not null)
+                actionQuery.SetNotification(ex.Message, NotificationType.Error);
+            else
+                CurrentPo?.SetNotification(ex.Message, NotificationType.Error);
+            return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, ex.Message, loc));
+        }
     }
 
     /// <summary>Executes a named query chart via the <c>QueryFilter.Chart</c> system action — the same call the

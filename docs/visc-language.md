@@ -216,7 +216,18 @@ A query action invoked with **no selection** posts an empty selection (matching 
 
 A custom action can fail two ways, and both surface as an `ACTION` failure with the message copied onto the current frame for `EXPECT Notification …` to read: the server sets an error notification on the PO/query and returns null, **or** the action *returns* a `Notification(message, Error)` result (the toast shape — `return Notification(...)`). A returned **non-error** notification (info/warning) is copied onto the frame too — so `EXPECT Notification …` can read it — but does **not** fail the verb, faithful to the toast a browser shows.
 
-An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer.
+An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer. The stream is fetched exactly once, whichever `ACTION` form ran it (an `= "option"` action is fetched by Core itself and handed to the runner).
+
+The built-in query **exports** — `ACTION ExportToExcel` / `ACTION ExportToCsv` — download the same way. Like the web client, the runner runs them as a single `GetStream` request (the action's parent and query, never `ExecuteAction`), so the generated file lands in `EXPECT Stream.*` with no extra verb and no frame pushed. The whole query is exported as the client holds it — the selection is not sent, exactly as in the browser — and a `Detail "<name>"` clause exports a detail query. An export that fails server-side is served as an `Error.txt` stream whose `Stream.Text` carries the message.
+
+```visc
+OPEN MenuItem Home/Products
+ACTION ExportToCsv
+EXPECT Stream.Name = "Products.csv"
+EXPECT Stream.Text CONTAINS "Widget"
+ACTION ExportToExcel
+EXPECT Stream.Text MATCHES "^PK"                ## an .xlsx is a zip package
+```
 
 ### Asserting the negative path — `EXPECTING ERROR`
 
@@ -373,7 +384,7 @@ EXPECT Stream.Text CONTAINS "%PDF"
 EXPECT Stream IS NULL                            ## after another verb — the capture is per-verb
 ```
 
-When an action returns a stream, the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
+When an action returns a stream — or is one of the built-in exports (`ExportToExcel` / `ExportToCsv`) — the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
 
 **Charts** (the last `CHART` result; `IS NULL` when none was captured)
 

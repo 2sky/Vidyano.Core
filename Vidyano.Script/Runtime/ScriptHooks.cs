@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using Vidyano.ViewModel;
@@ -45,8 +46,16 @@ internal sealed class ScriptHooks : Hooks
     /// is armed, which keeps a stray server call from hanging the session.</summary>
     public Func<string, string?, string[], PersistentObject?, Task<string>>? RetryActionHandler { get; set; }
 
+    /// <summary>Invoked when Core delivers a downloaded stream (<see cref="Hooks.OnStream"/>) — what
+    /// <c>ActionBase.Execute</c> does with a returned <c>Vidyano.RegisteredStream</c>. Set by
+    /// <see cref="VidyanoSession"/> to buffer it for <c>EXPECT Stream.*</c>. Core disposes the stream as soon
+    /// as this returns, so the observer must read it synchronously.</summary>
+    public Action<string?, Stream>? StreamObserver { get; set; }
+
     protected override Task<string> OnRetryAction(string title, string message, string[] options, PersistentObject persistentObject)
         => RetryActionHandler?.Invoke(title, message, options, persistentObject) ?? Task.FromResult("-1");
+
+    protected override void OnStream(string name, Stream stream) => StreamObserver?.Invoke(name, stream);
 
     // Cross-assembly override of `protected internal` collapses to `protected` (the `internal`
     // portion isn't visible outside Vidyano.Core).
