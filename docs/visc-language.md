@@ -35,6 +35,7 @@ A few concepts the whole language is built on:
 
 - **The navigation stack.** `OPEN`/`OPEN-ROW`/`FOLLOW`/`FOLLOW-NAVIGATE` push frames; `GO-BACK`/`SAVE` pop them. The top frame is the "current" Query or PersistentObject (PO) — the implicit target of `SEARCH`, `EDIT`, `SET`, `ACTION`, and most `EXPECT`s. This mirrors the browser's back-stack.
 - **Sessions.** A script has one **default** session and any number of **named** ones, each with its own cookie jar / identity. `USE` switches which is active; all observable state swaps with it.
+- **Refreshes.** Whatever the web client re-loads after a verb — the grid of an action marked *refresh on completed*, the queries and records a server `Refresh` client operation names — is re-loaded before the next statement runs, so `ACTION Delete` → `EXPECT TotalItems` needs no `SEARCH`. Nothing the browser would leave stale is refreshed. See [Refreshing after an action](#refreshing-after-an-action).
 - **Totality.** `.visc` is **total** — every script provably halts. The only control flow is gates (`REQUIRES`/`CLEANUP`) and *bounded* loops (`REPEAT`, `FOR-EACH ROW`) whose bound is fixed before they run. There is no `WHILE`, no recursion, no arithmetic. Genuine computation belongs in a [`TOOL`](#tool) or the host. This is a deliberate constraint, not a missing feature.
 
 ---
@@ -119,7 +120,7 @@ SEARCH Detail "OrderLines"     ## load a named detail query's rows (empty filter
 SEARCH "Detail"                ## quoted -> searches the current query for the literal word "Detail"
 ```
 
-`SEARCH Detail "<name>"` retargets a detail query on the current PO, searching it in place to **load** its rows — so a following `EXPECT Detail … TotalItems` sees server-created state. A detail is lazy; load it before asserting on it.
+`SEARCH Detail "<name>"` retargets a detail query on the current PO, searching it in place to **load** its rows — so a following `EXPECT Detail … TotalItems` sees server-created state. A detail is lazy; load it before asserting on it. Once loaded, the refreshes the browser does keep it current (see [Refreshing after an action](#refreshing-after-an-action)); a `SEARCH` after an action is only needed where the browser would show stale rows too.
 
 ## Selecting rows
 
@@ -218,6 +219,23 @@ A custom action can fail two ways, and both surface as an `ACTION` failure with 
 
 An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer.
 
+### Refreshing after an action
+
+The web client re-loads data after an action in three cases, and `.visc` does the same — no more, no less — before the next statement runs, so an assertion reads what a user would see:
+
+```visc
+OPEN MenuItem Home/Products
+SELECT-ROWS WHERE Name = "Gizmo"
+ACTION Delete                     ## Delete refreshes on completion
+EXPECT TotalItems = 3             ## no SEARCH needed
+```
+
+- **The action's definition says *refresh query on completed*** (`RefreshQueryOnCompleted`, e.g. `Delete` or a custom action configured so): the query the action ran on — the nav-stack query, or the `Detail "<name>"` one — is re-searched, whatever the action returned (a record, a notification, a stream, nothing); not when it failed. The re-search clears the selection, unless the definition also says *keep selection on refresh* (`KeepSelectionOnRefresh`): then explicitly selected rows are re-selected by id when they are all still there, and a select-all (with whichever of its exclusions are still loaded) is restored. A PersistentObject action has no query, so it refreshes none — the records and details on screen stay as they were.
+- **The server queues a `Refresh` client operation** (`Manager.Current.QueueClientOperation(RefreshOperation…)`), in any verb's response: for a query, every open query with that id that has been searched — a Query frame anywhere on the navigation stack, or a detail query of a PersistentObject frame — is re-searched (after the operation's delay, if any); for a record, every PersistentObject frame of that type and id is re-fetched. A detail that was never loaded stays unloaded, and dialogs, Add-Reference pickers and a retry dialog's record are left alone, as in the browser. `EXPECT ClientOperation Refresh` still sees the operation.
+- **An Add-Reference picker closes** (see [Add-Reference pickers](#add-reference-pickers--add-reference)): the opening action's refresh above runs then — confirmed or dismissed — since the browser's action waits for its picker; a confirmed picker that a custom *query* action returned also re-searches that action's query.
+
+A query is re-searched at most once per statement. A refresh that fails lands as a notification on its query or record (as in the browser), not as a verb failure. A `SEARCH` after the action still works — it just re-searches again. The option form `ACTION X = "label"` refreshes through Core's `ActionBase.Execute`, which does not keep the selection.
+
 ### Asserting the negative path — `EXPECTING ERROR`
 
 ```visc
@@ -302,12 +320,12 @@ OPEN-ROW WHERE Name = "Tools"
 ACTION Detail "Members" AddReference      ## opens the lookup picker — nothing is posted yet
 EXPECT TotalItems = 2                     ## the picker lists the lookup source
 ADD-REFERENCE WHERE Name = "Gadget"       ## posts Query.AddReference on the Members detail
-SEARCH Detail "Members"                   ## reload the detail to see the new row
+EXPECT Detail "Members" TotalItems = 3    ## AddReference refreshes on completion: the detail is re-searched
 ```
 
 When the query also offers `New`, the client folds both into one `AddReference` action with options (`New …`, `Existing`); `ACTION Detail "Members" AddReference = "Existing"` (or `= ID <last>`) opens the same picker, while the `New` option runs `New`.
 
-While the picker is open the script is **frozen** to the verbs that drive, inspect, confirm, or dismiss it — `SEARCH` / `SELECT-ROWS` / `EXPECT` / `REQUIRES`, plus `ADD-REFERENCE` (confirm) and `GO-BACK` (dismiss without linking); anything else trips `state-add-reference-pending`. Confirming with **no selection** fails loudly (an add that adds nothing is always a mistake), and `ADD-REFERENCE` with **no picker open** fails with `state-no-add-reference-pending`. On success the picker frame pops, revealing the record beneath; reload its detail (`SEARCH Detail "<name>"`) to see the new link.
+While the picker is open the script is **frozen** to the verbs that drive, inspect, confirm, or dismiss it — `SEARCH` / `SELECT-ROWS` / `EXPECT` / `REQUIRES`, plus `ADD-REFERENCE` (confirm) and `GO-BACK` (dismiss without linking); anything else trips `state-add-reference-pending`. Confirming with **no selection** fails loudly (an add that adds nothing is always a mistake), and `ADD-REFERENCE` with **no picker open** fails with `state-no-add-reference-pending`. On success the picker frame pops, revealing the record beneath. Closing the picker refreshes what the browser would (see [Refreshing after an action](#refreshing-after-an-action)): the built-in Add re-searches its detail, and so does a custom action run on a query; a PersistentObject action such as `LinkProducts` has no query, so reload the detail (`SEARCH Detail "<name>"`) to see the new link — a user would have to as well.
 
 > **Removing a reference** has no dedicated verb — it is an ordinary selection-gated action on the *already-linked* rows. Select them on the relevant (detail) query and run the server's remove action:
 >

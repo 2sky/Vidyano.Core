@@ -122,6 +122,31 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 var link = model.GetOrCreateCustomAction(nameof(LinkProducts));
                 link.ShowedOn = ShowedOn.PersistentObject;
 
+                // Query-level actions that add a product and return nothing — the fixtures for the post-action
+                // refresh: the definition's RefreshQueryOnCompleted / KeepSelectionOnRefresh decide whether (and how)
+                // the client re-searches the grid.
+                var addSample = model.GetOrCreateCustomAction(nameof(AddSample));
+                addSample.ShowedOn = ShowedOn.Query;
+                addSample.RefreshQueryOnCompleted = true;
+
+                var addSampleKeep = model.GetOrCreateCustomAction(nameof(AddSampleKeepSelection));
+                addSampleKeep.ShowedOn = ShowedOn.Query;
+                addSampleKeep.RefreshQueryOnCompleted = true;
+                addSampleKeep.KeepSelectionOnRefresh = true;
+
+                var addSampleNoRefresh = model.GetOrCreateCustomAction(nameof(AddSampleNoRefresh));
+                addSampleNoRefresh.ShowedOn = ShowedOn.Query;
+                addSampleNoRefresh.RefreshQueryOnCompleted = false;
+
+                // PO-level action on ProductCategory that changes data and queues the Refresh client operations its
+                // Refresh parameter names — the fixture for applying them.
+                var reshuffle = model.GetOrCreateCustomAction(nameof(Reshuffle));
+                reshuffle.ShowedOn = ShowedOn.PersistentObject;
+
+                // Query-level custom AddReference: its picker's confirm re-searches the action's query.
+                var linkIntoQuery = model.GetOrCreateCustomAction(nameof(LinkIntoQuery));
+                linkIntoQuery.ShowedOn = ShowedOn.Query;
+
                 var administrators = model.GetOrCreateGroup("Administrators");
                 administrators.AddUserRight($"{nameof(HelloWorld)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(AskFirst)}/{Schema}.{nameof(Product)}");
@@ -132,6 +157,11 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 administrators.AddUserRight($"{nameof(ImportProducts)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(FailOnServer)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(LinkProducts)}/{Schema}.{nameof(ProductCategory)}");
+                administrators.AddUserRight($"{nameof(AddSample)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(AddSampleKeepSelection)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(AddSampleNoRefresh)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(Reshuffle)}/{Schema}.{nameof(ProductCategory)}");
+                administrators.AddUserRight($"{nameof(LinkIntoQuery)}/{Schema}.{nameof(Product)}");
             }));
 
         var app = builder.Build();

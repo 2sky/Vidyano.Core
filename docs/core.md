@@ -96,6 +96,15 @@ if (approve is { CanExecute: true })
     await approve.Execute(null);
 ```
 
+`Execute` re-searches the action's query afterwards when the server's action definition says so (`action.RefreshQueryOnCompleted`). A caller that posts the action itself with `client.ExecuteActionAsync` owns that refresh; `query.RefreshQueryAsync(keepSelection: action.KeepSelectionOnRefresh)` does it the way the web client does, keeping the selection (re-selected by id) when the definition asks for it:
+
+```csharp
+var delete = query.GetAction("Delete");
+await client.ExecuteActionAsync("Query.Delete", query.Parent, query, query.SelectedItems.ToArray());
+if (delete.RefreshQueryOnCompleted)
+    await query.RefreshQueryAsync(keepSelection: delete.KeepSelectionOnRefresh);
+```
+
 ## Demo application
 
 The [`Demo`](https://github.com/2sky/Vidyano.Core/tree/main/Demo) console app connects to the public demo service at `https://demo.vidyano.com`:

@@ -562,6 +562,8 @@ namespace Vidyano
                     DisplayName = (string)item["DisplayName"],
                     IsPinned = (bool)item["IsPinned"],
                     RefreshQueryOnCompleted = (bool)item["RefreshQueryOnCompleted"],
+                    // Absent on servers that predate it; null → false.
+                    KeepSelectionOnRefresh = (bool?)item["KeepSelectionOnRefresh"] ?? false,
                     Offset = (int)item["Offset"],
                     Options = ((string)item["Options"] ?? string.Empty).Trim().Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(str => str.Trim()).ToArray(),
                     SelectionRule = ExpressionParser.Get((string)item["SelectionRule"]),

@@ -72,6 +72,14 @@ public sealed class ShopContext : NullTargetContext
         ]);
     }
 
+    /// <summary>Adds a product to the store outside the client's view — what another user (or a server action)
+    /// does, so a query the client already searched is stale until it re-searches.</summary>
+    internal static void AddProduct(string name, string? category = null) =>
+        products.Add(new Product { Id = (products.Count + 1).ToString(), Name = name, Color = "Blue", Category = category });
+
+    internal static void AddCategory(string name) =>
+        categories.Add(new ProductCategory { Id = (categories.Count + 1).ToString(), Name = name });
+
     // English / Dutch / German title — the languages must match the WithLanguage(...) set in the backend.
     // NOTE: fully qualified. This file's namespace (Vidyano.Script.IntegrationTests) makes `Vidyano` an
     // enclosing namespace, so an unqualified `TranslatedString` would bind to Core's `Vidyano.TranslatedString`
@@ -381,6 +389,79 @@ public sealed class ImportProducts(ShopContext context) : CustomAction<ShopConte
 /// <see cref="CustomAction{T}"/> base the other fixtures use. Registered with <c>ShowedOn.PersistentObject</c>
 /// on ProductCategory in <see cref="InProcessVidyanoBackend"/>.</summary>
 public sealed class LinkProducts(ShopContext context) : AsyncCustomAction<ShopContext>(context)
+{
+    public override Task<PersistentObject?> ExecuteAsync(CustomActionArgs e)
+        => Task.FromResult<PersistentObject?>(AddReference("Products"));
+}
+
+/// <summary>Query-level actions whose definition says <c>RefreshQueryOnCompleted</c> (with
+/// <see cref="AddSampleKeepSelection"/> also <c>KeepSelectionOnRefresh</c>; <see cref="AddSampleNoRefresh"/> neither):
+/// it adds a "Sample" product and returns nothing, so only the client's post-action refresh shows the new row — the
+/// fixture for the .visc action refresh. Registered with <c>ShowedOn.Query</c> on Product in
+/// <see cref="InProcessVidyanoBackend"/>.</summary>
+public sealed class AddSample(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public const string SampleName = "Sample";
+
+    public override PersistentObject? Execute(CustomActionArgs e) => Add(e);
+
+    // Run on a category's detail grid (parent = the category), the sample joins that category.
+    internal static PersistentObject? Add(CustomActionArgs e)
+    {
+        ShopContext.AddProduct(SampleName, e.Parent is { Type: nameof(ProductCategory) } category ? category.ObjectId : null);
+        return null;
+    }
+}
+
+public sealed class AddSampleKeepSelection(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public override PersistentObject? Execute(CustomActionArgs e) => AddSample.Add(e);
+}
+
+public sealed class AddSampleNoRefresh(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public override PersistentObject? Execute(CustomActionArgs e) => AddSample.Add(e);
+}
+
+/// <summary>PO-level action on a ProductCategory that changes data behind the client's back — moves "Gadget" into the
+/// category, appends <see cref="Suffix"/> to its name, adds a "Garden" category — and returns nothing, queuing a
+/// <c>Refresh</c> client operation for each target named in the comma-separated <c>Refresh</c> parameter: <c>Detail</c>
+/// (the <c>ProductCategory_Products</c> detail query), <c>Categories</c> (the ProductCategories query) and <c>Self</c>
+/// (this category). The fixture for the .visc application of Refresh client operations. Registered with
+/// <c>ShowedOn.PersistentObject</c> on ProductCategory.</summary>
+public sealed class Reshuffle(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public const string Suffix = " (reshuffled)";
+
+    public override PersistentObject? Execute(CustomActionArgs e)
+    {
+        var categoryId = e.Parent!.ObjectId;
+        Context.Products.Single(p => p.Name == "Gadget").Category = categoryId;
+        var category = Context.ProductCategories.Single(c => c.Id == categoryId);
+        category.Name += Suffix;
+        ShopContext.AddCategory("Garden");
+
+        foreach (var target in (e.Parameters?.GetValueOrDefault("Refresh") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            Manager.Current.QueueClientOperation(target switch
+            {
+                "Detail"     => global::Vidyano.Service.ClientOperations.RefreshOperation.Query(nameof(ProductActions.ProductCategory_Products)),
+                "Categories" => global::Vidyano.Service.ClientOperations.RefreshOperation.Query("ProductCategories"),
+                "Self"       => new global::Vidyano.Service.ClientOperations.RefreshOperation(e.Parent),
+                _            => throw new ArgumentException($"Unknown refresh target '{target}'."),
+            });
+        }
+
+        return null;
+    }
+}
+
+/// <summary>Query-level action that opens an Add-Reference picker over the Products query from a grid — run on a
+/// category's <c>ProductCategory_Products</c> detail it links the picked products into that category (via
+/// <see cref="ProductActions.OnAddReference"/>, whose parent is the category). Unlike the PO-level
+/// <see cref="LinkProducts"/>, the action has a query, which the web client re-searches once the add is confirmed.
+/// Registered with <c>ShowedOn.Query</c> on Product.</summary>
+public sealed class LinkIntoQuery(ShopContext context) : AsyncCustomAction<ShopContext>(context)
 {
     public override Task<PersistentObject?> ExecuteAsync(CustomActionArgs e)
         => Task.FromResult<PersistentObject?>(AddReference("Products"));

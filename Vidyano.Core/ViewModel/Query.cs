@@ -540,6 +540,27 @@ namespace Vidyano.ViewModel
             await SearchAsync(true).ConfigureAwait(false);
         }
 
+        /// <summary>Refreshes like <see cref="RefreshQueryAsync()"/>, which clears the selection; with
+        /// <paramref name="keepSelection"/> the selection survives, as the web client's <c>search({ keepSelection })</c>
+        /// does for an action marked <see cref="ActionBase.KeepSelectionOnRefresh"/>: <see cref="AllSelected"/> is
+        /// restored with whichever of its exclusions are still loaded, and explicitly selected rows are re-selected by
+        /// id only when every one of them is still there.</summary>
+        public async Task RefreshQueryAsync(bool keepSelection)
+        {
+            var allSelected = AllSelected;
+            var selectedIds = keepSelection ? SelectedItems.Select(i => i.Id).ToArray() : Array.Empty<string>();
+
+            await RefreshQueryAsync().ConfigureAwait(false);
+            if (!keepSelection || (!allSelected && selectedIds.Length == 0))
+                return;
+
+            var reselected = selectedIds.Select(id => items.Values.FirstOrDefault(i => i.Id == id)).Where(i => i != null).ToArray();
+            if (allSelected)
+                SetSelection(reselected, allSelected: true);
+            else if (reselected.Length == selectedIds.Length)
+                SetSelection(reselected, allSelected: false);
+        }
+
         public virtual async Task SearchTextAsync(string text)
         {
             TextSearch = !string.IsNullOrEmpty(text) ? text : null;

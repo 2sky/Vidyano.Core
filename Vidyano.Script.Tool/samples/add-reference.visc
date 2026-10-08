@@ -31,7 +31,8 @@ EXPECT TotalItems >= 1
 SELECT-ROWS WHERE Name = "Gadget"
 EXPECT Selection.Count = 1
 ADD-REFERENCE
-### The picker popped; we're back on the ProductCategory. Reload its detail to see the new link.
+### The picker popped; we're back on the ProductCategory. LinkProducts is a PersistentObject action, so —
+### as in the browser — nothing is refreshed: reload the detail to see the new link.
 EXPECT NavStack.Top.Kind = "PersistentObject"
 SEARCH Detail "ProductCategory_Products"
 EXPECT Detail "ProductCategory_Products" TotalItems >= 1
@@ -58,7 +59,9 @@ OPEN-ROW WHERE Name = "Tools"
 ACTION Detail "ProductCategory_Members" AddReference
 EXPECT NavStack.Top.Kind = "AddReferenceDialog"
 ADD-REFERENCE WHERE Name = "Gadget"
-SEARCH Detail "ProductCategory_Members"
+### AddReference refreshes its query on completion, so the detail is re-searched as the picker closes — no
+### SEARCH Detail needed (unlike LinkProducts above, a PersistentObject action with no query to refresh).
+EXPECT Detail "ProductCategory_Members" TotalItems >= 1
 
 ### --- Removing a reference is NOT a verb --------------------------------------------------------
 ### It's an ordinary selection-gated action on the already-linked rows: select them on the detail query,

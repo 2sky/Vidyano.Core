@@ -29,6 +29,10 @@ public sealed class VidyanoSession : IDisposable
     private List<ClientOperation> _lastOperations = new();
     private CapturedStream? _lastStream;                 // the last auto-fetched stream, cleared on the next verb
     private CapturedChart? _lastChart;                   // the last CHART result, cleared on the next verb
+    // Refresh work a verb leaves behind, applied by SettleRefreshesAsync once it returns: the queries the verb's
+    // own action re-searches, then the Refresh client operations the server queued in its responses.
+    private readonly List<(Query Query, bool KeepSelection)> _queuedQueryRefreshes = new();
+    private readonly List<RefreshClientOperation> _queuedRefreshOperations = new();
     private readonly List<NavEntry> _navStack = new();
     private readonly ScriptHooks _hooks = new();
     private PersistentObject? _routesApplication;        // the Application _routes was parsed from
@@ -93,6 +97,9 @@ public sealed class VidyanoSession : IDisposable
         Client.Hooks = _hooks;
         _hooks.ClientOperationObserver = co =>
         {
+            if (co is RefreshClientOperation refresh)
+                _queuedRefreshOperations.Add(refresh);
+
             var op = ClientOperation.FromJson(co.Raw);
             if (op is null) return;
             _allOperations.Add(op);
@@ -153,6 +160,116 @@ public sealed class VidyanoSession : IDisposable
         ResetLastStream();
         ResetLastChart();
         LastOpenRefusal = null;
+    }
+
+    /// <summary>Applies the refreshes the last verb left behind, as the web client does once a response is in: first
+    /// the queries the verb's own action re-searches (an action's <see cref="ActionBase.RefreshQueryOnCompleted"/>, a
+    /// closed Add-Reference picker), then the server's <c>Refresh</c> client operations
+    /// (<c>Manager.Current.QueueClientOperation(RefreshOperation…)</c>; app-service-hooks.ts <c>onClientOperation</c>).
+    /// A query operation re-searches every open query with that id that has been searched — a Query frame, or a
+    /// detail query of a PersistentObject frame — after the operation's delay; a PersistentObject operation re-fetches
+    /// every PersistentObject frame of that type and object id. Like the web client's page cache, dialogs, pickers and
+    /// a retry's PO are left alone. A failed refresh lands as a notification on its query or PO, as in the browser —
+    /// never as a verb failure. The interpreter calls this after every statement; returns whether anything was
+    /// refreshed.</summary>
+    public async Task<bool> SettleRefreshesAsync()
+    {
+        var refreshedQueries = new HashSet<Query>();
+        var refreshedPos = new HashSet<PersistentObject>();
+
+        // A refresh's own response can queue further Refresh operations; settle those too. Each query and PO refreshes
+        // at most once per settle, and only a refresh can queue more work, so this ends.
+        while (_queuedQueryRefreshes.Count > 0 || _queuedRefreshOperations.Count > 0)
+        {
+            var queryRefreshes = _queuedQueryRefreshes.ToArray();
+            var operations = _queuedRefreshOperations.ToArray();
+            _queuedQueryRefreshes.Clear();
+            _queuedRefreshOperations.Clear();
+
+            foreach (var (query, keepSelection) in queryRefreshes)
+            {
+                if (refreshedQueries.Add(query))
+                    await query.RefreshQueryAsync(keepSelection).ConfigureAwait(false);
+            }
+
+            foreach (var op in operations)
+            {
+                if (op.QueryId is { } queryId)
+                {
+                    var queries = OpenQueries().Where(q => q.Id == queryId && q.HasSearched && !refreshedQueries.Contains(q)).ToList();
+                    if (queries.Count == 0) continue;
+
+                    if (op.Delay is > 0 and var delay)
+                        await Task.Delay(delay).ConfigureAwait(false);
+                    foreach (var query in queries)
+                    {
+                        refreshedQueries.Add(query);
+                        await query.RefreshQueryAsync().ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    var pos = OpenPersistentObjects().Where(po =>
+                        (po.FullTypeName == op.FullTypeName || po.Id == op.FullTypeName)
+                        && (po.ObjectId == op.ObjectId || (string.IsNullOrEmpty(po.ObjectId) && string.IsNullOrEmpty(op.ObjectId)))
+                        && !refreshedPos.Contains(po)).ToList();
+                    if (pos.Count == 0) continue;
+
+                    if (op.Delay is > 0 and var delay)
+                        await Task.Delay(delay).ConfigureAwait(false);
+                    foreach (var po in pos)
+                    {
+                        refreshedPos.Add(po);
+                        try
+                        {
+                            var fresh = await Client.GetPersistentObjectAsync(po.Id, po.ObjectId, po.Parent).ConfigureAwait(false);
+                            if (fresh != null)
+                                await po.RefreshFromResult(fresh).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            po.SetNotification(ex.Message);
+                        }
+                    }
+                }
+            }
+        }
+
+        return refreshedQueries.Count > 0 || refreshedPos.Count > 0;
+    }
+
+    /// <summary>The queries a Refresh client operation can reach: every Query frame and every detail query of a
+    /// PersistentObject frame, skipping dialogs — the web client's page cache.</summary>
+    private IEnumerable<Query> OpenQueries() => _navStack.SelectMany(e => e switch
+    {
+        QueryEntry { IsDialog: false } qe => [qe.Query],
+        PoEntry { IsDialog: false } pe    => pe.Po.Queries.Values,
+        _                                 => Enumerable.Empty<Query>(),
+    }).Distinct();
+
+    /// <summary>The PersistentObjects a Refresh client operation can reach: every non-dialog PersistentObject frame.</summary>
+    private IEnumerable<PersistentObject> OpenPersistentObjects() =>
+        _navStack.OfType<PoEntry>().Where(pe => !pe.IsDialog).Select(pe => pe.Po).Distinct();
+
+    /// <summary>Queues the refresh a completed action asks for: its query is re-searched when the action's definition
+    /// says <see cref="ActionBase.RefreshQueryOnCompleted"/>, keeping the selection per
+    /// <see cref="ActionBase.KeepSelectionOnRefresh"/> (action.ts <c>_onExecute</c>). A PersistentObject action has
+    /// no query, so it never refreshes one.</summary>
+    private void QueueActionRefresh(ActionBase action)
+    {
+        if (action.RefreshQueryOnCompleted && action.Query is { } query)
+            _queuedQueryRefreshes.Add((query, action.KeepSelectionOnRefresh));
+    }
+
+    /// <summary>Queues the refresh an Add-Reference picker owes once it closes. The web client awaits the picker inside
+    /// the action, so the action's own post-execute refresh (<see cref="QueueActionRefresh"/>) runs only then, whether
+    /// the picker was confirmed or dismissed; a confirmed custom picker (one an action returned, not a query's built-in
+    /// AddReference) also re-searches the action's query outright (action.ts, after <c>Query.AddReference</c>).</summary>
+    private void QueuePickerClosedRefresh(AddReferenceEntry picker, bool confirmed)
+    {
+        if (confirmed && picker.SourceQuery is null && picker.Action.Query is { } query)
+            _queuedQueryRefreshes.Add((query, false));
+        QueueActionRefresh(picker.Action);
     }
 
     /// <summary>A refused open: the server faulted the load (not found, access denied, an Error raised while
@@ -1124,7 +1241,10 @@ public sealed class VidyanoSession : IDisposable
         if (_navStack[^1] is PoEntry { Po.IsInEdit: true })
             return OpResult.Fail(new Diagnostic(ErrorKind.GuardInEdit,
                 "GO-BACK can't leave a PO with unsaved edits — SAVE or CANCEL first.", loc));
+        var top = _navStack[^1];
         _navStack.RemoveAt(_navStack.Count - 1);
+        if (top is AddReferenceEntry picker)
+            QueuePickerClosedRefresh(picker, confirmed: false);
         return OpResult.Success;
     }
 
@@ -1855,7 +1975,7 @@ public sealed class VidyanoSession : IDisposable
         // folds New + AddReference into one "AddReference" action whose last option ("Existing") is the add path.
         if (action is QueryAction { Name: "AddReference", Query: { } addSource }
             && (optionLabel is null || optionLabel == action.Options[^1]))
-            return await OpenBuiltInAddReferenceAsync(addSource, addReferenceParent, parameters, loc).ConfigureAwait(false);
+            return await OpenBuiltInAddReferenceAsync(action, addSource, addReferenceParent, parameters, loc).ConfigureAwait(false);
 
         // Run the server call(s) inside the parking coroutine: a RetryAction raised by Core's
         // ExecuteAction loop parks the action here and surfaces as a dialog frame the script answers
@@ -1898,6 +2018,13 @@ public sealed class VidyanoSession : IDisposable
                 if ((detailQuery ?? CurrentQuery) is { HasNotification: true, NotificationType: NotificationType.Error } eq)
                     return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, eq.Notification, loc));
             }
+            // The web client re-searches a query action's query once it completes when the action's definition says
+            // RefreshQueryOnCompleted (action.ts _onExecute) — after every outcome but a failed call, a failed
+            // download, or a picker, whose refresh waits until the picker closes. Core's Execute(option) refreshes
+            // by itself; the direct call doesn't, so queue it (it runs once the verb returns, see
+            // SettleRefreshesAsync).
+            if (optionLabel is null && result is not { FullTypeName: "Vidyano.AddReference" or "Vidyano.RegisteredStream" })
+                QueueActionRefresh(action);
             // A custom action that returns AddReference("<query>") yields a "Vidyano.AddReference" wrapper PO
             // holding the reference picker. Mirror the web client (action.ts): take the wrapper's query,
             // reparent it to the PO the action ran on (so its rows load — and the add posts — against the
@@ -1911,7 +2038,7 @@ public sealed class VidyanoSession : IDisposable
                     return OpResult.Fail(new Diagnostic(ErrorKind.ServerError,
                         $"Action '{name}' returned an AddReference with no picker query.", loc));
                 picker.Parent = addReferenceParent;
-                _navStack.Add(new AddReferenceEntry(picker, addReferenceParent, name));
+                _navStack.Add(new AddReferenceEntry(picker, addReferenceParent, action));
                 return OpResult.Success;
             }
             // A custom action can signal its outcome by *returning* a notification PO (server:
@@ -1952,6 +2079,8 @@ public sealed class VidyanoSession : IDisposable
                             await stream.CopyToAsync(buffer).ConfigureAwait(false);
                     }
                     _lastStream = new CapturedStream(streamName, buffer.ToArray());
+                    if (optionLabel is null)
+                        QueueActionRefresh(action);
                     return OpResult.Success;
                 }
                 catch (Exception ex)
@@ -1991,7 +2120,7 @@ public sealed class VidyanoSession : IDisposable
     /// <paramref name="source"/> so <c>ADD-REFERENCE</c> posts against it (see <see cref="AddReferenceAsync"/>).
     /// Like any executed action it first clears the query's notification. A picker that fails to load is not
     /// pushed — the failure surfaces as the verb's error.</summary>
-    private async Task<OpResult> OpenBuiltInAddReferenceAsync(Query source, PersistentObject? parent, IReadOnlyDictionary<string, string>? parameters, SourceLocation loc)
+    private async Task<OpResult> OpenBuiltInAddReferenceAsync(ActionBase action, Query source, PersistentObject? parent, IReadOnlyDictionary<string, string>? parameters, SourceLocation loc)
     {
         source.SetNotification(null);
         var picker = source.Clone(asLookup: true);
@@ -1999,7 +2128,7 @@ public sealed class VidyanoSession : IDisposable
         if (picker is { HasNotification: true, NotificationType: NotificationType.Error })
             return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, picker.Notification, loc));
 
-        _navStack.Add(new AddReferenceEntry(picker, parent, "AddReference", source, parameters));
+        _navStack.Add(new AddReferenceEntry(picker, parent, action, source, parameters));
         return OpResult.Success;
     }
 
@@ -2113,6 +2242,7 @@ public sealed class VidyanoSession : IDisposable
             // Pop the picker frame, revealing the PO/Query the action ran on.
             if (_navStack.Count > 0 && _navStack[^1] is AddReferenceEntry)
                 _navStack.RemoveAt(_navStack.Count - 1);
+            QueuePickerClosedRefresh(entry, confirmed: true);
             return OpResult.Success;
         }
         catch (Exception ex)

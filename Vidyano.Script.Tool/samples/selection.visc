@@ -8,8 +8,9 @@
 ###     operates on EVERY row the query matches on the backend, regardless of what's loaded client-side.
 ### SELECT-ROWS *replaces* the selection — it never accumulates.
 ###
-### Selection lives on the Query frame: it persists across ACTION, and is cleared by SEARCH / refresh /
-### a frame pop (Query.SelectedItems_CollectionChanged / the AllSelected setter → QueryAction.Invalidate
+### Selection lives on the Query frame: it persists across an ACTION that doesn't refresh the query (one
+### whose definition says RefreshQueryOnCompleted re-searches it, keeping the selection only with
+### KeepSelectionOnRefresh), and is cleared by SEARCH / refresh / a frame pop (Query.SelectedItems_CollectionChanged / the AllSelected setter → QueryAction.Invalidate
 ### → CanExecute). A zero-match WHERE is NOT an error — selection simply becomes empty.
 ###
 ### This file is written to lint cleanly (vidyano lint) with no backend. The execution-only assertions
