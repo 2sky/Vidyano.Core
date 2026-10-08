@@ -71,6 +71,12 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 model.GetPersistentObject(nameof(ProductCategory))!
                     .GetOrCreateAttributeAsDetail("Products").Details = productsDetail;
 
+                // A detail query with a lookup source: the server then offers its built-in AddReference action,
+                // whose picker lists the lookup source (products outside the category). Confirming it reaches
+                // ProductActions.OnAddReference without an AddAction parameter.
+                var membersDetail = model.AddDetailQuery(nameof(ProductCategory), nameof(ProductActions.ProductCategory_Members));
+                membersDetail.LookupSource = "Custom." + nameof(ProductActions.ProductCategory_Candidates);
+
                 // Mark Product.Trigger as TriggersRefresh: a SET of it round-trips through
                 // ProductActions.OnRefresh, which mirrors the value into Product.Echo — exercises the
                 // client SetValueAsync -> RefreshAttributesAsync path end-to-end.
@@ -100,6 +106,10 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 var downloadMissing = model.GetOrCreateCustomAction(nameof(DownloadMissing));
                 downloadMissing.ShowedOn = ShowedOn.PersistentObject;
 
+                // PO-level action that queues a Navigate(path) client operation — the fixture for FOLLOW-NAVIGATE.
+                var navigateTo = model.GetOrCreateCustomAction(nameof(NavigateTo));
+                navigateTo.ShowedOn = ShowedOn.PersistentObject;
+
                 // Query-level actions (toolbar, no row selection) — exercise the empty-selection payload and
                 // query-action error surfacing.
                 var import = model.GetOrCreateCustomAction(nameof(ImportProducts));
@@ -120,6 +130,7 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 administrators.AddUserRight($"{nameof(RejectWithNotification)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(DownloadSpec)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(DownloadMissing)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(NavigateTo)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(ImportProducts)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(FailOnServer)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(LinkProducts)}/{Schema}.{nameof(ProductCategory)}");

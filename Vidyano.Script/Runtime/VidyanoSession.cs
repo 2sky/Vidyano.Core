@@ -31,6 +31,8 @@ public sealed class VidyanoSession : IDisposable
     private CapturedChart? _lastChart;                   // the last CHART result, cleared on the next verb
     private readonly List<NavEntry> _navStack = new();
     private readonly ScriptHooks _hooks = new();
+    private PersistentObject? _routesApplication;        // the Application _routes was parsed from
+    private RouteTable? _routes;
 
     // --- server retry-action coroutine state --------------------------------------------------
     // A server RetryAction fires synchronously inside Client.ExecuteActionAsync (via Hooks.OnRetryAction),
@@ -146,6 +148,30 @@ public sealed class VidyanoSession : IDisposable
     /// the immediately preceding verb.</summary>
     public void ResetLastChart() => _lastChart = null;
 
+    /// <summary>The server's refusal message when the most recent verb's open (<c>OPEN PersistentObject</c> /
+    /// <c>Query</c> / <c>MenuItem</c>, <c>FOLLOW</c>, <c>FOLLOW-NAVIGATE</c>) was refused, or <c>null</c>. A refused
+    /// open pushes no frame, so there is no PO or Query to carry the error the browser would show; this holds it for
+    /// <c>EXPECT Notification</c> until the next executable verb.</summary>
+    public string? LastOpenRefusal { get; private set; }
+
+    /// <summary>Clears every per-verb observable (operations, stream, chart, open refusal) in one go. The interpreter
+    /// calls this before every executable verb so the <c>EXPECT</c>s that follow read only that verb's results.</summary>
+    public void ResetVerbObservables()
+    {
+        ResetLastOperations();
+        ResetLastStream();
+        ResetLastChart();
+        LastOpenRefusal = null;
+    }
+
+    /// <summary>A refused open: the server faulted the load (not found, access denied, an Error raised while
+    /// loading). Records the message as <see cref="LastOpenRefusal"/> and fails with a server error.</summary>
+    private OpResult RefusedOpen(Exception ex, SourceLocation loc)
+    {
+        LastOpenRefusal = ex.Message;
+        return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+    }
+
     /// <summary>The underlying Vidyano client. Exposed so library callers can drop down when needed.</summary>
     public Vidyano.Client Client { get; }
 
@@ -241,7 +267,7 @@ public sealed class VidyanoSession : IDisposable
         }
         catch (Exception ex)
         {
-            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+            return RefusedOpen(ex, loc);
         }
     }
 
@@ -260,7 +286,7 @@ public sealed class VidyanoSession : IDisposable
         }
         catch (Exception ex)
         {
-            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+            return RefusedOpen(ex, loc);
         }
     }
 
@@ -898,8 +924,79 @@ public sealed class VidyanoSession : IDisposable
         }
         catch (Exception ex)
         {
-            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+            return RefusedOpen(ex, loc);
         }
+    }
+
+    /// <summary><c>FOLLOW-NAVIGATE [AS @handle]</c> — open the page the server navigated to, as the browser does
+    /// for a <c>Navigate(path)</c> client operation. Consumes the operations in <see cref="LastOperations"/> (the
+    /// previous verb's, for the interpreter) — exactly one must be a Navigate — then starts a fresh per-verb window
+    /// so the open's own operations aren't mixed with them. The path resolves through the application's
+    /// <c>Routes</c> (see <see cref="RouteTable"/>) to a PersistentObject or Query, opened like
+    /// <c>OPEN PersistentObject</c> / <c>OPEN Query</c>.</summary>
+    public async Task<OpResult> FollowNavigateAsync(string? asHandle, SourceLocation loc)
+    {
+        if (!IsSignedIn)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNotSignedIn, "Sign in before FOLLOW-NAVIGATE.", loc));
+
+        var navigates = _lastOperations.Where(o => o.Type == "Navigate").ToList();
+        ResetVerbObservables();
+
+        if (navigates.Count == 0)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.StateNoNavigate,
+                "FOLLOW-NAVIGATE has no Navigate to follow — the previous verb queued none.",
+                loc,
+                Hint: "Run the ACTION / SAVE whose server code calls Navigate(...) right before FOLLOW-NAVIGATE (EXPECTs in between are fine)."));
+        if (navigates.Count > 1)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveNavigate,
+                $"FOLLOW-NAVIGATE is ambiguous — the previous verb queued {navigates.Count} Navigate operations.",
+                loc,
+                Details: new Dictionary<string, object?> { ["paths"] = navigates.Select(n => n.PrimaryValue).ToArray() }));
+
+        var path = navigates[0].PrimaryValue;
+        if (string.IsNullOrEmpty(path))
+            return OpResult.Fail(new Diagnostic(ErrorKind.ResolveNavigate, "The Navigate operation carries no path.", loc));
+
+        var routes = GetRouteTable();
+        if (routes is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveNavigate,
+                "The Application carries no Routes, so a Navigate path can't be resolved.",
+                loc,
+                Hint: "The server only omits Routes for a native client; check the session environment."));
+
+        var target = routes.Resolve(path!);
+        if (target is null)
+        {
+            var head = path!.TrimStart('/').Split('/')[0];
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveNavigate,
+                $"No route matches Navigate path '{path}'.",
+                loc,
+                Hint: Suggester.Hint(head, routes.RouteNames),
+                Details: new Dictionary<string, object?> { ["path"] = path }));
+        }
+
+        return target.IsPersistentObject
+            ? await OpenPersistentObjectAsync(target.Id, target.ObjectId, asHandle, loc).ConfigureAwait(false)
+            : await OpenQueryAsync(target.Id, asHandle, loc).ConfigureAwait(false);
+    }
+
+    /// <summary>The route table of the signed-in Application, parsed once per Application instance (a new
+    /// sign-in yields a new one). <c>null</c> when the Application has no <c>Routes</c>.</summary>
+    private RouteTable? GetRouteTable()
+    {
+        var app = Client.Application;
+        if (app is null) return null;
+        if (!ReferenceEquals(_routesApplication, app))
+        {
+            var json = app.GetAttribute("Routes")?.ValueDirect;
+            _routes = string.IsNullOrEmpty(json) ? null : RouteTable.Parse(json!);
+            _routesApplication = app;
+        }
+        return _routes;
     }
 
     /// <summary>Loads <paramref name="query"/> and returns the rows whose <paramref name="column"/> cell
@@ -1761,6 +1858,14 @@ public sealed class VidyanoSession : IDisposable
         // still at the action's starting frame (null for a top-level query action).
         var addReferenceParent = CurrentPo;
 
+        // A query's built-in AddReference (a detail query's Add button) never reaches the server on click: the
+        // web client (app-service-hooks-base onAction) opens a lookup clone of the query as a picker and only posts
+        // Query.AddReference once rows are picked. Mirror that with a picker frame ADD-REFERENCE confirms. Core
+        // folds New + AddReference into one "AddReference" action whose last option ("Existing") is the add path.
+        if (action is QueryAction { Name: "AddReference", Query: { } addSource }
+            && (optionLabel is null || optionLabel == action.Options[^1]))
+            return await OpenBuiltInAddReferenceAsync(addSource, addReferenceParent, parameters, loc).ConfigureAwait(false);
+
         // Cleared up front so a stream from an earlier call can't stand in for this action's download.
         _lastStream = null;
 
@@ -1890,6 +1995,23 @@ public sealed class VidyanoSession : IDisposable
         }).ConfigureAwait(false);
     }
 
+    /// <summary>Opens the picker of a query's built-in <c>AddReference</c> action: a lookup clone of
+    /// <paramref name="source"/>, searched and pushed as an <see cref="AddReferenceEntry"/> that remembers
+    /// <paramref name="source"/> so <c>ADD-REFERENCE</c> posts against it (see <see cref="AddReferenceAsync"/>).
+    /// Like any executed action it first clears the query's notification. A picker that fails to load is not
+    /// pushed — the failure surfaces as the verb's error.</summary>
+    private async Task<OpResult> OpenBuiltInAddReferenceAsync(Query source, PersistentObject? parent, IReadOnlyDictionary<string, string>? parameters, SourceLocation loc)
+    {
+        source.SetNotification(null);
+        var picker = source.Clone(asLookup: true);
+        await picker.RefreshQueryAsync().ConfigureAwait(false); // traps its own errors into the picker's notification
+        if (picker is { HasNotification: true, NotificationType: NotificationType.Error })
+            return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, picker.Notification, loc));
+
+        _navStack.Add(new AddReferenceEntry(picker, parent, "AddReference", source, parameters));
+        return OpResult.Success;
+    }
+
     /// <summary>Downloads a file the way the web client's <c>getStream</c> does and buffers it in
     /// <see cref="LastStream"/> — for a returned <c>Vidyano.RegisteredStream</c> and for the built-in exports.
     /// A failed fetch (non-2xx) lands as an error notification on the frame the action ran against
@@ -2003,12 +2125,16 @@ public sealed class VidyanoSession : IDisposable
 
         try
         {
-            // Faithful to the web client (action.ts): post Query.AddReference with the action's parent, the
-            // picker query, the chosen rows, and {AddAction} so the server routes to the originating action's
-            // OnAddReference. Skip the client-side action hooks just as the web client passes
-            // skipUserDefinedActions=true (ExecuteAction doesn't dispatch ClientOperations either way).
-            var addParams = new Dictionary<string, string> { ["AddAction"] = entry.AddActionName };
-            var po = await Client.ExecuteActionAsync("Query.AddReference", entry.Parent, picker, selected, addParams, skipHooks: true).ConfigureAwait(false);
+            // Faithful to the web client. A picker a custom action returned (action.ts) posts against the picker
+            // query with {AddAction} so the server routes to the originating action's OnAddReference. A built-in
+            // AddReference picker (app-service-hooks-base onAction → executeServiceRequest) posts against the
+            // query the action belongs to, with the action's own parameters and no AddAction. Both skip the
+            // client-side action hooks, as the web client does (ExecuteAction doesn't dispatch ClientOperations
+            // either way).
+            var (addQuery, addParams) = entry.SourceQuery is { } source
+                ? (source, entry.ActionParameters?.ToDictionary(kv => kv.Key, kv => kv.Value))
+                : (picker, new Dictionary<string, string> { ["AddAction"] = entry.AddActionName });
+            var po = await Client.ExecuteActionAsync("Query.AddReference", entry.Parent, addQuery, selected, addParams, skipHooks: true).ConfigureAwait(false);
 
             // ExecuteActionAsync sets an error notification (on the parent PO, or the query for a query action)
             // and returns null on failure. A null result with no error is the normal success shape —
@@ -2017,8 +2143,8 @@ public sealed class VidyanoSession : IDisposable
             {
                 if (entry.Parent is { HasNotification: true, NotificationType: NotificationType.Error })
                     return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, entry.Parent.Notification, loc));
-                if (picker is { HasNotification: true, NotificationType: NotificationType.Error })
-                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, picker.Notification, loc));
+                if (addQuery is { HasNotification: true, NotificationType: NotificationType.Error })
+                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, addQuery.Notification, loc));
             }
 
             // Pop the picker frame, revealing the PO/Query the action ran on.

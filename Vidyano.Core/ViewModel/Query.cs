@@ -546,6 +546,20 @@ namespace Vidyano.ViewModel
             await SearchAsync(true).ConfigureAwait(false);
         }
 
+        /// <summary>Creates a fresh copy of this query — same definition, parent, search text and sort, but none of
+        /// the loaded rows, selection or notification — mirroring the web client's <c>query.clone(asLookup)</c>.
+        /// With <paramref name="asLookup"/> the copy searches as a lookup (<c>asLookup</c> on ExecuteQuery), which is
+        /// how the web client opens the built-in AddReference picker over a detail query.</summary>
+        public Query Clone(bool asLookup = false)
+        {
+            var model = (JObject)Model.DeepClone();
+            model.Remove("notification"); // the constructor derives HasNotification from it
+
+            var clone = Client.Hooks.OnConstruct(Client, model, Parent, asLookup);
+            clone.ColumnOverrides = ColumnOverrides;
+            return clone;
+        }
+
         public void SetNotification(string notification, NotificationType notificationType = NotificationType.Error)
         {
             NotificationType = notificationType;

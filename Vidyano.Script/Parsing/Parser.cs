@@ -145,6 +145,7 @@ public sealed class Parser
             "ADD-ROW"     => ParseAddRow(tok.Location),
             "GO-BACK"     => new GoBackStmt(tok.Location),
             "FOLLOW"      => ParseFollow(tok.Location),
+            "FOLLOW-NAVIGATE" => new FollowNavigateStmt(ParseOptionalAs(), tok.Location),
             "EDIT"        => new EditStmt(null, tok.Location),
             "CANCEL"      => new CancelStmt(null, tok.Location),
             "SAVE"        => ParseSave(tok.Location),
@@ -1218,20 +1219,31 @@ public sealed class Parser
             var word = Peek();
             if (word.Kind != TokenKind.Identifier && word.Kind != TokenKind.Literal)
             {
-                Error(ErrorKind.ParseExpected, "Expected a flag after IS (NULL, AVAILABLE, VISIBLE, READONLY, REQUIRED).", word.Location);
+                Error(ErrorKind.ParseExpected, "Expected a flag after IS (NULL, AVAILABLE, VISIBLE, READONLY, REQUIRED, PRESENT).", word.Location);
                 return null;
             }
             Advance();
+
+            // A leafless Query.Columns[X] has nothing to compare — only IS [NOT] PRESENT applies.
+            if (IsLeaflessColumn(subject) && !string.Equals(word.Lexeme, "PRESENT", StringComparison.OrdinalIgnoreCase))
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "Query.Columns[…] without a property only takes IS [NOT] PRESENT.",
+                    word.Location,
+                    hint: "EXPECT Query.Columns[Price] IS NOT PRESENT  •  EXPECT Query.Columns[Price].Label = \"Price\"");
+                return null;
+            }
 
             // IS [NOT] NULL
             if (string.Equals(word.Lexeme, "null", StringComparison.OrdinalIgnoreCase))
                 return (subject, negate ? ExpectOp.IsNotNull : ExpectOp.IsNull, null);
 
-            // IS [NOT] <FLAG>  — only valid for Action / AttributeFlag / DetailQueryFlag subjects.
+            // IS [NOT] <FLAG>  — only valid for Action / AttributeFlag / DetailQueryFlag / leafless column subjects.
             // Each subject has its own allow-list, but the shape is identical — IsFlagAllowed
             // captures the per-subject rules so the dispatch reads as one decision.
             var op = negate ? ExpectOp.IsNot : ExpectOp.Is;
-            if (subject.Kind is ExpectSubjectKind.Action or ExpectSubjectKind.AttributeFlag or ExpectSubjectKind.DetailQueryFlag)
+            if (subject.Kind is ExpectSubjectKind.Action or ExpectSubjectKind.AttributeFlag or ExpectSubjectKind.DetailQueryFlag
+                || IsLeaflessColumn(subject))
             {
                 var flag = ToFlag(word.Lexeme);
                 if (!IsFlagAllowed(subject.Kind, flag))
@@ -1246,8 +1258,17 @@ public sealed class Parser
             }
 
             Error(ErrorKind.ParseUnexpectedToken,
-                "IS <flag> can only be used after Action, Attribute, or Detail subjects (use a comparison operator otherwise).",
+                "IS <flag> can only be used after Action, Attribute, Detail, or Query.Columns[…] subjects (use a comparison operator otherwise).",
                 word.Location);
+            return null;
+        }
+
+        if (IsLeaflessColumn(subject))
+        {
+            Error(ErrorKind.ParseExpected,
+                "Query.Columns[…] needs a '.<property>' to compare, or IS [NOT] PRESENT.",
+                Peek().Location,
+                hint: "EXPECT Query.Columns[Price].Label = \"Price\"  •  EXPECT Query.Columns[Price] IS NOT PRESENT");
             return null;
         }
 
@@ -1814,14 +1835,10 @@ public sealed class Parser
                 Error(ErrorKind.ParseExpected, "Expected ']' after column name.", Peek().Location);
                 return null;
             }
-            if (!Match(TokenKind.Dot, out _))
-            {
-                Error(ErrorKind.ParseExpected,
-                    "Expected '.<property>' after 'Query.Columns[…]'.",
-                    Peek().Location,
-                    hint: "EXPECT Query.Columns[Name].Label = \"Customer name\"");
-                return null;
-            }
+            // Leafless form — only `IS [NOT] PRESENT` may follow (ParseAssertion enforces that).
+            if (Peek().Kind != TokenKind.Dot)
+                return new ExpectSubject(ExpectSubjectKind.QueryColumn, colName, AttributeFlagKind.None, rootTok.Location);
+            Advance(); // '.'
             if (Peek().Kind != TokenKind.Identifier)
             {
                 Error(ErrorKind.ParseExpected, "Expected a property name after 'Query.Columns[…].'.", Peek().Location);
@@ -1906,20 +1923,26 @@ public sealed class Parser
             "READONLY"  => AttributeFlagKind.ReadOnly,
             "REQUIRED"  => AttributeFlagKind.Required,
             "AVAILABLE" => AttributeFlagKind.Available,
+            "PRESENT"   => AttributeFlagKind.Present,
             _           => AttributeFlagKind.None,
         };
 
     /// <summary>Per-subject flag allow-list for <c>EXPECT … IS [NOT] &lt;FLAG&gt;</c>. One place to
     /// reason about which flags make sense where. Action keeps AVAILABLE+VISIBLE (its historical
-    /// pair, mapped to CanExecute / IsVisible at eval time). Attribute adds AVAILABLE to the
-    /// existing VISIBLE/READONLY/REQUIRED trio. DetailQueryFlag accepts AVAILABLE+VISIBLE.</summary>
+    /// pair, mapped to CanExecute / IsVisible at eval time). Attribute adds AVAILABLE and PRESENT to the
+    /// existing VISIBLE/READONLY/REQUIRED trio. DetailQueryFlag accepts AVAILABLE+VISIBLE. A leafless
+    /// <c>Query.Columns[X]</c> accepts only PRESENT.</summary>
     private static bool IsFlagAllowed(ExpectSubjectKind kind, AttributeFlagKind flag) => kind switch
     {
         ExpectSubjectKind.Action           => flag is AttributeFlagKind.Available or AttributeFlagKind.Visible,
-        ExpectSubjectKind.AttributeFlag    => flag is AttributeFlagKind.Visible or AttributeFlagKind.ReadOnly or AttributeFlagKind.Required or AttributeFlagKind.Available,
+        ExpectSubjectKind.AttributeFlag    => flag is AttributeFlagKind.Visible or AttributeFlagKind.ReadOnly or AttributeFlagKind.Required or AttributeFlagKind.Available or AttributeFlagKind.Present,
         ExpectSubjectKind.DetailQueryFlag  => flag is AttributeFlagKind.Available or AttributeFlagKind.Visible,
+        ExpectSubjectKind.QueryColumn      => flag is AttributeFlagKind.Present,
         _                                  => false,
     };
+
+    private static bool IsLeaflessColumn(ExpectSubject subject) =>
+        subject is { Kind: ExpectSubjectKind.QueryColumn, MetadataKey: null };
 
     // SubjectLabel / FlagHint are only called from the IS-flag branch above, gated by the same
     // three-kind check as IsFlagAllowed. The default arms are therefore unreachable — they throw
@@ -1930,14 +1953,16 @@ public sealed class Parser
         ExpectSubjectKind.Action          => "an Action",
         ExpectSubjectKind.AttributeFlag   => "an Attribute",
         ExpectSubjectKind.DetailQueryFlag => "a Detail",
+        ExpectSubjectKind.QueryColumn     => "a Query.Columns[…]",
         _                                 => throw new InvalidOperationException($"SubjectLabel called for unsupported kind {kind}."),
     };
 
     private static string FlagHint(ExpectSubjectKind kind) => kind switch
     {
         ExpectSubjectKind.Action          => "Use EXPECT Action Name IS [NOT] AVAILABLE or IS [NOT] VISIBLE.",
-        ExpectSubjectKind.AttributeFlag   => "Use EXPECT Attribute Name IS [NOT] VISIBLE | READONLY | REQUIRED | AVAILABLE.",
+        ExpectSubjectKind.AttributeFlag   => "Use EXPECT Attribute Name IS [NOT] VISIBLE | READONLY | REQUIRED | AVAILABLE | PRESENT.",
         ExpectSubjectKind.DetailQueryFlag => "Use EXPECT Detail \"Name\" IS [NOT] AVAILABLE | VISIBLE.",
+        ExpectSubjectKind.QueryColumn     => "Use EXPECT Query.Columns[Name] IS [NOT] PRESENT.",
         _                                 => throw new InvalidOperationException($"FlagHint called for unsupported kind {kind}."),
     };
 

@@ -325,6 +325,7 @@ public sealed class Interpreter
             case OpenMenuItemStmt om:          return await DoOpenMenu(om).ConfigureAwait(false);
             case OpenRowStmt or:               return await DoOpenRow(or).ConfigureAwait(false);
             case FollowStmt fl:                return await DoFollow(fl).ConfigureAwait(false);
+            case FollowNavigateStmt fn:        return Wrap(fn, await Current.FollowNavigateAsync(fn.AsHandle, fn.Location).ConfigureAwait(false));
             case SelectRowsStmt sr:            return await DoSelectRows(sr).ConfigureAwait(false);
             case DeleteRowStmt dr:             return DoDeleteRow(dr);
             case AddRowStmt ar:
@@ -417,13 +418,10 @@ public sealed class Interpreter
         // buffer, the last auto-fetched stream, and the last captured CHART, so EXPECT Stream / EXPECT Chart
         // read only the immediately preceding verb's result. Meta statements (@var, @mode) don't talk to the
         // server, so they leave the buffers alone too. A loop verb is structural — its body statements reset
-        // the buffers themselves — so leave it untouched for them.
-        if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt)
-        {
-            Current.ResetLastOperations();
-            Current.ResetLastStream();
-            Current.ResetLastChart();
-        }
+        // the buffers themselves — so leave it untouched for them. FOLLOW-NAVIGATE consumes the previous verb's
+        // Navigate operation, so the session resets the buffers itself once it has read them.
+        if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt and not FollowNavigateStmt)
+            Current.ResetVerbObservables();
 
         // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the gate. Only
         // meta statements, SAVE @initial, and EXPECTs that observe the @initial scope are allowed through;
@@ -528,8 +526,8 @@ public sealed class Interpreter
             oid = AsString(o.Value);
         }
         var res = await Current.OpenPersistentObjectAsync(AsString(t.Value), oid, op.AsHandle, op.Location).ConfigureAwait(false);
-        // Unlike SAVE/ACTION, a refused point-load surfaces as a ServerError (Core throws and discards the
-        // error PO — there's no notification left to read), so the expected error kind here is ServerError.
+        // Unlike SAVE/ACTION, a refused point-load surfaces as a ServerError (Core throws; the session keeps the
+        // message as LastOpenRefusal for EXPECT Notification), so the expected error kind here is ServerError.
         return op.ExpectError ? WrapExpectingError(op, res, ErrorKind.ServerError) : Wrap(op, res);
     }
 
@@ -1296,6 +1294,22 @@ public sealed class Interpreter
                 }
             case ExpectSubjectKind.AttributeFlag:
                 {
+                    // IS [NOT] PRESENT — the one assertion a missing attribute satisfies (an attribute the server
+                    // removed). Presence in PO.Attributes, regardless of visibility (that's IS VISIBLE).
+                    if (subj.Flag == AttributeFlagKind.Present)
+                    {
+                        var owner = po;
+                        if (subj.Scope is not null)
+                        {
+                            var scopePo = Current.ResolveScopePo(subj.Scope, loc);
+                            if (!scopePo.Ok) return Fail<object?>(scopePo.Error!);
+                            owner = scopePo.Value;
+                        }
+                        if (owner is null)
+                            return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT Attribute needs a current PersistentObject.", loc));
+                        return OpResult<object?>.Success((object?)(owner.GetAttribute(subj.Name!) is not null));
+                    }
+
                     PersistentObjectAttribute? attr;
                     if (subj.Scope is not null)
                     {
@@ -1325,9 +1339,15 @@ public sealed class Interpreter
                 }
             // Notification lives on whichever frame is current: the PO if one is open, otherwise the Query
             // (a query action surfaces its notification on the Query — see VidyanoSession.ExecuteActionAsync).
+            // A refused open by the previous verb pushed no frame, so its error wins — it's the message the
+            // browser would show, and the current frame's notification predates that verb.
             case ExpectSubjectKind.Notification:
+                if (Current.LastOpenRefusal is { } refusal)
+                    return OpResult<object?>.Success(refusal);
                 return OpResult<object?>.Success(po is not null ? po.Notification : query?.Notification);
             case ExpectSubjectKind.NotificationType:
+                if (Current.LastOpenRefusal is not null)
+                    return OpResult<object?>.Success(NotificationType.Error.ToString());
                 return OpResult<object?>.Success(
                     po is not null ? (po.HasNotification ? po.NotificationType.ToString() : null)
                     : query is { HasNotification: true } ? query.NotificationType.ToString() : null);
@@ -1535,6 +1555,10 @@ public sealed class Interpreter
                         return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Query.Columns needs a current Query.", loc));
                     var col = (query.Columns ?? Array.Empty<Vidyano.ViewModel.QueryColumn>())
                         .FirstOrDefault(c => string.Equals(c.Name, subj.Name, StringComparison.OrdinalIgnoreCase));
+                    // Leafless Query.Columns[X] IS [NOT] PRESENT — a column the server removed (RemoveColumns) is
+                    // gone from the result columns, so it is asserted absent here rather than failing to resolve.
+                    if (subj.MetadataKey is null)
+                        return OpResult<object?>.Success((object?)(col is not null));
                     if (col is null)
                         return Fail<object?>(new Diagnostic(ErrorKind.ResolveAttribute,
                             $"Query '{query.Name}' has no column named '{subj.Name}'.", loc,
@@ -1754,6 +1778,10 @@ public sealed class Interpreter
                 interp.Location,
                 Hint: Suggester.Hint(key, Current.Client.Messages.Keys)));
         }
+        // {{PO.ObjectId}} / {{PO.Attr.<name>}} — a value of the current PersistentObject (top PO frame), so a script
+        // can keep what it saw on a record for later steps (e.g. the id of a record created at run time).
+        if (inner.StartsWith("PO.", StringComparison.Ordinal))
+            return ReadCurrentPoValue(inner.Substring("PO.".Length).Trim(), interp.Location);
         // {{env:NAME}} — loud-on-missing environment lookup (a missing var never silently becomes an empty
         // value). Resolves through the injectable EnvLookup, so `--env-file` / hermetic test hosts feed it.
         // Optional `?? <fallback>` makes a value optional: a quoted string or bare token used verbatim as a
@@ -1790,6 +1818,32 @@ public sealed class Interpreter
             $"Variable '{inner}' is not defined.",
             interp.Location,
             Hint: Suggester.Hint(inner, _vars.Keys)));
+    }
+
+    /// <summary>Reads <c>{{PO.&lt;path&gt;}}</c> off the current PersistentObject by resolving the EXPECT subject it
+    /// names, so the value is exactly what that EXPECT would compare: <c>Attr.&lt;name&gt;</c> → <c>EXPECT &lt;name&gt;</c>
+    /// (same hidden-attribute guard), <c>Metadata.&lt;key&gt;</c> / <c>NavigationHints.&lt;key&gt;</c> → the bag
+    /// lookups, anything else → <c>EXPECT PO.&lt;prop&gt;</c> (ObjectId, Type, Label, …). Attributes live under
+    /// <c>Attr.</c> so an attribute named <c>Type</c> or <c>Label</c> never shadows the PO property.</summary>
+    private OpResult<object?> ReadCurrentPoValue(string path, SourceLocation loc)
+    {
+        if (Current.CurrentPo is null)
+            return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo,
+                $"`{{{{PO.{path}}}}}` needs a current PersistentObject.", loc,
+                Hint: "Open one first (OPEN PersistentObject / OPEN-ROW / FOLLOW)."));
+
+        static string After(string s, string prefix) => s.Substring(prefix.Length).Trim();
+        var subject =
+            path.StartsWith("Attr.", StringComparison.Ordinal) ? new ExpectSubject(ExpectSubjectKind.Attribute, After(path, "Attr."), AttributeFlagKind.None, loc)
+            : path.StartsWith("Metadata.", StringComparison.Ordinal) ? new ExpectSubject(ExpectSubjectKind.PoMetadata, null, AttributeFlagKind.None, loc, MetadataKey: After(path, "Metadata."))
+            : path.StartsWith("NavigationHints.", StringComparison.Ordinal) ? new ExpectSubject(ExpectSubjectKind.PoNavigationHints, null, AttributeFlagKind.None, loc, MetadataKey: After(path, "NavigationHints."))
+            : new ExpectSubject(ExpectSubjectKind.PoProperty, path, AttributeFlagKind.None, loc);
+
+        if (subject.Name is "" || subject.MetadataKey is "")
+            return Fail<object?>(new Diagnostic(ErrorKind.ResolveVariable,
+                $"`{{{{PO.{path}}}}}` names nothing.", loc,
+                Hint: "Use {{PO.ObjectId}}, {{PO.Attr.<name>}}, {{PO.Metadata.<key>}} or {{PO.NavigationHints.<key>}}."));
+        return ResolveExpectSubject(subject, loc);
     }
 
     // --- built-in deterministic variables -----------------------------------------------------
@@ -2098,9 +2152,9 @@ public sealed class Interpreter
     /// <item>SAVE / ACTION → <see cref="ErrorKind.AssertNotificationError"/> (the server returned an error
     /// notification, which the session leaves on the current PO/Query so a following
     /// <c>EXPECT Notification …</c> can still pin the message).</item>
-    /// <item>OPEN PersistentObject → <see cref="ErrorKind.ServerError"/> (a refused point-load — Core throws
-    /// and discards the error PO, so <c>EXPECT Notification</c> can NOT follow, and a transport fault is
-    /// indistinguishable from a server refusal here).</item>
+    /// <item>OPEN PersistentObject → <see cref="ErrorKind.ServerError"/> (a refused point-load — Core throws,
+    /// so no frame is pushed; the session keeps the message as <see cref="VidyanoSession.LastOpenRefusal"/> for
+    /// <c>EXPECT Notification</c>. A transport fault is indistinguishable from a server refusal here).</item>
     /// <item>OPEN Query → <see cref="ErrorKind.ResolveQuery"/> / <see cref="ErrorKind.ServerError"/>.</item>
     /// <item>OPEN MenuItem → <see cref="ErrorKind.ResolveMenuItem"/> plus the kinds a resolved leaf load can
     /// raise (<see cref="ErrorKind.ResolveQuery"/> / <see cref="ErrorKind.ServerError"/>).</item>

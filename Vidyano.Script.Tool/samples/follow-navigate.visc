@@ -1,0 +1,41 @@
+### FOLLOW-NAVIGATE, {{PO.…}} values, and IS [NOT] PRESENT — flows a browser user does that scripts once needed TOOLs for
+###
+### This file lints cleanly with no backend. The live round-trips run in Vidyano.Script.IntegrationTests
+### (FollowNavigateTests, PoInterpolationTests, PresenceTests, VerbFamilyTests.OpenPo_Refused_*).
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+
+### --- Follow a server Navigate ----------------------------------------------------------------
+### An action whose server code calls Navigate("vesta-charge-point/vestaChargePoints/9001") sends the browser
+### there. FOLLOW-NAVIGATE resolves that path through the application's routes (raw or kebab-cased route
+### names, optional program-unit prefix, object ids containing '/') and opens the page.
+OPEN MenuItem ChargePoints
+OPEN-ROW WHERE Name = "CP-9001"
+ACTION ChargePointDiagnostics
+EXPECT ClientOperation Navigate CONTAINS "vesta-charge-point/"
+FOLLOW-NAVIGATE AS @vcp
+EXPECT PO.Type = "VestaChargePoint"
+
+### --- Keep a value of the current record ------------------------------------------------------
+### {{PO.<prop>}} / {{PO.Attr.<name>}} read the top PO frame — exactly what EXPECT PO.<prop> / EXPECT <name>
+### compare. Capture into a variable to reuse after navigating away.
+@vcpId = {{PO.ObjectId}}
+@vendor = {{PO.Attr.Vendor}}
+GO-BACK
+OPEN PersistentObject "VestaChargePoint" "{{vcpId}}"
+EXPECT Vendor = "{{vendor}}"
+
+### --- Assert an attribute / column the server removed -----------------------------------------
+### Only IS [NOT] PRESENT accepts a missing name; any other EXPECT on it still fails resolve-attribute.
+OPEN MenuItem Locations
+EXPECT Query.Columns[DefaultPublicKwhPriceEuro] IS NOT PRESENT
+OPEN-ROW 0
+EXPECT Attribute DefaultPublicKwhPriceEuro IS NOT PRESENT
+
+### --- Read why an open by id was refused ------------------------------------------------------
+### A refused OPEN pushes no frame; until the next verb EXPECT Notification reads the server's refusal.
+OPEN PersistentObject "ChargePointConnector" "connectors/1" EXPECTING ERROR
+EXPECT Notification.Type = "Error"
+EXPECT Notification CONTAINS "not accepted"

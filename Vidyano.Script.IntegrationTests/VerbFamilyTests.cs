@@ -272,6 +272,48 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task OpenPo_Refused_ExpectingError_ReadsRefusalNotification()
+    {
+        // The "Faulty" product's load ends in an Error (ProductActions.OnLoad), so the point-open by id is refused.
+        // No frame is pushed, but the refusal message is what EXPECT Notification reads next — the error a browser
+        // shows for a record it can't open.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN PersistentObject "Product" "4" EXPECTING ERROR
+            EXPECT NavStack.Depth = 0
+            EXPECT Notification.Type = "Error"
+            EXPECT Notification CONTAINS "cannot be loaded"
+            """));
+    }
+
+    [Fact]
+    public async Task OpenPo_Refusal_WinsOverTheCurrentFrame_UntilTheNextVerb()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            OPEN PersistentObject "Product" "4" EXPECTING ERROR
+            EXPECT NavStack.Top.Name = "Product"
+            EXPECT PO.ObjectId = "1"
+            EXPECT Notification CONTAINS "cannot be loaded"
+            GO-BACK
+            EXPECT Notification IS NULL
+            """));
+    }
+
+    [Fact]
+    public async Task OpenQuery_Refused_ExpectingError_ReadsRefusalNotification()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN Query "NoSuchQuery" EXPECTING ERROR
+            EXPECT Notification.Type = "Error"
+            EXPECT Notification IS NOT NULL
+            """));
+    }
+
+    [Fact]
     public async Task OpenPo_ExistingId_ExpectingError_Fails()
     {
         // Inverse guard: EXPECTING ERROR on an id that DOES open must fail (the asserted negative path
@@ -719,6 +761,84 @@ public sealed class VerbFamilyTests
             EXPECT NavStack.Top.Name = "ProductCategory"
             SEARCH Detail "ProductCategory_Products"
             EXPECT Detail "ProductCategory_Products" TotalItems = 2
+            """));
+    }
+
+    // --- built-in AddReference of a detail query ---------------------------------------------------
+    //
+    // ProductCategory_Members has a lookup source (ProductCategory_Candidates: products outside the category), so
+    // the server offers its built-in AddReference. Like the web client, ACTION opens a lookup clone of the detail
+    // query as the picker; ADD-REFERENCE posts Query.AddReference against the DETAIL query, without AddAction —
+    // ProductActions.OnAddReference re-homes the picked product.
+
+    [Fact]
+    public async Task BuiltInAddReference_PickerListsLookupSource_AndConfirmLinks()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            SEARCH Detail "ProductCategory_Members"
+            EXPECT Detail "ProductCategory_Members" TotalItems = 2
+            ACTION Detail "ProductCategory_Members" AddReference
+            EXPECT NavStack.Depth = 3
+            EXPECT NavStack.Top.Kind = "AddReferenceDialog"
+            EXPECT NavStack.Top.Name = "ProductCategory_Members"
+            EXPECT TotalItems = 2
+            ADD-REFERENCE WHERE Name = "Gadget"
+            EXPECT NavStack.Depth = 2
+            EXPECT NavStack.Top.Name = "ProductCategory"
+            SEARCH Detail "ProductCategory_Members"
+            EXPECT Detail "ProductCategory_Members" TotalItems = 3
+            """));
+    }
+
+    [Fact]
+    public async Task BuiltInAddReference_ExistingOptionOfAddAndNew_OpensPicker()
+    {
+        // The detail also offers New, so Core folds New + AddReference into one "AddReference" action whose last
+        // option is "Existing" — picking it is the add path and must open the same picker.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            ACTION Detail "ProductCategory_Members" AddReference = ID 1
+            EXPECT NavStack.Top.Kind = "AddReferenceDialog"
+            ADD-REFERENCE WHERE Name = "Gadget"
+            SEARCH Detail "ProductCategory_Members"
+            EXPECT Detail "ProductCategory_Members" TotalItems = 3
+            """));
+    }
+
+    [Fact]
+    public async Task BuiltInAddReference_RowNotInLookupSource_CannotBePicked()
+    {
+        // Widget is already in Tools, so the lookup (picker) doesn't list it — proving the picker ran asLookup
+        // against the lookup source rather than re-listing the detail's own rows.
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            ACTION Detail "ProductCategory_Members" AddReference
+            ADD-REFERENCE WHERE Name = "Widget"
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertFailed);
+    }
+
+    [Fact]
+    public async Task BuiltInAddReference_GoBack_DismissesWithoutLinking()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            ACTION Detail "ProductCategory_Members" AddReference
+            SELECT-ROWS WHERE Name = "Gadget"
+            GO-BACK
+            SEARCH Detail "ProductCategory_Members"
+            EXPECT Detail "ProductCategory_Members" TotalItems = 2
             """));
     }
 

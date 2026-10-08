@@ -55,7 +55,8 @@ public sealed record UseSessionStmt(string SessionName, SourceLocation Location)
 /// <summary><c>OPEN PersistentObject Customer 42 [AS @handle] [EXPECTING ERROR]</c>. The trailing
 /// <c>EXPECTING ERROR</c> suffix asserts the negative path: the open passes iff the server refuses the
 /// point-load (a <see cref="Vidyano.Script.Diagnostics.ErrorKind.ServerError"/>) — not-found,
-/// access-denied, or no PO returned.</summary>
+/// access-denied, or no PO returned. No frame is pushed; the server's refusal message is what a following
+/// <c>EXPECT Notification</c> reads (<see cref="VidyanoSession.LastOpenRefusal"/>) until the next verb.</summary>
 public sealed record OpenPersistentObjectStmt(Expression Type, Expression? ObjectId, string? AsHandle, SourceLocation Location, bool ExpectError = false) : Statement(Location);
 
 /// <summary><c>OPEN Query Orders [AS @handle] [EXPECTING ERROR]</c>. The suffix asserts the query-load
@@ -82,10 +83,9 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query. It does not apply to the
 /// <see cref="RowVar"/> form, which already carries its own snapshotted row.</para>
 /// <para><see cref="ExpectError"/> (the trailing <c>EXPECTING ERROR</c> suffix) asserts the negative path:
-/// the open passes only if the row's PO load is refused server-side (a <c>server-error</c>). Unlike the
-/// OPEN PersistentObject/Query/MenuItem forms — where Core discards the error PO so nothing is left to read —
-/// a refused row-open leaves the error notification on the still-current calling query, so an
-/// <c>EXPECT Notification</c> <b>can</b> follow. A client-side selection failure (row out of range / no or
+/// the open passes only if the row's PO load is refused server-side (a <c>server-error</c>). A refused
+/// row-open leaves the error notification on the still-current calling query, where a following
+/// <c>EXPECT Notification</c> reads it. A client-side selection failure (row out of range / no or
 /// ambiguous WHERE match) stays loud, never absorbed.</para></summary>
 public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null, string? RowVar = null, bool ExpectError = false) : Statement(Location);
 
@@ -141,6 +141,12 @@ public sealed record GoBackStmt(SourceLocation Location) : Statement(Location);
 /// uses (a non-empty reference the signed-in user may read). Distinct from <c>SET</c>, which <em>changes</em>
 /// a reference rather than opening it.</summary>
 public sealed record FollowStmt(string Attribute, string? AsHandle, SourceLocation Location) : Statement(Location);
+
+/// <summary><c>FOLLOW-NAVIGATE [AS @handle]</c> — open the page a <c>Navigate(path)</c> client operation from the
+/// previous verb points at, as the browser does when the server navigates it. The path is resolved through the
+/// application's routes (raw and kebab-cased route names, optional program-unit prefix) to a PersistentObject
+/// (pushing a PO frame) or a Query (pushing a Query frame). Exactly one Navigate must have been queued.</summary>
+public sealed record FollowNavigateStmt(string? AsHandle, SourceLocation Location) : Statement(Location);
 
 /// <summary><c>EDIT</c> — enter edit mode on the current PO.</summary>
 public sealed record EditStmt(string? Handle, SourceLocation Location) : Statement(Location);
@@ -408,7 +414,9 @@ public enum ExpectSubjectKind
     /// <see cref="ExpectSubject.Name"/> holds the property name.</summary>
     QueryPoProperty,
     /// <summary><c>EXPECT Query.Columns[name].&lt;prop&gt; = "..."</c> — Label / Type / Offset.
-    /// <see cref="ExpectSubject.Name"/> holds the column name, <see cref="ExpectSubject.MetadataKey"/> the leaf property name.</summary>
+    /// <see cref="ExpectSubject.Name"/> holds the column name, <see cref="ExpectSubject.MetadataKey"/> the leaf property name.
+    /// The leafless <c>EXPECT Query.Columns[name] IS [NOT] PRESENT</c> (<see cref="ExpectSubject.MetadataKey"/> null)
+    /// asserts whether the column exists.</summary>
     QueryColumn,
     /// <summary><c>EXPECT Detail "X" IS [NOT] AVAILABLE | VISIBLE</c> — flag check against a detail
     /// query on the current PO. <see cref="ExpectSubject.DetailName"/> carries the detail name and
@@ -461,8 +469,12 @@ public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, Attribu
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.
 /// <see cref="Available"/> is <c>IsVisible &amp;&amp; !IsReadOnly</c> — the same guard
-/// <see cref="VidyanoSession.SetAttributeAsync"/> uses to decide whether a SET would succeed.</summary>
-public enum AttributeFlagKind { None, Visible, ReadOnly, Required, Available }
+/// <see cref="VidyanoSession.SetAttributeAsync"/> uses to decide whether a SET would succeed.
+/// <see cref="Present"/> (<c>EXPECT Attribute X IS [NOT] PRESENT</c> / <c>EXPECT Query.Columns[X] IS [NOT] PRESENT</c>)
+/// asks whether the name exists at all — in <c>PO.Attributes</c> / the query's columns, regardless of visibility — so
+/// an attribute or column the server removed can be asserted absent. It is the only assertion a missing name
+/// satisfies; every other EXPECT on it still fails with <c>resolve-attribute</c>.</summary>
+public enum AttributeFlagKind { None, Visible, ReadOnly, Required, Available, Present }
 
 /// <summary>EXPECT comparison operators. <see cref="Is"/>/<see cref="IsNot"/> drive boolean assertions like IS AVAILABLE.
 /// <see cref="Contains"/>/<see cref="NotContains"/> do case-insensitive substring matching against the subject's string form.</summary>

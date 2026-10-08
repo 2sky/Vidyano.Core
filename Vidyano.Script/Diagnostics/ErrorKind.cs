@@ -38,6 +38,9 @@ public static class ErrorKind
     public const string ResolveEnv               = "resolve-env";
     /// <summary>A <c>SET attr = FILE "&lt;path&gt;"</c> path didn't resolve to a readable file.</summary>
     public const string ResolveFile              = "resolve-file";
+    /// <summary><c>FOLLOW-NAVIGATE</c> found a Navigate path the application's routes don't resolve
+    /// (or several Navigate operations, so the target is ambiguous).</summary>
+    public const string ResolveNavigate          = "resolve-navigate";
 
     // Tier-1 guard — operation invalid for the current PO/Query
     public const string GuardAttributeHidden     = "guard-attribute-hidden";
@@ -78,6 +81,8 @@ public static class ErrorKind
     public const string StateAddReferencePending = "state-add-reference-pending";
     /// <summary><c>ADD-REFERENCE</c> was issued with no Add-Reference picker open to confirm.</summary>
     public const string StateNoAddReferencePending = "state-no-add-reference-pending";
+    /// <summary><c>FOLLOW-NAVIGATE</c> was issued but the previous verb queued no <c>Navigate</c> client operation.</summary>
+    public const string StateNoNavigate          = "state-no-navigate";
     /// <summary>A <c>REPEAT</c> count resolved to a negative or non-integer value — the bound is
     /// unevaluable, so the loop can't run.</summary>
     public const string StateInvalidBound        = "state-invalid-bound";
