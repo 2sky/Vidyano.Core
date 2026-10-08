@@ -55,7 +55,8 @@ public sealed record UseSessionStmt(string SessionName, SourceLocation Location)
 /// <summary><c>OPEN PersistentObject Customer 42 [AS @handle] [EXPECTING ERROR]</c>. The trailing
 /// <c>EXPECTING ERROR</c> suffix asserts the negative path: the open passes iff the server refuses the
 /// point-load (a <see cref="Vidyano.Script.Diagnostics.ErrorKind.ServerError"/>) — not-found,
-/// access-denied, or no PO returned.</summary>
+/// access-denied, or no PO returned. No frame is pushed; the server's refusal message is what a following
+/// <c>EXPECT Notification</c> reads (<see cref="VidyanoSession.LastOpenRefusal"/>) until the next verb.</summary>
 public sealed record OpenPersistentObjectStmt(Expression Type, Expression? ObjectId, string? AsHandle, SourceLocation Location, bool ExpectError = false) : Statement(Location);
 
 /// <summary><c>OPEN Query Orders [AS @handle] [EXPECTING ERROR]</c>. The suffix asserts the query-load
@@ -82,10 +83,9 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// PO (<see cref="PersistentObject.Queries"/>) instead of the current Query. It does not apply to the
 /// <see cref="RowVar"/> form, which already carries its own snapshotted row.</para>
 /// <para><see cref="ExpectError"/> (the trailing <c>EXPECTING ERROR</c> suffix) asserts the negative path:
-/// the open passes only if the row's PO load is refused server-side (a <c>server-error</c>). Unlike the
-/// OPEN PersistentObject/Query/MenuItem forms — where Core discards the error PO so nothing is left to read —
-/// a refused row-open leaves the error notification on the still-current calling query, so an
-/// <c>EXPECT Notification</c> <b>can</b> follow. A client-side selection failure (row out of range / no or
+/// the open passes only if the row's PO load is refused server-side (a <c>server-error</c>). A refused
+/// row-open leaves the error notification on the still-current calling query, where a following
+/// <c>EXPECT Notification</c> reads it. A client-side selection failure (row out of range / no or
 /// ambiguous WHERE match) stays loud, never absorbed.</para></summary>
 public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null, string? RowVar = null, bool ExpectError = false) : Statement(Location);
 
