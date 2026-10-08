@@ -215,11 +215,14 @@ public static class VerbCatalog
             "action", []),
 
         new("SEARCH",
-            "SEARCH <text>\nSEARCH Detail \"<name>\" [text]",
+            "SEARCH <text>\nSEARCH Detail \"<name>\" [text]\nSEARCH <…> EXPECTING ERROR",
             "Text-search the current query in place.",
             "Searches the current query without changing the nav stack. A leading `Detail \"<name>\"` "
-            + "retargets a named detail query to load its rows; omit the text to load with an empty filter.",
-            ["SEARCH \"Acme\"", "SEARCH Detail \"OrderLines\""],
+            + "retargets a named detail query to load its rows; omit the text to load with an empty filter. "
+            + "A search the server rejects fails with `assert-notification-error` (the error stays on the query as "
+            + "its notification); a trailing `EXPECTING ERROR` asserts that negative path. A successful search "
+            + "clears an earlier error on the query, like the web client.",
+            ["SEARCH \"Acme\"", "SEARCH Detail \"OrderLines\"", "SEARCH \"ab\" EXPECTING ERROR"],
             "query", []),
 
         new("SELECT-ROWS",

@@ -860,7 +860,7 @@ public sealed class Interpreter
             text = AsString(v.Value);
         }
         var res = await Current.SearchAsync(text, q.Location, q.DetailName).ConfigureAwait(false);
-        return Wrap(q, res);
+        return q.ExpectError ? WrapExpectingError(q, res) : Wrap(q, res);
     }
 
     // --- TOOL ---------------------------------------------------------------------------------
@@ -2149,8 +2149,8 @@ public sealed class Interpreter
     /// suffix. The verb passes iff it failed with one of <paramref name="expectedKinds"/> (defaulting to
     /// <see cref="ErrorKind.AssertNotificationError"/> when none are given). The accepted set is per-verb:
     /// <list type="bullet">
-    /// <item>SAVE / ACTION → <see cref="ErrorKind.AssertNotificationError"/> (the server returned an error
-    /// notification, which the session leaves on the current PO/Query so a following
+    /// <item>SAVE / ACTION / CONFIRM / SEARCH → <see cref="ErrorKind.AssertNotificationError"/> (the server returned
+    /// an error notification, which the session leaves on the current PO/Query so a following
     /// <c>EXPECT Notification …</c> can still pin the message).</item>
     /// <item>OPEN PersistentObject → <see cref="ErrorKind.ServerError"/> (a refused point-load — Core throws,
     /// so no frame is pushed; the session keeps the message as <see cref="VidyanoSession.LastOpenRefusal"/> for
