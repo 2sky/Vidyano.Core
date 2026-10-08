@@ -152,8 +152,10 @@ public static class VerbCatalog
             + "`EXPECTING ERROR` + `EXPECT Notification`); a returned non-error notification is shown but "
             + "passes. When the server result is an `AddReference` (a custom action that returns "
             + "`AddReference(\"<query>\")`), the action opens a picker dialog instead of a PO frame — confirm "
-            + "it with `ADD-REFERENCE`.",
-            ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete"],
+            + "it with `ADD-REFERENCE`. An action that returns a stream — or a built-in export "
+            + "(`ExportToExcel` / `ExportToCsv`, run as one `GetStream` like the web client) — is downloaded "
+            + "automatically, no frame pushed, for `EXPECT Stream.*`.",
+            ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete", "ACTION ExportToExcel"],
             "action", []),
 
         new("CHART",

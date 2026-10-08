@@ -729,15 +729,47 @@ namespace Vidyano
         ///     the live HTTP response: dispose it promptly when done — an undisposed stream keeps the
         ///     underlying connection open, and faults during reading surface at the reader.
         /// </summary>
-        public async Task<Tuple<Stream, string>> GetStreamAsync(PersistentObject registeredStream) //, string action = null, PersistentObject parent = null, Query query = null, QueryResultItem[] selectedItems = null, Dictionary<string, string> parameters = null)
+        public Task<Tuple<Stream, string>> GetStreamAsync(PersistentObject registeredStream)
+        {
+            var data = CreateData();
+            if (registeredStream != null)
+                data["id"] = registeredStream.ObjectId;
+
+            return PostGetStreamAsync(data);
+        }
+
+        /// <summary>
+        ///     Executes <paramref name="action"/> server-side and downloads the file it produces, in one
+        ///     request — the form the web client uses for the client-side export actions
+        ///     (<c>Query.ExportToExcel</c> / <c>Query.ExportToCsv</c>), whose result is a file rather than a
+        ///     PersistentObject and so can't go through <see cref="ExecuteActionAsync"/>. A server-side
+        ///     failure is served as the response body (an <c>Error.txt</c> stream), not a fault. The same
+        ///     stream lifetime rules apply as for <see cref="GetStreamAsync(PersistentObject)"/>.
+        /// </summary>
+        public Task<Tuple<Stream, string>> GetStreamAsync(string action, PersistentObject parent, Query query, QueryResultItem[] selectedItems = null, Dictionary<string, string> parameters = null)
+        {
+            if (string.IsNullOrEmpty(action))
+                throw new ArgumentException("message", nameof(action));
+
+            var data = CreateData();
+            data["action"] = action;
+            if (parent != null)
+                data["parent"] = parent.ToServiceObject();
+            if (query != null)
+                data["query"] = query.ToServiceObject();
+            if (selectedItems != null)
+                data["selectedItems"] = new JArray(selectedItems.Select(i => i?.ToServiceObject()));
+            if (parameters != null)
+                data["parameters"] = JObject.FromObject(parameters);
+
+            return PostGetStreamAsync(data);
+        }
+
+        private async Task<Tuple<Stream, string>> PostGetStreamAsync(JObject data)
         {
             try
             {
                 IsBusy = true;
-
-                var data = CreateData();
-                if (registeredStream != null)
-                    data["id"] = registeredStream.ObjectId;
 
                 var req = new MultipartFormDataContent("VidyanoBoundary")
                 {
