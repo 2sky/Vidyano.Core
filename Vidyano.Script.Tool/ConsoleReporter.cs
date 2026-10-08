@@ -100,7 +100,8 @@ public static class ConsoleReporter
             UseSessionStmt u           => $"USE @{u.SessionName}",
             SignOutStmt so             => so.SessionName is null ? "SIGN-OUT" : $"SIGN-OUT @{so.SessionName}",
             GoBackStmt                 => "GO-BACK",
-            SelectRowsStmt sr          => $"SELECT-ROWS {DescribeSelectTarget(sr)}",
+            FollowNavigateStmt         => "FOLLOW-NAVIGATE",
+            SelectRowsStmt sr         => $"SELECT-ROWS {DescribeSelectTarget(sr)}",
             AddRowStmt ar              => $"ADD-ROW Detail Attribute \"{Markup.Escape(ar.AttributeName)}\"",
             DeleteRowStmt dr           => $"DELETE-ROW Detail Attribute \"{Markup.Escape(dr.AttributeName)}\"",
             _                          => stmt.GetType().Name,
@@ -208,6 +209,8 @@ public static class ConsoleReporter
                 return snap?.Po is { } po ? $"opened {PoLine(po)}" : "opened object";
             case GoBackStmt:
                 return $"[grey]←[/] back to {Frame(snap)}";
+            case FollowNavigateStmt:
+                return $"navigated to {Frame(snap)}";
             case EditStmt:
                 return snap?.Po is { } poe ? $"editing {PoLine(poe)}" : "editing";
             case CancelStmt:

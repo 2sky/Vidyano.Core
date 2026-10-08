@@ -395,6 +395,23 @@ public sealed class DownloadSpec(ShopContext context) : CustomAction<ShopContext
         Manager.Current.RegisterStream(e.Parent!, StreamKey);
 }
 
+/// <summary>PO-level custom action that queues a <c>Navigate(path)</c> client operation — what a real action does
+/// to send the browser to another page (e.g. <c>Navigate("vesta-charge-point/vestaChargePoints/9001")</c>). The
+/// path comes from the <c>Path</c> parameter so each test picks its route form; <c>Twice=true</c> queues it twice
+/// (the ambiguous case). Returns null so the PO frame stays put — the .visc <c>FOLLOW-NAVIGATE</c> verb opens the
+/// target. Registered with <c>ShowedOn.PersistentObject</c> on Product.</summary>
+public sealed class NavigateTo(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public override PersistentObject? Execute(CustomActionArgs e)
+    {
+        var path = e.Parameters?.GetValueOrDefault("Path") ?? "";
+        Manager.Current.QueueClientOperation(global::Vidyano.Service.ClientOperations.ExecuteMethodOperation.Navigate(path));
+        if (e.Parameters?.GetValueOrDefault("Twice") == "true")
+            Manager.Current.QueueClientOperation(global::Vidyano.Service.ClientOperations.ExecuteMethodOperation.Navigate(path));
+        return null;
+    }
+}
+
 /// <summary>Like <see cref="DownloadSpec"/>, but <see cref="ProductActions.OnGetStream"/> throws for its key —
 /// the fixture for the .visc stream FETCH-error path (a server-side download failure). Exercises the runner's
 /// auto-fetch catch block, which lands the failure as a notification and fails the ACTION.</summary>

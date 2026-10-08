@@ -108,6 +108,18 @@ public static class VerbCatalog
             ["FOLLOW Customer AS @c"],
             "navigation", []),
 
+        new("FOLLOW-NAVIGATE",
+            "FOLLOW-NAVIGATE [AS @h]",
+            "Open the page a server Navigate points at.",
+            "Opens the page the previous verb's `Navigate(path)` client operation points at, as the browser does "
+            + "when the server navigates it (`EXPECT`s in between are fine). The path resolves through the "
+            + "application's routes — route names raw or kebab-cased, an optional program-unit prefix, and the raw "
+            + "`persistent-object.<id>[/<objectId>]` / `query.<id>` forms — to a PersistentObject (everything after "
+            + "the route's first `/` is the object id) or a Query, pushed like `OPEN`. No Navigate fails with "
+            + "`state-no-navigate`; several, or a path no route matches, fail with `resolve-navigate`.",
+            ["FOLLOW-NAVIGATE", "FOLLOW-NAVIGATE AS @cp"],
+            "navigation", []),
+
         new("EDIT",
             "EDIT",
             "Enter edit mode on the current PO.",

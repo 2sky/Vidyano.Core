@@ -31,6 +31,8 @@ public sealed class VidyanoSession : IDisposable
     private CapturedChart? _lastChart;                   // the last CHART result, cleared on the next verb
     private readonly List<NavEntry> _navStack = new();
     private readonly ScriptHooks _hooks = new();
+    private PersistentObject? _routesApplication;        // the Application _routes was parsed from
+    private RouteTable? _routes;
 
     // --- server retry-action coroutine state --------------------------------------------------
     // A server RetryAction fires synchronously inside Client.ExecuteActionAsync (via Hooks.OnRetryAction),
@@ -136,6 +138,15 @@ public sealed class VidyanoSession : IDisposable
     /// <see cref="ResetLastOperations"/> before every executable verb so <c>EXPECT Chart</c> reflects only
     /// the immediately preceding verb.</summary>
     public void ResetLastChart() => _lastChart = null;
+
+    /// <summary>Clears every per-verb observable (operations, stream, chart) in one go. The interpreter calls
+    /// this before every executable verb so the <c>EXPECT</c>s that follow read only that verb's results.</summary>
+    public void ResetVerbObservables()
+    {
+        ResetLastOperations();
+        ResetLastStream();
+        ResetLastChart();
+    }
 
     /// <summary>The underlying Vidyano client. Exposed so library callers can drop down when needed.</summary>
     public Vidyano.Client Client { get; }
@@ -891,6 +902,77 @@ public sealed class VidyanoSession : IDisposable
         {
             return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
         }
+    }
+
+    /// <summary><c>FOLLOW-NAVIGATE [AS @handle]</c> — open the page the server navigated to, as the browser does
+    /// for a <c>Navigate(path)</c> client operation. Consumes the operations in <see cref="LastOperations"/> (the
+    /// previous verb's, for the interpreter) — exactly one must be a Navigate — then starts a fresh per-verb window
+    /// so the open's own operations aren't mixed with them. The path resolves through the application's
+    /// <c>Routes</c> (see <see cref="RouteTable"/>) to a PersistentObject or Query, opened like
+    /// <c>OPEN PersistentObject</c> / <c>OPEN Query</c>.</summary>
+    public async Task<OpResult> FollowNavigateAsync(string? asHandle, SourceLocation loc)
+    {
+        if (!IsSignedIn)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNotSignedIn, "Sign in before FOLLOW-NAVIGATE.", loc));
+
+        var navigates = _lastOperations.Where(o => o.Type == "Navigate").ToList();
+        ResetVerbObservables();
+
+        if (navigates.Count == 0)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.StateNoNavigate,
+                "FOLLOW-NAVIGATE has no Navigate to follow — the previous verb queued none.",
+                loc,
+                Hint: "Run the ACTION / SAVE whose server code calls Navigate(...) right before FOLLOW-NAVIGATE (EXPECTs in between are fine)."));
+        if (navigates.Count > 1)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveNavigate,
+                $"FOLLOW-NAVIGATE is ambiguous — the previous verb queued {navigates.Count} Navigate operations.",
+                loc,
+                Details: new Dictionary<string, object?> { ["paths"] = navigates.Select(n => n.PrimaryValue).ToArray() }));
+
+        var path = navigates[0].PrimaryValue;
+        if (string.IsNullOrEmpty(path))
+            return OpResult.Fail(new Diagnostic(ErrorKind.ResolveNavigate, "The Navigate operation carries no path.", loc));
+
+        var routes = GetRouteTable();
+        if (routes is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveNavigate,
+                "The Application carries no Routes, so a Navigate path can't be resolved.",
+                loc,
+                Hint: "The server only omits Routes for a native client; check the session environment."));
+
+        var target = routes.Resolve(path!);
+        if (target is null)
+        {
+            var head = path!.TrimStart('/').Split('/')[0];
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.ResolveNavigate,
+                $"No route matches Navigate path '{path}'.",
+                loc,
+                Hint: Suggester.Hint(head, routes.RouteNames),
+                Details: new Dictionary<string, object?> { ["path"] = path }));
+        }
+
+        return target.IsPersistentObject
+            ? await OpenPersistentObjectAsync(target.Id, target.ObjectId, asHandle, loc).ConfigureAwait(false)
+            : await OpenQueryAsync(target.Id, asHandle, loc).ConfigureAwait(false);
+    }
+
+    /// <summary>The route table of the signed-in Application, parsed once per Application instance (a new
+    /// sign-in yields a new one). <c>null</c> when the Application has no <c>Routes</c>.</summary>
+    private RouteTable? GetRouteTable()
+    {
+        var app = Client.Application;
+        if (app is null) return null;
+        if (!ReferenceEquals(_routesApplication, app))
+        {
+            var json = app.GetAttribute("Routes")?.ValueDirect;
+            _routes = string.IsNullOrEmpty(json) ? null : RouteTable.Parse(json!);
+            _routesApplication = app;
+        }
+        return _routes;
     }
 
     /// <summary>Loads <paramref name="query"/> and returns the rows whose <paramref name="column"/> cell

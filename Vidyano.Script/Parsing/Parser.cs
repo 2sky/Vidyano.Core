@@ -145,6 +145,7 @@ public sealed class Parser
             "ADD-ROW"     => ParseAddRow(tok.Location),
             "GO-BACK"     => new GoBackStmt(tok.Location),
             "FOLLOW"      => ParseFollow(tok.Location),
+            "FOLLOW-NAVIGATE" => new FollowNavigateStmt(ParseOptionalAs(), tok.Location),
             "EDIT"        => new EditStmt(null, tok.Location),
             "CANCEL"      => new CancelStmt(null, tok.Location),
             "SAVE"        => ParseSave(tok.Location),

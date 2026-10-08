@@ -325,6 +325,7 @@ public sealed class Interpreter
             case OpenMenuItemStmt om:          return await DoOpenMenu(om).ConfigureAwait(false);
             case OpenRowStmt or:               return await DoOpenRow(or).ConfigureAwait(false);
             case FollowStmt fl:                return await DoFollow(fl).ConfigureAwait(false);
+            case FollowNavigateStmt fn:        return Wrap(fn, await Current.FollowNavigateAsync(fn.AsHandle, fn.Location).ConfigureAwait(false));
             case SelectRowsStmt sr:            return await DoSelectRows(sr).ConfigureAwait(false);
             case DeleteRowStmt dr:             return DoDeleteRow(dr);
             case AddRowStmt ar:
@@ -417,13 +418,10 @@ public sealed class Interpreter
         // buffer, the last auto-fetched stream, and the last captured CHART, so EXPECT Stream / EXPECT Chart
         // read only the immediately preceding verb's result. Meta statements (@var, @mode) don't talk to the
         // server, so they leave the buffers alone too. A loop verb is structural — its body statements reset
-        // the buffers themselves — so leave it untouched for them.
-        if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt)
-        {
-            Current.ResetLastOperations();
-            Current.ResetLastStream();
-            Current.ResetLastChart();
-        }
+        // the buffers themselves — so leave it untouched for them. FOLLOW-NAVIGATE consumes the previous verb's
+        // Navigate operation, so the session resets the buffers itself once it has read them.
+        if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt and not FollowNavigateStmt)
+            Current.ResetVerbObservables();
 
         // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the gate. Only
         // meta statements, SAVE @initial, and EXPECTs that observe the @initial scope are allowed through;
