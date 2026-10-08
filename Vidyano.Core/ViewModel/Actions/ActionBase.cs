@@ -70,6 +70,15 @@ namespace Vidyano.ViewModel.Actions
 
         public bool HasSelectionRule => SelectionRule != ExpressionParser.AlwaysTrue;
 
+        /// <summary>Whether the action's <see cref="Query"/> is re-searched once the action completes (the server's
+        /// action definition). <see cref="Execute"/> honors it; a caller that posts the action itself through
+        /// <see cref="Client.ExecuteActionAsync"/> owns the refresh.</summary>
+        public bool RefreshQueryOnCompleted => definition.RefreshQueryOnCompleted;
+
+        /// <summary>Whether that post-action refresh keeps the query's selection (the server's action definition) —
+        /// see <see cref="ViewModel.Query.RefreshQueryAsync(bool)"/>.</summary>
+        public bool KeepSelectionOnRefresh => definition.KeepSelectionOnRefresh;
+
         internal virtual Definition[] DependentActions => Array.Empty<Definition>();
 
         public ICommand Command { get; }
@@ -234,6 +243,8 @@ namespace Vidyano.ViewModel.Actions
             public bool IsPinned { get; set; }
 
             public bool RefreshQueryOnCompleted { get; set; }
+
+            public bool KeepSelectionOnRefresh { get; set; }
 
             public int Offset { get; set; }
 

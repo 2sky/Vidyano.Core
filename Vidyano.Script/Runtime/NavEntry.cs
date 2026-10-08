@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Vidyano.ViewModel;
+using Vidyano.ViewModel.Actions;
 
 namespace Vidyano.Script.Runtime;
 
@@ -59,16 +60,19 @@ public sealed record RetryEntry(PendingRetry Retry) : NavEntry
 /// reference picker query (reparented to <see cref="Parent"/> so its rows load against the right context);
 /// query-family verbs (SEARCH / SELECT-ROWS / EXPECT TotalItems) target it while it is on top.
 /// <see cref="Parent"/> is the PO the originating action ran on — the <c>parent</c> the confirming
-/// <c>Query.AddReference</c> post carries — and <see cref="AddActionName"/> is that action's name, sent as the
-/// <c>AddAction</c> parameter so the server routes to the right <c>OnAddReference</c> override. Kind is
+/// <c>Query.AddReference</c> post carries — and <see cref="Action"/> is that action: its name
+/// (<see cref="AddActionName"/>) is sent as the <c>AddAction</c> parameter so the server routes to the right
+/// <c>OnAddReference</c> override, and its query is refreshed once the picker closes, as the web client's action does
+/// once its picker dialog returns. Kind is
 /// <c>"AddReferenceDialog"</c>, so <c>EXPECT NavStack.Top.Kind = "AddReferenceDialog"</c> reads it.
 /// <para><see cref="SourceQuery"/> is set when the picker belongs to a query's <em>built-in</em> <c>AddReference</c>
 /// action (e.g. the Add button of a detail query): the picker is then a lookup clone of that query, and the confirm
 /// posts against <see cref="SourceQuery"/> with the action's own <see cref="ActionParameters"/> and no
 /// <c>AddAction</c> — the web client's <c>executeServiceRequest()</c>. It is <c>null</c> for a picker a custom
 /// action returned.</para></summary>
-public sealed record AddReferenceEntry(Query Picker, PersistentObject? Parent, string AddActionName, Query? SourceQuery = null, IReadOnlyDictionary<string, string>? ActionParameters = null) : NavEntry
+public sealed record AddReferenceEntry(Query Picker, PersistentObject? Parent, ActionBase Action, Query? SourceQuery = null, IReadOnlyDictionary<string, string>? ActionParameters = null) : NavEntry
 {
+    public string AddActionName => Action.Name;
     public override string Kind => "AddReferenceDialog";
     public override string Name => Picker.Name;
     public override bool IsDialog => true;

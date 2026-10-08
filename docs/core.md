@@ -96,6 +96,15 @@ if (approve is { CanExecute: true })
     await approve.Execute(null);
 ```
 
+`Execute` re-searches the action's query afterwards when the server's action definition says so (`action.RefreshQueryOnCompleted`). A caller that posts the action itself with `client.ExecuteActionAsync` owns that refresh; `query.RefreshQueryAsync(keepSelection: action.KeepSelectionOnRefresh)` does it the way the web client does, keeping the selection (re-selected by id) when the definition asks for it:
+
+```csharp
+var delete = query.GetAction("Delete");
+await client.ExecuteActionAsync("Query.Delete", query.Parent, query, query.SelectedItems.ToArray());
+if (delete.RefreshQueryOnCompleted)
+    await query.RefreshQueryAsync(keepSelection: delete.KeepSelectionOnRefresh);
+```
+
 An action's `IsVisible` / `CanExecute` follow the web client's rules, so a UI built on Core shows what a browser would:
 
 - **Query actions** are gated by their server selection rule against the selected row count (with `AllSelected`, the rows select-all covers). `BulkEdit` is limited to exactly one row only on a query the server marks `disableBulkEdit`; on any other query it edits every selected row (the save carries `bulkObjectIds`).

@@ -166,7 +166,10 @@ public static class VerbCatalog
             + "`AddReference(\"<query>\")`), the action opens a picker dialog instead of a PO frame — confirm "
             + "it with `ADD-REFERENCE`. An action that returns a stream — or a built-in export "
             + "(`ExportToExcel` / `ExportToCsv`, run as one `GetStream` like the web client) — is downloaded "
-            + "automatically, no frame pushed, for `EXPECT Stream.*`.",
+            + "automatically, no frame pushed, for `EXPECT Stream.*`. Like the web client, an action whose definition "
+            + "says RefreshQueryOnCompleted re-searches its query before the next statement (keeping the selection "
+            + "only with KeepSelectionOnRefresh), and server `Refresh` client operations re-load the open queries and "
+            + "records they name — so no `SEARCH` is needed to see the result.",
             ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete", "ACTION ExportToExcel"],
             "action", []),
 
@@ -207,7 +210,9 @@ public static class VerbCatalog
             + "While the picker is open the script is frozen to `SEARCH` / `SELECT-ROWS` / `EXPECT` (inspect) "
             + "and `ADD-REFERENCE` / `GO-BACK` (confirm / dismiss). The bare form confirms the picker's "
             + "current selection (from a prior `SELECT-ROWS`); the inline `<index>` / `WHERE` selector selects "
-            + "on the picker first, then confirms. Confirming with no selection fails. Fails with "
+            + "on the picker first, then confirms. Closing the picker (confirm or `GO-BACK`) runs the opening "
+            + "action's refresh, as the web client does: a built-in Add re-searches its detail. Confirming with "
+            + "no selection fails. Fails with "
             + "`state-no-add-reference-pending` when no picker is open. To remove a reference instead, there is "
             + "no verb — select the linked rows and run the server's remove action: "
             + "`SELECT-ROWS Detail \"<name>\" WHERE …` then `ACTION Detail \"<name>\" Remove`.",

@@ -298,6 +298,19 @@ public sealed class Interpreter
         if (TryGateStatement(stmt, out var gated))
             return gated!;
 
+        var result = await ExecuteVerbAsync(stmt).ConfigureAwait(false);
+
+        // Let the refreshes the verb triggered land before anything reads the state — a refreshing action's query,
+        // a closed picker's, the server's Refresh client operations — so "act, then EXPECT the grid" needs no SEARCH.
+        // The snapshot was taken before them, so retake it.
+        if (await Current.SettleRefreshesAsync().ConfigureAwait(false))
+            result = result with { Snapshot = Current.TakeSnapshot() };
+
+        return result;
+    }
+
+    private async Task<StatementResult> ExecuteVerbAsync(Statement stmt)
+    {
         switch (stmt)
         {
             case VariableAssignment va:
