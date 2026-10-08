@@ -257,6 +257,28 @@ public sealed class ProductActions(ShopContext context)
         return Context.Products.Where(p => p.Category == categoryId);
     }
 
+    /// <summary>A second per-category products detail query, wired with a <c>LookupSource</c> in
+    /// <see cref="InProcessVidyanoBackend"/> so the server offers its BUILT-IN <c>AddReference</c> action (the
+    /// detail query's Add button). Kept separate from <see cref="ProductCategory_Products"/> so the existing detail
+    /// and detail-attribute tests see an unchanged action set.</summary>
+    public IEnumerable<Product> ProductCategory_Members(CustomQueryArgs args)
+    {
+        args.EnsureParent(nameof(ProductCategory));
+
+        var categoryId = args.Parent.ObjectId;
+        return Context.Products.Where(p => p.Category == categoryId);
+    }
+
+    /// <summary>The lookup source of <see cref="ProductCategory_Members"/>: the products NOT yet in the category —
+    /// what the built-in AddReference picker lists (the client runs the detail query as a lookup).</summary>
+    public IEnumerable<Product> ProductCategory_Candidates(CustomQueryArgs args)
+    {
+        args.EnsureParent(nameof(ProductCategory));
+
+        var categoryId = args.Parent.ObjectId;
+        return Context.Products.Where(p => p.Category != categoryId);
+    }
+
     /// <summary>The server half of the .visc <c>ADD-REFERENCE</c> round-trip. The <see cref="LinkProducts"/>
     /// action on a ProductCategory opens an Add-Reference picker over the Products query; when the client
     /// confirms (posting <c>Query.AddReference</c> with <c>{AddAction:"LinkProducts"}</c>), the server routes

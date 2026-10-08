@@ -78,6 +78,14 @@ for (int i = 0; i < query.Count; i++)
     Console.WriteLine($"Item {i}: {query[i].Id}");
 ```
 
+`query.Clone(asLookup: true)` copies a query's definition (parent, search text, sort — not its rows, selection, or notification) as a lookup, like the web client's `query.clone(true)`. Searching the clone lists the query's lookup source: the candidates a built-in `AddReference` picker offers. Post the picked rows against the original query:
+
+```csharp
+var picker = detail.Clone(asLookup: true);
+await picker.RefreshQueryAsync();
+await client.ExecuteActionAsync("Query.AddReference", parentPo, detail, new[] { picker[0] }, skipHooks: true);
+```
+
 ## Running actions
 
 ```csharp

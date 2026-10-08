@@ -1834,6 +1834,14 @@ public sealed class VidyanoSession : IDisposable
         // still at the action's starting frame (null for a top-level query action).
         var addReferenceParent = CurrentPo;
 
+        // A query's built-in AddReference (a detail query's Add button) never reaches the server on click: the
+        // web client (app-service-hooks-base onAction) opens a lookup clone of the query as a picker and only posts
+        // Query.AddReference once rows are picked. Mirror that with a picker frame ADD-REFERENCE confirms. Core
+        // folds New + AddReference into one "AddReference" action whose last option ("Existing") is the add path.
+        if (action is QueryAction { Name: "AddReference", Query: { } addSource }
+            && (optionLabel is null || optionLabel == action.Options[^1]))
+            return await OpenBuiltInAddReferenceAsync(addSource, addReferenceParent, parameters, loc).ConfigureAwait(false);
+
         // Run the server call(s) inside the parking coroutine: a RetryAction raised by Core's
         // ExecuteAction loop parks the action here and surfaces as a dialog frame the script answers
         // with CONFIRM (see the coroutine fields). With no retry it behaves exactly as a direct await.
@@ -1963,6 +1971,23 @@ public sealed class VidyanoSession : IDisposable
         }).ConfigureAwait(false);
     }
 
+    /// <summary>Opens the picker of a query's built-in <c>AddReference</c> action: a lookup clone of
+    /// <paramref name="source"/>, searched and pushed as an <see cref="AddReferenceEntry"/> that remembers
+    /// <paramref name="source"/> so <c>ADD-REFERENCE</c> posts against it (see <see cref="AddReferenceAsync"/>).
+    /// Like any executed action it first clears the query's notification. A picker that fails to load is not
+    /// pushed — the failure surfaces as the verb's error.</summary>
+    private async Task<OpResult> OpenBuiltInAddReferenceAsync(Query source, PersistentObject? parent, IReadOnlyDictionary<string, string>? parameters, SourceLocation loc)
+    {
+        source.SetNotification(null);
+        var picker = source.Clone(asLookup: true);
+        await picker.RefreshQueryAsync().ConfigureAwait(false); // traps its own errors into the picker's notification
+        if (picker is { HasNotification: true, NotificationType: NotificationType.Error })
+            return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, picker.Notification, loc));
+
+        _navStack.Add(new AddReferenceEntry(picker, parent, "AddReference", source, parameters));
+        return OpResult.Success;
+    }
+
     /// <summary>Executes a named query chart via the <c>QueryFilter.Chart</c> system action — the same call the
     /// web client's dashboard makes — and captures the returned chart JSON in <see cref="LastChart"/> for
     /// <c>EXPECT Chart</c>. Unlike <see cref="ExecuteActionAsync"/> the returned Chart PersistentObject is
@@ -2048,12 +2073,16 @@ public sealed class VidyanoSession : IDisposable
 
         try
         {
-            // Faithful to the web client (action.ts): post Query.AddReference with the action's parent, the
-            // picker query, the chosen rows, and {AddAction} so the server routes to the originating action's
-            // OnAddReference. Skip the client-side action hooks just as the web client passes
-            // skipUserDefinedActions=true (ExecuteAction doesn't dispatch ClientOperations either way).
-            var addParams = new Dictionary<string, string> { ["AddAction"] = entry.AddActionName };
-            var po = await Client.ExecuteActionAsync("Query.AddReference", entry.Parent, picker, selected, addParams, skipHooks: true).ConfigureAwait(false);
+            // Faithful to the web client. A picker a custom action returned (action.ts) posts against the picker
+            // query with {AddAction} so the server routes to the originating action's OnAddReference. A built-in
+            // AddReference picker (app-service-hooks-base onAction → executeServiceRequest) posts against the
+            // query the action belongs to, with the action's own parameters and no AddAction. Both skip the
+            // client-side action hooks, as the web client does (ExecuteAction doesn't dispatch ClientOperations
+            // either way).
+            var (addQuery, addParams) = entry.SourceQuery is { } source
+                ? (source, entry.ActionParameters?.ToDictionary(kv => kv.Key, kv => kv.Value))
+                : (picker, new Dictionary<string, string> { ["AddAction"] = entry.AddActionName });
+            var po = await Client.ExecuteActionAsync("Query.AddReference", entry.Parent, addQuery, selected, addParams, skipHooks: true).ConfigureAwait(false);
 
             // ExecuteActionAsync sets an error notification (on the parent PO, or the query for a query action)
             // and returns null on failure. A null result with no error is the normal success shape —
@@ -2062,8 +2091,8 @@ public sealed class VidyanoSession : IDisposable
             {
                 if (entry.Parent is { HasNotification: true, NotificationType: NotificationType.Error })
                     return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, entry.Parent.Notification, loc));
-                if (picker is { HasNotification: true, NotificationType: NotificationType.Error })
-                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, picker.Notification, loc));
+                if (addQuery is { HasNotification: true, NotificationType: NotificationType.Error })
+                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, addQuery.Notification, loc));
             }
 
             // Pop the picker frame, revealing the PO/Query the action ran on.
