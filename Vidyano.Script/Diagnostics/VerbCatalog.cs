@@ -199,7 +199,9 @@ public static class VerbCatalog
             "ADD-REFERENCE\nADD-REFERENCE <index>\nADD-REFERENCE WHERE <col> = <value>",
             "Confirm an open Add-Reference picker.",
             "Confirms the Add-Reference picker an `ACTION` opened (when that action's server result is an "
-            + "`AddReference`), linking the selected rows by posting the faithful `Query.AddReference` call. "
+            + "`AddReference`, or for a query's built-in `AddReference` action — e.g. a detail query's Add button, "
+            + "whose picker is a lookup clone of the query), linking the selected rows by posting the faithful "
+            + "`Query.AddReference` call. "
             + "While the picker is open the script is frozen to `SEARCH` / `SELECT-ROWS` / `EXPECT` (inspect) "
             + "and `ADD-REFERENCE` / `GO-BACK` (confirm / dismiss). The bare form confirms the picker's "
             + "current selection (from a prior `SELECT-ROWS`); the inline `<index>` / `WHERE` selector selects "

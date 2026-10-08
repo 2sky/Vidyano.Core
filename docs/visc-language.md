@@ -287,6 +287,18 @@ ACTION LinkProducts
 ADD-REFERENCE WHERE Name = "Gadget"       ## or: ADD-REFERENCE <index>
 ```
 
+The **built-in Add button of a detail query** (its `AddReference` action — offered when the query has a lookup source) works the same way. As in the web client, the `ACTION` posts nothing: it opens a **lookup clone** of the detail query (rows from its lookup source) as the picker, and `ADD-REFERENCE` posts `Query.AddReference` against the detail query itself (no `AddAction`), reaching its `OnAddReference`:
+
+```visc
+OPEN-ROW WHERE Name = "Tools"
+ACTION Detail "Members" AddReference      ## opens the lookup picker — nothing is posted yet
+EXPECT TotalItems = 2                     ## the picker lists the lookup source
+ADD-REFERENCE WHERE Name = "Gadget"       ## posts Query.AddReference on the Members detail
+SEARCH Detail "Members"                   ## reload the detail to see the new row
+```
+
+When the query also offers `New`, the client folds both into one `AddReference` action with options (`New …`, `Existing`); `ACTION Detail "Members" AddReference = "Existing"` (or `= ID <last>`) opens the same picker, while the `New` option runs `New`.
+
 While the picker is open the script is **frozen** to the verbs that drive, inspect, confirm, or dismiss it — `SEARCH` / `SELECT-ROWS` / `EXPECT` / `REQUIRES`, plus `ADD-REFERENCE` (confirm) and `GO-BACK` (dismiss without linking); anything else trips `state-add-reference-pending`. Confirming with **no selection** fails loudly (an add that adds nothing is always a mistake), and `ADD-REFERENCE` with **no picker open** fails with `state-no-add-reference-pending`. On success the picker frame pops, revealing the record beneath; reload its detail (`SEARCH Detail "<name>"`) to see the new link.
 
 > **Removing a reference** has no dedicated verb — it is an ordinary selection-gated action on the *already-linked* rows. Select them on the relevant (detail) query and run the server's remove action:
@@ -581,7 +593,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
 | `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |
 | `CONFIRM "<label>" \| CONFIRM ID <i> [EXPECTING ERROR]` | Answer an open server retry dialog (`EXPECTING ERROR` asserts the resumed action fails). |
-| `ADD-REFERENCE [<i> \| WHERE <col> = <value>]` | Confirm an Add-Reference picker an `ACTION` opened, linking the selected (or inline-selected) rows. |
+| `ADD-REFERENCE [<i> \| WHERE <col> = <value>]` | Confirm an Add-Reference picker an `ACTION` opened (a custom `AddReference(...)` result or a query's built-in `AddReference`), linking the selected (or inline-selected) rows. |
 | `EXPECT <subject> <op> <value>` | Assert observable state (see above). |
 | `EXPECT <ref> = ID "<id>"` | Assert a reference by its document id (`ObjectId`). |
 | `EXPECT <attr> LANGUAGE <lang> = "…"` | Assert one translation of a TranslatedString attribute. |

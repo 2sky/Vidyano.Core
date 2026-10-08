@@ -71,6 +71,12 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 model.GetPersistentObject(nameof(ProductCategory))!
                     .GetOrCreateAttributeAsDetail("Products").Details = productsDetail;
 
+                // A detail query with a lookup source: the server then offers its built-in AddReference action,
+                // whose picker lists the lookup source (products outside the category). Confirming it reaches
+                // ProductActions.OnAddReference without an AddAction parameter.
+                var membersDetail = model.AddDetailQuery(nameof(ProductCategory), nameof(ProductActions.ProductCategory_Members));
+                membersDetail.LookupSource = "Custom." + nameof(ProductActions.ProductCategory_Candidates);
+
                 // Mark Product.Trigger as TriggersRefresh: a SET of it round-trips through
                 // ProductActions.OnRefresh, which mirrors the value into Product.Echo — exercises the
                 // client SetValueAsync -> RefreshAttributesAsync path end-to-end.
