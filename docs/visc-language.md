@@ -33,7 +33,7 @@ Comments start with `##` (inline) or `###` (a *step header* that groups followin
 
 A few concepts the whole language is built on:
 
-- **The navigation stack.** `OPEN`/`OPEN-ROW`/`FOLLOW` push frames; `GO-BACK`/`SAVE` pop them. The top frame is the "current" Query or PersistentObject (PO) — the implicit target of `SEARCH`, `EDIT`, `SET`, `ACTION`, and most `EXPECT`s. This mirrors the browser's back-stack.
+- **The navigation stack.** `OPEN`/`OPEN-ROW`/`FOLLOW`/`FOLLOW-NAVIGATE` push frames; `GO-BACK`/`SAVE` pop them. The top frame is the "current" Query or PersistentObject (PO) — the implicit target of `SEARCH`, `EDIT`, `SET`, `ACTION`, and most `EXPECT`s. This mirrors the browser's back-stack.
 - **Sessions.** A script has one **default** session and any number of **named** ones, each with its own cookie jar / identity. `USE` switches which is active; all observable state swaps with it.
 - **Totality.** `.visc` is **total** — every script provably halts. The only control flow is gates (`REQUIRES`/`CLEANUP`) and *bounded* loops (`REPEAT`, `FOR-EACH ROW`) whose bound is fixed before they run. There is no `WHILE`, no recursion, no arithmetic. Genuine computation belongs in a [`TOOL`](#tool) or the host. This is a deliberate constraint, not a missing feature.
 
@@ -85,6 +85,7 @@ The names `session`, `user`, and `application` are reserved; `@session = …` is
 | `OPEN-ROW Detail "<name>" <i\|WHERE …>` | Select from the named detail query on the current PO instead of the current Query. The `Detail` clause is orthogonal to the index/`WHERE` choice. |
 | `OPEN-ROW <…> EXPECTING ERROR` | Assert the row's PO load is **refused** server-side. Leaves the error on the still-current calling query, so `EXPECT Notification` can follow (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)). |
 | `FOLLOW <attr> [AS @h]` | Navigate from a **reference** attribute on the current PO to the PO it points at, pushing a PO frame — the equivalent of the web client's "open" affordance next to a reference field. Honors the same `CanOpen` gate the UI uses. It does **not** change the reference (that's `SET`). |
+| `FOLLOW-NAVIGATE [AS @h]` | Open the page the previous verb's `Navigate(path)` client operation points at — what the browser does when the server navigates it. Pushes a PO or Query frame. |
 | `GO-BACK` | Pop the top frame (the browser back button). Refuses when the top is a PO in edit (`SAVE`/`CANCEL` first) and when already at the root. |
 
 `<value>` in a `WHERE` is in **service-string form** — the same convention as `SET`. Only `=` is supported.
@@ -94,6 +95,21 @@ OPEN MenuItem Sales/Orders
 OPEN-ROW WHERE Number = "SO-1001"
 FOLLOW Customer AS @cust       ## jump to the referenced Customer PO
 ```
+
+### Following a server `Navigate` — `FOLLOW-NAVIGATE`
+
+An action whose server code calls `Manager.Current.QueueClientOperation(ExecuteMethodOperation.Navigate("<path>"))` sends the browser to another page. `EXPECT ClientOperation Navigate = "<path>"` asserts the operation; `FOLLOW-NAVIGATE` opens the page:
+
+```visc
+ACTION ChargePointDiagnostics                ## server: Navigate("vesta-charge-point/vestaChargePoints/9001")
+EXPECT ClientOperation Navigate CONTAINS "vesta-charge-point/"
+FOLLOW-NAVIGATE AS @cp                       ## pushes the VestaChargePoint PO
+EXPECT PO.ObjectId = "vestaChargePoints/9001"
+```
+
+- **Which Navigate.** The one queued by the **immediately preceding** verb (`EXPECT`s in between don't count as verbs). None fails with `state-no-navigate`; more than one fails with `resolve-navigate` (the paths are in the diagnostic details).
+- **Route resolution** mirrors the web client, using the Application's `Routes`: a route name matches **raw or kebab-cased** (`VestaChargePoint` / `vesta-charge-point`), optionally behind a program-unit prefix (`Charging/vesta-charge-point/…`). A PersistentObject route takes everything after its first `/` as the object id, so ids containing `/` survive intact; a Query route takes no id. The raw forms `[<pu>/]persistent-object.<type-or-id>[/<objectId>]` and `[<pu>/]query.<id>` work too. A path no route matches fails with `resolve-navigate` and a "did you mean" over the route names.
+- The target opens like `OPEN PersistentObject` / `OPEN Query` (no parent, as the browser does) and pushes on top of the current frame.
 
 ## Searching
 
@@ -549,6 +565,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `OPEN MenuItem <path>` | Push a Query frame. |
 | `OPEN-ROW <i \| WHERE … \| @row> [Detail "<n>"]` | Push a PO frame from a row. |
 | `FOLLOW <attr> [AS @h]` | Open the PO a reference attribute points at. |
+| `FOLLOW-NAVIGATE [AS @h]` | Open the page the previous verb's `Navigate(path)` points at. |
 | `GO-BACK` | Pop the top nav frame. |
 | `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place. |
 | `SELECT-ROWS <ALL \| ALL EXCEPT … \| NONE \| <i> \| WHERE …>` | Set the selection for a selection-gated action. |

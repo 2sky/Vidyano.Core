@@ -142,6 +142,12 @@ public sealed record GoBackStmt(SourceLocation Location) : Statement(Location);
 /// a reference rather than opening it.</summary>
 public sealed record FollowStmt(string Attribute, string? AsHandle, SourceLocation Location) : Statement(Location);
 
+/// <summary><c>FOLLOW-NAVIGATE [AS @handle]</c> — open the page a <c>Navigate(path)</c> client operation from the
+/// previous verb points at, as the browser does when the server navigates it. The path is resolved through the
+/// application's routes (raw and kebab-cased route names, optional program-unit prefix) to a PersistentObject
+/// (pushing a PO frame) or a Query (pushing a Query frame). Exactly one Navigate must have been queued.</summary>
+public sealed record FollowNavigateStmt(string? AsHandle, SourceLocation Location) : Statement(Location);
+
 /// <summary><c>EDIT</c> — enter edit mode on the current PO.</summary>
 public sealed record EditStmt(string? Handle, SourceLocation Location) : Statement(Location);
 
