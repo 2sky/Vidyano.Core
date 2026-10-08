@@ -86,12 +86,18 @@ namespace Vidyano.ViewModel.Actions
 
             var selectedItems = Query != null && Query.Count > 0 ? Query.SelectedItems.ToArray() : Array.Empty<QueryResultItem>();
             var po = await client.ExecuteActionAsync((this is QueryAction ? "Query" : "PersistentObject") + "." + definition.Name, Parent, Query, selectedItems, parameters).ConfigureAwait(false);
+            var refreshQuery = definition.RefreshQueryOnCompleted && Query != null;
+            PersistentObject deferredNotification = null;
 
             if (po != null)
             {
                 if (po.FullTypeName == "Vidyano.Notification")
                 {
-                    if (Query != null)
+                    // Like the web client (action.ts _onExecute), a notification for a query that is about to be
+                    // re-searched is shown once the search is done, so it never blocks the refresh.
+                    if (refreshQuery)
+                        deferredNotification = po;
+                    else if (Query != null)
                         Query.SetNotification(po.Notification, po.NotificationType);
                     else if (Parent != null)
                         Parent.SetNotification(po.Notification, po.NotificationType);
@@ -145,13 +151,18 @@ namespace Vidyano.ViewModel.Actions
                 }
             }
 
-            if (definition.RefreshQueryOnCompleted && Query != null && !Query.HasNotification)
+            // A notification on the query here is this action's failure (a failed call or download, an error result).
+            if (refreshQuery && !Query.HasNotification)
             {
-                await Query.RefreshQueryAsync().ConfigureAwait(false);
+                await Query.RefreshQueryAsync(definition.KeepSelectionOnRefresh).ConfigureAwait(false);
 
                 if (Query.SemanticZoomOwner != null)
                     await Query.SemanticZoomOwner.RefreshQueryAsync().ConfigureAwait(false);
             }
+
+            // A failed search keeps its own error, as in the web client.
+            if (deferredNotification != null && !Query.HasNotification)
+                Query.SetNotification(deferredNotification.Notification, deferredNotification.NotificationType);
 
             return po;
         }

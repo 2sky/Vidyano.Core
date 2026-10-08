@@ -423,6 +423,20 @@ public sealed class AddSampleNoRefresh(ShopContext context) : CustomAction<ShopC
     public override PersistentObject? Execute(CustomActionArgs e) => AddSample.Add(e);
 }
 
+/// <summary><see cref="AddSampleKeepSelection"/> with options (<c>Quietly;Announce</c>), so .visc runs it through
+/// Core's <c>ActionBase.Execute(option)</c> (<c>ACTION AddSampleWithOptions = "…"</c>). <c>Announce</c> also returns
+/// an OK <c>Notification(…)</c> — the result that used to cancel Core's post-action refresh.</summary>
+public sealed class AddSampleWithOptions(ShopContext context) : CustomAction<ShopContext>(context)
+{
+    public const string Announcement = "Sample added.";
+
+    public override PersistentObject? Execute(CustomActionArgs e)
+    {
+        AddSample.Add(e);
+        return e.Parameters?.GetValueOrDefault("MenuLabel") == "Announce" ? Notification(Announcement, NotificationType.OK) : null;
+    }
+}
+
 /// <summary>PO-level action on a ProductCategory that changes data behind the client's back — moves "Gadget" into the
 /// category, appends <see cref="Suffix"/> to its name, adds a "Garden" category — and returns nothing, queuing a
 /// <c>Refresh</c> client operation for each target named in the comma-separated <c>Refresh</c> parameter: <c>Detail</c>

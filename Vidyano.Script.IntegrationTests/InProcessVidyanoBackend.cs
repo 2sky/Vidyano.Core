@@ -138,6 +138,12 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 addSampleNoRefresh.ShowedOn = ShowedOn.Query;
                 addSampleNoRefresh.RefreshQueryOnCompleted = false;
 
+                var addSampleWithOptions = model.GetOrCreateCustomAction(nameof(AddSampleWithOptions));
+                addSampleWithOptions.ShowedOn = ShowedOn.Query;
+                addSampleWithOptions.RefreshQueryOnCompleted = true;
+                addSampleWithOptions.KeepSelectionOnRefresh = true;
+                addSampleWithOptions.SetOptions("Quietly;Announce");
+
                 // PO-level action on ProductCategory that changes data and queues the Refresh client operations its
                 // Refresh parameter names — the fixture for applying them.
                 var reshuffle = model.GetOrCreateCustomAction(nameof(Reshuffle));
@@ -160,6 +166,7 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 administrators.AddUserRight($"{nameof(AddSample)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(AddSampleKeepSelection)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(AddSampleNoRefresh)}/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"{nameof(AddSampleWithOptions)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(Reshuffle)}/{Schema}.{nameof(ProductCategory)}");
                 administrators.AddUserRight($"{nameof(LinkIntoQuery)}/{Schema}.{nameof(Product)}");
             }));

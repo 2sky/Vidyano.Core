@@ -96,7 +96,7 @@ if (approve is { CanExecute: true })
     await approve.Execute(null);
 ```
 
-`Execute` re-searches the action's query afterwards when the server's action definition says so (`action.RefreshQueryOnCompleted`). A caller that posts the action itself with `client.ExecuteActionAsync` owns that refresh; `query.RefreshQueryAsync(keepSelection: action.KeepSelectionOnRefresh)` does it the way the web client does, keeping the selection (re-selected by id) when the definition asks for it:
+`Execute` re-searches the action's query afterwards when the server's action definition says so (`action.RefreshQueryOnCompleted`), as the web client does: the selection survives when the definition says `KeepSelectionOnRefresh`, and a `Vidyano.Notification` the action returns is set on the query once the re-search is done (unless the re-search left an error of its own) rather than cancelling it. Only a failed action skips the re-search. A caller that posts the action itself with `client.ExecuteActionAsync` owns that refresh; `query.RefreshQueryAsync(keepSelection: action.KeepSelectionOnRefresh)` does it the way the web client does, keeping the selection (re-selected by id) when the definition asks for it:
 
 ```csharp
 var delete = query.GetAction("Delete");
