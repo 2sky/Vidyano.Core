@@ -91,7 +91,7 @@ public static class ConsoleReporter
             SetStmt { DetailAttribute: { } da } s => $"SET Detail Attribute \"{Markup.Escape(da)}\" ROW … {Markup.Escape(s.Attribute)} = …",
             SetStmt s                  => $"SET {Markup.Escape(s.Attribute)} = …",
             ActionStmt a               => $"ACTION {Markup.Escape(a.ActionName)}{(a.ExpectError ? " EXPECTING ERROR" : "")}",
-            SearchStmt q               => q.DetailName is null ? "SEARCH …" : $"SEARCH Detail \"{Markup.Escape(q.DetailName)}\" …",
+            SearchStmt q               => (q.DetailName is null ? "SEARCH …" : $"SEARCH Detail \"{Markup.Escape(q.DetailName)}\" …") + (q.ExpectError ? " EXPECTING ERROR" : ""),
             ExpectStmt e               => $"EXPECT {DescribeSubject(e.Subject)}",
             ToolCallStmt t             => $"TOOL {Markup.Escape(t.Name)}{(t.ResultVariable is null ? "" : $" -> @{Markup.Escape(t.ResultVariable)}")}",
             RequiresStmt r             => $"REQUIRES {DescribeSubject(r.Subject)}",
@@ -222,6 +222,8 @@ public static class ConsoleReporter
                 return $"error as expected{Notif(snap)}";
             case ActionStmt a:
                 return $"ran [yellow]{Markup.Escape(a.ActionName)}[/]{Notif(snap)}";
+            case SearchStmt { ExpectError: true }:
+                return $"error as expected{Notif(snap)}";
             case SearchStmt sq:
                 return sq.DetailName is not null
                     ? $"detail [bold]\"{Markup.Escape(sq.DetailName)}\"[/] loaded"

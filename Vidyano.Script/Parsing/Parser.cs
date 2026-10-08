@@ -915,12 +915,25 @@ public sealed class Parser
 
         // Text is required for a current-query search; for `SEARCH Detail "<name>"` it's optional —
         // omitting it loads the detail with an empty filter.
-        if (detailName != null && IsLineTerminator(Peek()))
-            return new SearchStmt(null, null, loc, DetailName: detailName);
+        Expression? text = null;
+        if (detailName == null && IsExpectingKeyword(Peek()))
+        {
+            // Without this, `EXPECTING` would become the search text and the dangling ERROR be skipped.
+            Error(ErrorKind.ParseExpected,
+                "SEARCH needs text before EXPECTING ERROR.",
+                Peek().Location,
+                hint: "SEARCH \"<text>\" EXPECTING ERROR — quote EXPECTING to search for the literal word.");
+            return null;
+        }
+        if (detailName == null || (!IsLineTerminator(Peek()) && !IsExpectingKeyword(Peek())))
+        {
+            text = ParseValueExpression();
+            if (text == null) return null;
+        }
 
-        var text = ParseValueExpression();
-        if (text == null) return null;
-        return new SearchStmt(null, text, loc, DetailName: detailName);
+        var expectError = TryConsumeExpectingError(out var malformed);
+        if (malformed) return null;
+        return new SearchStmt(null, text, loc, DetailName: detailName, ExpectError: expectError);
     }
 
     /// <summary><c>SAVE</c> on the top of the nav stack, or <c>SAVE @initial</c> against
@@ -1870,10 +1883,10 @@ public sealed class Parser
     }
 
     /// <summary>Consumes an optional trailing <c>EXPECTING ERROR</c> suffix on a fallible verb
-    /// (SAVE / ACTION / OPEN PersistentObject|Query|MenuItem / OPEN-ROW) and returns whether it was present.
-    /// The suffix asserts the negative path: the verb passes iff it fails with the error the caller treats
-    /// as expected (a server error notification for SAVE/ACTION; a refused load for the OPEN forms and
-    /// OPEN-ROW). A bare <c>EXPECTING</c> not
+    /// (SAVE / ACTION / CONFIRM / SEARCH / OPEN PersistentObject|Query|MenuItem / OPEN-ROW) and returns whether it
+    /// was present. The suffix asserts the negative path: the verb passes iff it fails with the error the caller
+    /// treats as expected (a server error notification for SAVE/ACTION/CONFIRM/SEARCH; a refused load for the OPEN
+    /// forms and OPEN-ROW). A bare <c>EXPECTING</c> not
     /// followed by <c>ERROR</c> is a parse error; <paramref name="malformed"/> is then set so the
     /// caller bails out (returns <c>null</c>) instead of shipping a half-parsed statement.</summary>
     private bool TryConsumeExpectingError(out bool malformed)

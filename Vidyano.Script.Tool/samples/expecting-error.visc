@@ -60,3 +60,10 @@ OPEN-ROW WHERE Name = "Unloadable" EXPECTING ERROR
 EXPECT NavStack.Top.Kind = "Query"   ## no PO frame pushed — still on the calling query
 EXPECT NotificationType = "Error"    ## the refused load's error, now readable on the query
 EXPECT Notification MATCHES ".+"
+
+### SEARCH — a text search the server REJECTS (e.g. its text search throws for too-short input). A bare
+### SEARCH fails loudly on that, rather than passing with the previous rows still loaded; the suffix asserts
+### it instead. Like OPEN-ROW, the error stays on the searched query, so EXPECT Notification can follow.
+SEARCH "a" EXPECTING ERROR
+EXPECT NotificationType = "Error"
+EXPECT Notification MATCHES ".+"

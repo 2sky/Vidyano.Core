@@ -181,6 +181,79 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
+    public async Task Search_ServerError_FailsLoudly()
+    {
+        // A text search the server rejects lands as an Error notification on the searched Query (Core catches the
+        // failed ExecuteQuery). SEARCH must surface it — regression for the verb passing silently, which left the
+        // stale rows in place for a later EXPECT TotalItems to trip over.
+        var result = await Run($"""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            SEARCH {ShopContext.UnsearchableText}
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result),
+            d => d.Kind == ErrorKind.AssertNotificationError && d.Message.Contains("is not supported"));
+    }
+
+    [Fact]
+    public async Task SearchDetail_ServerError_FailsLoudly()
+    {
+        var result = await Run($"""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            SEARCH Detail "ProductCategory_Products" {ShopContext.UnsearchableText}
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result),
+            d => d.Kind == ErrorKind.AssertNotificationError && d.Message.Contains("is not supported"));
+    }
+
+    [Fact]
+    public async Task Search_ServerError_ExpectingError_ReadsQueryNotification()
+    {
+        AssertOk(await Run($"""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            SEARCH {ShopContext.UnsearchableText} EXPECTING ERROR
+            EXPECT Notification.Type = "Error"
+            EXPECT Notification MATCHES "is not supported"
+            """));
+    }
+
+    [Fact]
+    public async Task Search_ExpectingError_ButSucceeds_Fails()
+    {
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            SEARCH "" EXPECTING ERROR
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertExpectedError);
+    }
+
+    [Fact]
+    public async Task Search_Success_ClearsStaleQueryError()
+    {
+        // A successful search resets the query's notification (as the web client's setResult does), so an error
+        // left by an earlier verb neither fails this SEARCH nor lingers for EXPECT Notification.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            ACTION FailOnServer EXPECTING ERROR
+            EXPECT Notification.Type = "Error"
+            SEARCH ""
+            EXPECT Notification IS NULL
+            EXPECT TotalItems = 4
+            """));
+    }
+
+    [Fact]
     public async Task OpenRow_LoadError_ExpectingError_ReadsQueryNotification()
     {
         // The row-open analog of QueryAction_ServerError_ExpectingError: opening the "Faulty" row faults its

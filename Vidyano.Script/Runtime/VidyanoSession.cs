@@ -464,7 +464,11 @@ public sealed class VidyanoSession : IDisposable
     /// current nav-stack query; otherwise searches the named detail query on the current PO — loading
     /// its rows and <c>TotalItems</c> without touching the nav stack or selection. That detail form is
     /// the side-effect-free way to populate a detail before an <c>EXPECT Detail … TotalItems</c>, which
-    /// only reads what the query holds in memory.</summary>
+    /// only reads what the query holds in memory.
+    /// <para>A search the server rejects doesn't throw: Core catches the failed ExecuteQuery and sets the error
+    /// as the query's notification. That fails the verb (<see cref="ErrorKind.AssertNotificationError"/>), so
+    /// <c>SEARCH … EXPECTING ERROR</c> can assert it — mirroring a query action's error in
+    /// <see cref="ExecuteActionAsync"/>.</para></summary>
     public async Task<OpResult> SearchAsync(string text, SourceLocation loc, string? detailName = null)
     {
         Query target;
@@ -485,7 +489,13 @@ public sealed class VidyanoSession : IDisposable
         }
         try
         {
+            // Core's search sets the notification on failure but never clears it on success, while the web
+            // client resets it from every result. Clear it first (as Core's ExecuteActionAsync does for an
+            // action), so an earlier verb's error neither fails this search nor lingers for EXPECT Notification.
+            target.SetNotification(null);
             await target.SearchTextAsync(text).ConfigureAwait(false);
+            if (target is { HasNotification: true, NotificationType: NotificationType.Error })
+                return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, target.Notification, loc));
             return OpResult.Success;
         }
         catch (Exception ex)

@@ -101,9 +101,12 @@ FOLLOW Customer AS @cust       ## jump to the referenced Customer PO
 SEARCH "Acme"                  ## text-search the current Query in place (no stack change)
 SEARCH Detail "OrderLines"     ## load a named detail query's rows (empty filter)
 SEARCH "Detail"                ## quoted -> searches the current query for the literal word "Detail"
+SEARCH "ab" EXPECTING ERROR    ## assert the server rejects the search
 ```
 
 `SEARCH Detail "<name>"` retargets a detail query on the current PO, searching it in place to **load** its rows — so a following `EXPECT Detail … TotalItems` sees server-created state. A detail is lazy; load it before asserting on it.
+
+A search the server **rejects** (its text search throws, or the query fails to execute) fails the verb with `assert-notification-error` carrying the server's message — the same way a failed query `ACTION` does — instead of passing with the previous rows still loaded. The error stays on the searched query as its notification, so `SEARCH … EXPECTING ERROR` + `EXPECT Notification …` can assert it (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)). Like the web client, every search starts from a clean notification: a successful `SEARCH` clears an error an earlier verb left on that query.
 
 ## Selecting rows
 
@@ -208,13 +211,14 @@ An action that **returns a stream** (server: `Manager.Current.RegisterStream(...
 SAVE EXPECTING ERROR
 ACTION Delete EXPECTING ERROR
 CONFIRM "Cancel" EXPECTING ERROR
+SEARCH "ab" EXPECTING ERROR
 OPEN PersistentObject "Customer" "deleted-id" EXPECTING ERROR
 OPEN Query "RestrictedOrders" EXPECTING ERROR
 OPEN MenuItem Admin/Users EXPECTING ERROR
 OPEN-ROW WHERE Name = "Faulty" EXPECTING ERROR
 ```
 
-This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION` / `CONFIRM`, that expected failure is the server's error notification — whether the server set it on the PO/query and returned null, or the action *returned* it as a `Notification(…, Error)` result — which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form. For `CONFIRM` it asserts that **answering a server retry dialog** resumes an action that then fails (a retry option that throws / returns an error — the archetypal "Cancel" branch); see [Server retry dialogs](#server-retry-dialogs--confirm).
+This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION` / `CONFIRM`, that expected failure is the server's error notification — whether the server set it on the PO/query and returned null, or the action *returned* it as a `Notification(…, Error)` result — which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form. For `CONFIRM` it asserts that **answering a server retry dialog** resumes an action that then fails (a retry option that throws / returns an error — the archetypal "Cancel" branch); see [Server retry dialogs](#server-retry-dialogs--confirm). For `SEARCH` (every form, including `SEARCH Detail "<name>"`) it asserts the server **rejects the search** — e.g. a text search that throws for too-short input; the error stays on the searched query, so `EXPECT Notification …` can follow.
 
 All three `OPEN` forms take the suffix to assert the open is **refused** — the `.visc` equivalent of "this should not open":
 
@@ -550,7 +554,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `OPEN-ROW <i \| WHERE … \| @row> [Detail "<n>"]` | Push a PO frame from a row. |
 | `FOLLOW <attr> [AS @h]` | Open the PO a reference attribute points at. |
 | `GO-BACK` | Pop the top nav frame. |
-| `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place. |
+| `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place; a server-rejected search fails the verb. |
 | `SELECT-ROWS <ALL \| ALL EXCEPT … \| NONE \| <i> \| WHERE …>` | Set the selection for a selection-gated action. |
 | `ADD-ROW Detail Attribute "<n>" [AS @i]` | Append a new row (details query `New`) to a detail attribute. |
 | `SET Detail Attribute "<n>" ROW <i> <col> = <value>` | Change a cell of a detail-attribute row. |
@@ -560,7 +564,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SET <attr> LANGUAGE <lang> = <value>` | Set one translation of a TranslatedString attribute (bare `SET` = current language). |
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `CHART "<name>" [Detail "<n>"]` | Run a named query chart; capture its JSON for `EXPECT Chart`. |
-| `SAVE \| ACTION \| CONFIRM … EXPECTING ERROR` | Assert the negative (error-notification) path. |
+| `SAVE \| ACTION \| CONFIRM \| SEARCH … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` can't follow). |
 | `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |
 | `CONFIRM "<label>" \| CONFIRM ID <i> [EXPECTING ERROR]` | Answer an open server retry dialog (`EXPECTING ERROR` asserts the resumed action fails). |

@@ -229,8 +229,11 @@ public sealed record ChartStmt(
 /// change, which loads its rows so a following <c>EXPECT Detail … TotalItems</c> sees server state.
 /// <see cref="Text"/> is <c>null</c> only for the bare <c>SEARCH Detail "&lt;name&gt;"</c> form (load with
 /// an empty filter); to search the current query for the literal word <c>Detail</c>, quote it
-/// (<c>SEARCH "Detail"</c>).</summary>
-public sealed record SearchStmt(string? Handle, Expression? Text, SourceLocation Location, string? DetailName = null) : Statement(Location);
+/// (<c>SEARCH "Detail"</c>).
+/// <para><see cref="ExpectError"/> (the trailing <c>EXPECTING ERROR</c> suffix) asserts the negative path: the
+/// search passes iff the server rejects it with an error notification, which stays on the searched query for a
+/// following <c>EXPECT Notification</c>.</para></summary>
+public sealed record SearchStmt(string? Handle, Expression? Text, SourceLocation Location, string? DetailName = null, bool ExpectError = false) : Statement(Location);
 
 /// <summary><c>EXPECT &lt;subject&gt; &lt;op&gt; &lt;value&gt;</c> or <c>EXPECT &lt;subject&gt; IS [NOT] &lt;flag&gt;</c>.</summary>
 public sealed record ExpectStmt(ExpectSubject Subject, ExpectOp Op, Expression? Value, SourceLocation Location) : Statement(Location);
