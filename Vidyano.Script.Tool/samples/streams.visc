@@ -16,8 +16,12 @@
 ### the next executable verb clears it. A server-side download fault (e.g. a missing blob) is served as the
 ### stream BODY, not a transport error, so its text is assertable via Stream.Text too.
 ###
-### The live round-trip is covered by Vidyano.Script.IntegrationTests (StreamTests), whose in-process model
-### returns a RegisteredStream from a DownloadSpec action and serves the bytes via OnGetStream.
+### The built-in query exports (ACTION ExportToExcel / ExportToCsv) land in the same buffer: like the web
+### client, the runner runs them as one GetStream request that returns the generated file.
+###
+### The live round-trip is covered by Vidyano.Script.IntegrationTests (StreamTests, ExportTests), whose
+### in-process model returns a RegisteredStream from a DownloadSpec action and serves the bytes via
+### OnGetStream, and exposes both exports on the Products query.
 
 @app = "https://demo.vidyano.com"
 
@@ -43,3 +47,12 @@ EXPECT Stream IS NULL
 OPEN-ROW 0
 ACTION DownloadMissing
 EXPECT Stream.Text MATCHES "could not be found"
+
+### Export the query the way the toolbar's Export button does — the generated file is the captured stream.
+GO-BACK
+ACTION ExportToCsv
+EXPECT Stream.Name = "Products.csv"
+EXPECT Stream.Text CONTAINS "Name"
+ACTION ExportToExcel
+EXPECT Stream.Name = "Products.xlsx"
+EXPECT Stream.Text MATCHES "^PK"   ## an .xlsx is a zip package

@@ -10,7 +10,8 @@ namespace Vidyano.Script.IntegrationTests;
 /// API — no config files, no database. Fixtures are deterministic so assertions like
 /// <c>EXPECT TotalItems = 3</c> are stable. Shaped to exercise each .visc verb family: an editable PO
 /// (EDIT/SET/SAVE), a reference (SET/FOLLOW), a detail query (SEARCH/EXPECT Detail), a custom action
-/// returning a notification (ACTION), a save that fails on a sentinel (SAVE EXPECTING ERROR), a
+/// returning a notification (ACTION), a save that fails on a sentinel (SAVE EXPECTING ERROR), a text
+/// search that fails on a sentinel (SEARCH EXPECTING ERROR), a
 /// BinaryFile attribute (SET = FILE), an action that raises a retry dialog (CONFIRM), and a
 /// multi-lingual <see cref="Product.Title"/> (SET/EXPECT … LANGUAGE; languages live in
 /// <see cref="InProcessVidyanoBackend"/>).
@@ -28,6 +29,12 @@ public sealed class ShopContext : NullTargetContext
     /// mirroring the web client). It carries no category, so the per-category detail counts other tests assert
     /// are unaffected.</summary>
     public const string UnloadableProductName = "Faulty";
+
+    /// <summary>The search text <see cref="ProductActions.OnTextSearch"/> rejects by throwing — the search-time
+    /// analog of <see cref="FailOnServer"/>. The client lands the failed ExecuteQuery as an Error notification on
+    /// the searched query, which <c>SEARCH</c> must surface (and <c>SEARCH … EXPECTING ERROR</c> can assert).
+    /// Applies to every Products query, so the per-category detail query fails the same way.</summary>
+    public const string UnsearchableText = "Boom";
 
     // NullTargetContext persists through these collections, which are process-global (the Minimal API
     // has no per-app data store). Tests share one booted app, so each test re-seeds via Reset() to stay
@@ -70,6 +77,8 @@ public sealed class ShopContext : NullTargetContext
         [
             new Document { Id = "1", Name = "Spec" },
         ]);
+
+        DownloadSpec.Fetches = 0;
     }
 
     /// <summary>Adds a product to the store outside the client's view — what another user (or a server action)
@@ -222,6 +231,16 @@ public sealed class ProductActions(ShopContext context)
         args.RemoveColumns(nameof(Product.Discontinued));
     }
 
+    /// <summary>Fails the text search on <see cref="ShopContext.UnsearchableText"/> — a deterministic server-side
+    /// search error, independent of the server's own text-search handlers.</summary>
+    protected override Source<Product> OnTextSearch(Source<Product> source, TextSearchArgs args)
+    {
+        if (args.Text == ShopContext.UnsearchableText)
+            throw new InvalidOperationException($"Searching for '{ShopContext.UnsearchableText}' is not supported.");
+
+        return base.OnTextSearch(source, args);
+    }
+
     public override void OnSave(PersistentObject obj)
     {
         if ((string?)obj["Color"] == ShopContext.ForbiddenColor)
@@ -251,7 +270,10 @@ public sealed class ProductActions(ShopContext context)
     public override global::System.IO.Stream OnGetStream(GetStreamArgs e)
     {
         if (e.Key == DownloadSpec.StreamKey)
+        {
+            Interlocked.Increment(ref DownloadSpec.Fetches);
             return e.GetBytes(global::System.Text.Encoding.UTF8.GetBytes(DownloadSpec.Content), DownloadSpec.FileName, "text/plain");
+        }
         if (e.Key == DownloadMissing.StreamKey)
             throw new global::System.Exception(DownloadMissing.FaultMessage);
         return base.OnGetStream(e);
@@ -518,6 +540,10 @@ public sealed class DownloadSpec(ShopContext context) : CustomAction<ShopContext
     public const string StreamKey = "spec";
     public const string FileName = "spec.txt";
     public const string Content = "%PDF-ish spec content for Widget.";
+
+    /// <summary>How many times <see cref="ProductActions.OnGetStream"/> served this stream since the last
+    /// <see cref="ShopContext.Reset"/> — pins that one ACTION downloads it exactly once.</summary>
+    public static int Fetches;
 
     // Registers a pending stream keyed by StreamKey; the bytes are served on the follow-up GetStream by
     // ProductActions.OnGetStream (the faithful two-step flow the web client performs automatically).

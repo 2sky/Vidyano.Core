@@ -118,9 +118,12 @@ EXPECT PO.ObjectId = "vestaChargePoints/9001"
 SEARCH "Acme"                  ## text-search the current Query in place (no stack change)
 SEARCH Detail "OrderLines"     ## load a named detail query's rows (empty filter)
 SEARCH "Detail"                ## quoted -> searches the current query for the literal word "Detail"
+SEARCH "ab" EXPECTING ERROR    ## assert the server rejects the search
 ```
 
 `SEARCH Detail "<name>"` retargets a detail query on the current PO, searching it in place to **load** its rows — so a following `EXPECT Detail … TotalItems` sees server-created state. A detail is lazy; load it before asserting on it. Once loaded, the refreshes the browser does keep it current (see [Refreshing after an action](#refreshing-after-an-action)); a `SEARCH` after an action is only needed where the browser would show stale rows too.
+
+A search the server **rejects** (its text search throws, or the query fails to execute) fails the verb with `assert-notification-error` carrying the server's message — the same way a failed query `ACTION` does — instead of passing with the previous rows still loaded. The error stays on the searched query as its notification, so `SEARCH … EXPECTING ERROR` + `EXPECT Notification …` can assert it (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)). Like the web client, every search starts from a clean notification: a successful `SEARCH` clears an error an earlier verb left on that query.
 
 ## Selecting rows
 
@@ -217,7 +220,18 @@ A query action invoked with **no selection** posts an empty selection (matching 
 
 A custom action can fail two ways, and both surface as an `ACTION` failure with the message copied onto the current frame for `EXPECT Notification …` to read: the server sets an error notification on the PO/query and returns null, **or** the action *returns* a `Notification(message, Error)` result (the toast shape — `return Notification(...)`). A returned **non-error** notification (info/warning) is copied onto the frame too — so `EXPECT Notification …` can read it — but does **not** fail the verb, faithful to the toast a browser shows.
 
-An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer.
+An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer. The stream is fetched exactly once, whichever `ACTION` form ran it (an `= "option"` action is fetched by Core itself and handed to the runner).
+
+The built-in query **exports** — `ACTION ExportToExcel` / `ACTION ExportToCsv` — download the same way. Like the web client, the runner runs them as a single `GetStream` request (the action's parent and query, never `ExecuteAction`), so the generated file lands in `EXPECT Stream.*` with no extra verb and no frame pushed. The whole query is exported as the client holds it — the selection is not sent, exactly as in the browser — and a `Detail "<name>"` clause exports a detail query. An export that fails server-side is served as an `Error.txt` stream whose `Stream.Text` carries the message.
+
+```visc
+OPEN MenuItem Home/Products
+ACTION ExportToCsv
+EXPECT Stream.Name = "Products.csv"
+EXPECT Stream.Text CONTAINS "Widget"
+ACTION ExportToExcel
+EXPECT Stream.Text MATCHES "^PK"                ## an .xlsx is a zip package
+```
 
 ### Refreshing after an action
 
@@ -230,7 +244,7 @@ ACTION Delete                     ## Delete refreshes on completion
 EXPECT TotalItems = 3             ## no SEARCH needed
 ```
 
-- **The action's definition says *refresh query on completed*** (`RefreshQueryOnCompleted`, e.g. `Delete` or a custom action configured so): the query the action ran on — the nav-stack query, or the `Detail "<name>"` one — is re-searched, whatever the action returned (a record, a notification, a stream, nothing) and in every `ACTION` form (bare, `= "label"`, `(P=…)`); not when it failed. A returned notification is still read by `EXPECT Notification` — unless the re-search failed, whose error then wins, as in the browser. The re-search clears the selection, unless the definition also says *keep selection on refresh* (`KeepSelectionOnRefresh`): then explicitly selected rows are re-selected by id when they are all still there, and a select-all (with whichever of its exclusions are still loaded) is restored. A PersistentObject action has no query, so it refreshes none — the records and details on screen stay as they were.
+- **The action's definition says *refresh query on completed*** (`RefreshQueryOnCompleted`, e.g. `Delete` or a custom action configured so): the query the action ran on — the nav-stack query, or the `Detail "<name>"` one — is re-searched, whatever the action returned (a record, a notification, a stream, nothing) and in every `ACTION` form (bare, `= "label"`, `(P=…)`); not when it failed, and never after the built-in exports, which the web client runs as a plain download. A returned notification is still read by `EXPECT Notification` — unless the re-search failed, whose error then wins, as in the browser. The re-search clears the selection, unless the definition also says *keep selection on refresh* (`KeepSelectionOnRefresh`): then explicitly selected rows are re-selected by id when they are all still there, and a select-all (with whichever of its exclusions are still loaded) is restored. A PersistentObject action has no query, so it refreshes none — the records and details on screen stay as they were.
 - **The server queues a `Refresh` client operation** (`Manager.Current.QueueClientOperation(RefreshOperation…)`), in any verb's response: for a query, every open query with that id that has been searched — a Query frame anywhere on the navigation stack, or a detail query of a PersistentObject frame — is re-searched (after the operation's delay, if any); for a record, every PersistentObject frame of that type and id is re-fetched. A detail that was never loaded stays unloaded, and dialogs, Add-Reference pickers and a retry dialog's record are left alone, as in the browser. `EXPECT ClientOperation Refresh` still sees the operation.
 - **An Add-Reference picker closes** (see [Add-Reference pickers](#add-reference-pickers--add-reference)): the opening action's refresh above runs then — confirmed or dismissed — since the browser's action waits for its picker; a confirmed picker that a custom *query* action returned also re-searches that action's query.
 
@@ -242,13 +256,14 @@ A query is re-searched at most once per statement. A refresh that fails lands as
 SAVE EXPECTING ERROR
 ACTION Delete EXPECTING ERROR
 CONFIRM "Cancel" EXPECTING ERROR
+SEARCH "ab" EXPECTING ERROR
 OPEN PersistentObject "Customer" "deleted-id" EXPECTING ERROR
 OPEN Query "RestrictedOrders" EXPECTING ERROR
 OPEN MenuItem Admin/Users EXPECTING ERROR
 OPEN-ROW WHERE Name = "Faulty" EXPECTING ERROR
 ```
 
-This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION` / `CONFIRM`, that expected failure is the server's error notification — whether the server set it on the PO/query and returned null, or the action *returned* it as a `Notification(…, Error)` result — which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form. For `CONFIRM` it asserts that **answering a server retry dialog** resumes an action that then fails (a retry option that throws / returns an error — the archetypal "Cancel" branch); see [Server retry dialogs](#server-retry-dialogs--confirm).
+This trailing suffix flips the verb's polarity: it **passes only if the verb fails as expected**, and **fails if the verb unexpectedly succeeds**. A client-side authoring guard (e.g. SAVE before EDIT, or OPEN before SIGN-IN) still fails normally — only the verb's *expected* failure is absorbed. For `SAVE` / `ACTION` / `CONFIRM`, that expected failure is the server's error notification — whether the server set it on the PO/query and returned null, or the action *returned* it as a `Notification(…, Error)` result — which stays on the current PO (or, for a query action, on the current Query), so a following `EXPECT Notification …` pins the exact message; it composes with every `ACTION` form. For `CONFIRM` it asserts that **answering a server retry dialog** resumes an action that then fails (a retry option that throws / returns an error — the archetypal "Cancel" branch); see [Server retry dialogs](#server-retry-dialogs--confirm). For `SEARCH` (every form, including `SEARCH Detail "<name>"`) it asserts the server **rejects the search** — e.g. a text search that throws for too-short input; the error stays on the searched query, so `EXPECT Notification …` can follow.
 
 All three `OPEN` forms take the suffix to assert the open is **refused** — the `.visc` equivalent of "this should not open":
 
@@ -391,7 +406,7 @@ EXPECT Stream.Text CONTAINS "%PDF"
 EXPECT Stream IS NULL                            ## after another verb — the capture is per-verb
 ```
 
-When an action returns a stream, the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
+When an action returns a stream — or is one of the built-in exports (`ExportToExcel` / `ExportToCsv`) — the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
 
 **Charts** (the last `CHART` result; `IS NULL` when none was captured)
 
@@ -633,7 +648,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `FOLLOW <attr> [AS @h]` | Open the PO a reference attribute points at. |
 | `FOLLOW-NAVIGATE [AS @h]` | Open the page the previous verb's `Navigate(path)` points at. |
 | `GO-BACK` | Pop the top nav frame. |
-| `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place. |
+| `SEARCH <text> [Detail "<n>"]` | Text-search the current (or detail) query in place; a server-rejected search fails the verb. |
 | `SELECT-ROWS <ALL \| ALL EXCEPT … \| NONE \| <i> \| WHERE …>` | Set the selection for a selection-gated action. |
 | `ADD-ROW Detail Attribute "<n>" [AS @i]` | Append a new row (details query `New`) to a detail attribute. |
 | `SET Detail Attribute "<n>" ROW <i> <col> = <value>` | Change a cell of a detail-attribute row. |
@@ -643,7 +658,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SET <attr> LANGUAGE <lang> = <value>` | Set one translation of a TranslatedString attribute (bare `SET` = current language). |
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `CHART "<name>" [Detail "<n>"]` | Run a named query chart; capture its JSON for `EXPECT Chart`. |
-| `SAVE \| ACTION \| CONFIRM … EXPECTING ERROR` | Assert the negative (error-notification) path. |
+| `SAVE \| ACTION \| CONFIRM \| SEARCH … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` reads the refusal until the next verb). |
 | `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |
 | `CONFIRM "<label>" \| CONFIRM ID <i> [EXPECTING ERROR]` | Answer an open server retry dialog (`EXPECTING ERROR` asserts the resumed action fails). |

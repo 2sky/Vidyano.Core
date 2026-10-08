@@ -79,6 +79,24 @@ public sealed class StreamTests
             """));
     }
 
+    [Theory]
+    [InlineData("ACTION DownloadSpec")]
+    [InlineData("ACTION DownloadSpec = \"Text\"")]
+    public async Task Stream_IsFetchedExactlyOnce(string action)
+    {
+        // The option form runs through Core's ActionBase.Execute, which fetches the stream itself and delivers
+        // it via Hooks.OnStream; the runner must buffer that delivery rather than fetch the stream again.
+        AssertOk(await Run($"""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            OPEN-ROW WHERE Name = "Widget"
+            {action}
+            EXPECT Stream.Name = "spec.txt"
+            EXPECT Stream.Text CONTAINS "Widget"
+            """));
+        Assert.Equal(1, DownloadSpec.Fetches);
+    }
+
     [Fact]
     public async Task Stream_DownloadActionDoesNotPushFrame()
     {
