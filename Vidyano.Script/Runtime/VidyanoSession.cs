@@ -1990,10 +1990,8 @@ public sealed class VidyanoSession : IDisposable
 
         // A query's built-in AddReference (a detail query's Add button) never reaches the server on click: the
         // web client (app-service-hooks-base onAction) opens a lookup clone of the query as a picker and only posts
-        // Query.AddReference once rows are picked. Mirror that with a picker frame ADD-REFERENCE confirms. Core
-        // folds New + AddReference into one "AddReference" action whose last option ("Existing") is the add path.
-        if (action is QueryAction { Name: "AddReference", Query: { } addSource }
-            && (optionLabel is null || optionLabel == action.Options[^1]))
+        // Query.AddReference once rows are picked. Mirror that with a picker frame ADD-REFERENCE confirms.
+        if (action is QueryAction { Name: "AddReference", Query: { } addSource })
             return await OpenBuiltInAddReferenceAsync(action, addSource, addReferenceParent, parameters, loc).ConfigureAwait(false);
 
         // Cleared up front so a stream from an earlier call can't stand in for this action's download.

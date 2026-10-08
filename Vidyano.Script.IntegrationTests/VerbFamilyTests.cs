@@ -867,19 +867,21 @@ public sealed class VerbFamilyTests
     }
 
     [Fact]
-    public async Task BuiltInAddReference_ExistingOptionOfAddAndNew_OpensPicker()
+    public async Task BuiltInAddReference_AndNew_AreSeparateVisibleActions()
     {
-        // The detail also offers New, so Core folds New + AddReference into one "AddReference" action whose last
-        // option is "Existing" — picking it is the add path and must open the same picker.
+        // The detail offers both New and AddReference. Like the web client, they are two independent visible
+        // actions: Core no longer folds them into one "AddReference" (New/Existing menu) that hid New.
         AssertOk(await Run("""
             SIGN-IN admin / admin
             OPEN MenuItem Home/ProductCategories
             OPEN-ROW WHERE Name = "Tools"
-            ACTION Detail "ProductCategory_Members" AddReference = ID 1
-            EXPECT NavStack.Top.Kind = "AddReferenceDialog"
-            ADD-REFERENCE WHERE Name = "Gadget"
-            SEARCH Detail "ProductCategory_Members"
-            EXPECT Detail "ProductCategory_Members" TotalItems = 3
+            EXPECT Detail "ProductCategory_Members" Action AddReference IS VISIBLE
+            EXPECT Detail "ProductCategory_Members" Action New IS VISIBLE
+            EXPECT Detail "ProductCategory_Members" Action New IS AVAILABLE
+            ACTION Detail "ProductCategory_Members" New
+            EXPECT NavStack.Top.Kind = "PersistentObject"
+            EXPECT NavStack.Top.Name = "Product"
+            EXPECT PO.IsNew = true
             """));
     }
 

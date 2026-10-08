@@ -7,7 +7,7 @@ namespace Vidyano.ViewModel.Actions
         public CancelEdit(Definition definition, PersistentObject parent, Query query)
             : base(definition, parent, query)
         {
-            CanExecute = parent.IsInEdit;
+            CanExecute = IsVisible = parent.IsInEdit;
         }
 
         public override Task<PersistentObject> Execute(object parameter)

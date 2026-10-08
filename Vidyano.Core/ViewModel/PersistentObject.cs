@@ -272,7 +272,10 @@ namespace Vidyano.ViewModel
 
                 var cancelEdit = GetAction("CancelEdit");
                 if (cancelEdit != null)
-                    cancelEdit.CanExecute = value;
+                {
+                    cancelEdit.IsVisible = value;
+                    cancelEdit.CanExecute = CanCancelEdit;
+                }
 
                 var endEdit = GetAction("EndEdit");
                 if (endEdit != null)
@@ -283,6 +286,10 @@ namespace Vidyano.ViewModel
                     edit.IsVisible = !value;
             }
         }
+
+        // As in the web client (actions.ts): a StayInEdit object is always in edit, so there is only
+        // something to cancel once it has changes.
+        private bool CanCancelEdit => IsInEdit && (!StateBehavior.HasFlag(StateBehavior.StayInEdit) || IsDirty);
 
         internal string[] QueriesToRefresh
         {
@@ -300,6 +307,10 @@ namespace Vidyano.ViewModel
                 var endEdit = GetAction("EndEdit");
                 if (endEdit != null)
                     endEdit.CanExecute = value;
+
+                var cancelEdit = GetAction("CancelEdit");
+                if (cancelEdit != null)
+                    cancelEdit.CanExecute = CanCancelEdit;
 
                 if (value && OwnerDetailAttribute?.Parent is { } owner)
                     owner.IsDirty = true;
