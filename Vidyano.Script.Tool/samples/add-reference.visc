@@ -48,6 +48,18 @@ EXPECT NavStack.Top.Kind = "AddReferenceDialog"
 GO-BACK
 EXPECT NavStack.Top.Kind = "PersistentObject"
 
+### --- The built-in Add button of a detail query ------------------------------------------------
+### A detail query with a lookup source offers the built-in AddReference action. As in the web client the
+### ACTION posts nothing: it opens a lookup clone of the detail (rows from its lookup source) as the picker,
+### and ADD-REFERENCE posts Query.AddReference against the detail itself (no AddAction). When the detail also
+### offers New, the client folds both into one action: `ACTION Detail "…" AddReference = "Existing"`.
+### (Live: VerbFamilyTests.BuiltInAddReference_*.)
+OPEN-ROW WHERE Name = "Tools"
+ACTION Detail "ProductCategory_Members" AddReference
+EXPECT NavStack.Top.Kind = "AddReferenceDialog"
+ADD-REFERENCE WHERE Name = "Gadget"
+SEARCH Detail "ProductCategory_Members"
+
 ### --- Removing a reference is NOT a verb --------------------------------------------------------
 ### It's an ordinary selection-gated action on the already-linked rows: select them on the detail query,
 ### then run the server's remove action.

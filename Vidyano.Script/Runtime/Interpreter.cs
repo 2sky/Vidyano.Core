@@ -1778,6 +1778,10 @@ public sealed class Interpreter
                 interp.Location,
                 Hint: Suggester.Hint(key, Current.Client.Messages.Keys)));
         }
+        // {{PO.ObjectId}} / {{PO.Attr.<name>}} — a value of the current PersistentObject (top PO frame), so a script
+        // can keep what it saw on a record for later steps (e.g. the id of a record created at run time).
+        if (inner.StartsWith("PO.", StringComparison.Ordinal))
+            return ReadCurrentPoValue(inner.Substring("PO.".Length).Trim(), interp.Location);
         // {{env:NAME}} — loud-on-missing environment lookup (a missing var never silently becomes an empty
         // value). Resolves through the injectable EnvLookup, so `--env-file` / hermetic test hosts feed it.
         // Optional `?? <fallback>` makes a value optional: a quoted string or bare token used verbatim as a
@@ -1814,6 +1818,32 @@ public sealed class Interpreter
             $"Variable '{inner}' is not defined.",
             interp.Location,
             Hint: Suggester.Hint(inner, _vars.Keys)));
+    }
+
+    /// <summary>Reads <c>{{PO.&lt;path&gt;}}</c> off the current PersistentObject by resolving the EXPECT subject it
+    /// names, so the value is exactly what that EXPECT would compare: <c>Attr.&lt;name&gt;</c> → <c>EXPECT &lt;name&gt;</c>
+    /// (same hidden-attribute guard), <c>Metadata.&lt;key&gt;</c> / <c>NavigationHints.&lt;key&gt;</c> → the bag
+    /// lookups, anything else → <c>EXPECT PO.&lt;prop&gt;</c> (ObjectId, Type, Label, …). Attributes live under
+    /// <c>Attr.</c> so an attribute named <c>Type</c> or <c>Label</c> never shadows the PO property.</summary>
+    private OpResult<object?> ReadCurrentPoValue(string path, SourceLocation loc)
+    {
+        if (Current.CurrentPo is null)
+            return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo,
+                $"`{{{{PO.{path}}}}}` needs a current PersistentObject.", loc,
+                Hint: "Open one first (OPEN PersistentObject / OPEN-ROW / FOLLOW)."));
+
+        static string After(string s, string prefix) => s.Substring(prefix.Length).Trim();
+        var subject =
+            path.StartsWith("Attr.", StringComparison.Ordinal) ? new ExpectSubject(ExpectSubjectKind.Attribute, After(path, "Attr."), AttributeFlagKind.None, loc)
+            : path.StartsWith("Metadata.", StringComparison.Ordinal) ? new ExpectSubject(ExpectSubjectKind.PoMetadata, null, AttributeFlagKind.None, loc, MetadataKey: After(path, "Metadata."))
+            : path.StartsWith("NavigationHints.", StringComparison.Ordinal) ? new ExpectSubject(ExpectSubjectKind.PoNavigationHints, null, AttributeFlagKind.None, loc, MetadataKey: After(path, "NavigationHints."))
+            : new ExpectSubject(ExpectSubjectKind.PoProperty, path, AttributeFlagKind.None, loc);
+
+        if (subject.Name is "" || subject.MetadataKey is "")
+            return Fail<object?>(new Diagnostic(ErrorKind.ResolveVariable,
+                $"`{{{{PO.{path}}}}}` names nothing.", loc,
+                Hint: "Use {{PO.ObjectId}}, {{PO.Attr.<name>}}, {{PO.Metadata.<key>}} or {{PO.NavigationHints.<key>}}."));
+        return ResolveExpectSubject(subject, loc);
     }
 
     // --- built-in deterministic variables -----------------------------------------------------

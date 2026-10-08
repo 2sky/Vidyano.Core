@@ -520,6 +520,24 @@ SET Code = "ACME-{{@random}}"
 - **Built-ins** `{{@today}} {{@now}} {{@uuid}} {{@random}}` are evaluated **on each reference** (like `DateTime.Now` / `rng.Next()`), so capture into a variable to freeze a value for reuse. `--seed`/`Seed` fixes the `@uuid`/`@random` sequence (independent streams); `--now`/`Now` anchors the clock, which then flows by real elapsed time.
 - **In-string interpolation** — `{{…}}` holes resolve inside `"…"` literals using the same machinery, so values compose. Escape a literal brace as `\{`.
 
+### Values of the current record — `{{PO.…}}`
+
+`{{PO.<prop>}}` and `{{PO.Attr.<name>}}` read the current PersistentObject (the top PO frame), so a script can keep a value it saw on a record — typically the id of a record it created — and reuse it later:
+
+```visc
+@name = "CP-{{@uuid}}"
+OPEN MenuItem Home/ChargePoints
+ACTION New
+SET Name = "{{name}}"
+SAVE                                   ## the saved frame pops …
+OPEN-ROW WHERE Name = "{{name}}"       ## … so re-open it to read its id
+@cpId = {{PO.ObjectId}}
+@vendor = {{PO.Attr.Vendor}}
+OPEN PersistentObject "ChargePoint" "{{cpId}}" EXPECTING ERROR
+```
+
+Each form yields exactly what the matching `EXPECT` compares: `{{PO.Attr.<name>}}` is `EXPECT <name>` (the attribute value, with the same hidden-attribute guard — navigation mode rejects a hidden attribute), `{{PO.Metadata.<key>}}` / `{{PO.NavigationHints.<key>}}` are the bag lookups, and `{{PO.<prop>}}` is `EXPECT PO.<prop>` (`ObjectId`, `Type`, `FullTypeName`, `Label`, `Breadcrumb`, `IsNew`, `IsHidden`, `Tag`). Attributes sit under `Attr.` so one named `Type` or `Label` never shadows the PO property. With no PO frame on top it fails with `state-no-current-po`; capture into a variable to keep the value once you navigate away.
+
 ### Declaring host-supplied variables — `@expects`
 
 ```visc
