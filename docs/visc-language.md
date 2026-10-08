@@ -432,6 +432,16 @@ EXPECT Action Delete IS NOT AVAILABLE   ## gated out (e.g. server DisableActions
 EXPECT Action Export IS VISIBLE
 ```
 
+**Absent attributes & columns** — `EXPECT Attribute <name> IS [NOT] PRESENT` and `EXPECT Query.Columns[<name>] IS [NOT] PRESENT` assert whether an attribute is on the PO (`PO.Attributes`) or a column on the query — e.g. one the server removed with `RemoveAttribute` / `RemoveColumns`. Presence ignores visibility (a hidden attribute is present; use `IS [NOT] VISIBLE` for that). It is the **only** assertion a missing name satisfies: every other `EXPECT` on it still fails with `resolve-attribute`, so a typo is never mistaken for an absent field.
+
+```visc
+EXPECT Attribute DefaultPublicKwhPriceEuro IS NOT PRESENT
+EXPECT Query.Columns[DefaultPublicKwhPriceEuro] IS NOT PRESENT
+EXPECT Detail "Prices" Query.Columns[Price] IS PRESENT    ## Detail-redirectable
+```
+
+A query row's cells are its query's columns, so a column that isn't present has no cell in any row; a present-but-empty cell is `EXPECT {{@row.<col>}} IS NULL` inside `FOR-EACH ROW … AS @row`.
+
 **Detail-attribute rows** — `EXPECT Detail Attribute "<name>" TotalItems <op> <n>` and `EXPECT Detail Attribute "<name>" ROW <i> <col> <op> <value>` read the rows of an `AsDetail` attribute (see [Detail-attribute rows](#detail-attribute-rows)). Both work under `REQUIRES`.
 
 **Detail redirection** — query-family subjects (`TotalItems`, `Selection.*`, `Query.*`) accept a leading `Detail "<name>"` to target a detail query on the current PO. It reads what the detail holds in memory (no forced search), so load it first with `SEARCH Detail "<name>"` if needed. The same clause also targets a named **action** on that detail — symmetric with `ACTION Detail "<name>" <X>` — resolving the action against the detail's own actions alone (never the master PO, which may carry a same-named action):

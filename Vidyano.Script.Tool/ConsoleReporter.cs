@@ -144,7 +144,9 @@ public static class ConsoleReporter
             ExpectSubjectKind.QueryMetadata        => $"Query.Metadata.{Markup.Escape(s.MetadataKey ?? "?")}",
             ExpectSubjectKind.QueryNavigationHints => $"Query.NavigationHints.{Markup.Escape(s.MetadataKey ?? "?")}",
             ExpectSubjectKind.QueryPoProperty      => $"Query.PersistentObject.{Markup.Escape(s.Name ?? "?")}",
-            ExpectSubjectKind.QueryColumn          => $"Query.Columns[{Markup.Escape(s.Name ?? "?")}].{Markup.Escape(s.MetadataKey ?? "?")}",
+            ExpectSubjectKind.QueryColumn          => s.MetadataKey is null
+                                                        ? $"Query.Columns[{Markup.Escape(s.Name ?? "?")}]"
+                                                        : $"Query.Columns[{Markup.Escape(s.Name ?? "?")}].{Markup.Escape(s.MetadataKey)}",
             _                                      => "?",
         };
 

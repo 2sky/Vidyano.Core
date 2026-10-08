@@ -154,6 +154,11 @@ public sealed class Product
     /// SET of this fails with <c>guard-attribute-read-only</c> even in <c>direct</c> mode. Visible so the
     /// read-only guard is what's exercised, not the hidden one.</summary>
     public string? Locked { get; set; }
+
+    /// <summary>A model attribute the server always strips: <see cref="ProductActions.OnLoad"/> removes the
+    /// attribute (<c>RemoveAttribute</c>) and <see cref="ProductActions.QueryExecuted"/> the column
+    /// (<c>RemoveColumns</c>) — the fixture for <c>EXPECT Attribute / Query.Columns[…] IS NOT PRESENT</c>.</summary>
+    public string? Discontinued { get; set; }
 }
 
 public sealed class ProductCategory
@@ -199,6 +204,14 @@ public sealed class ProductActions(ShopContext context)
 
         obj[nameof(Product.Secret)].Visibility = AttributeVisibility.Never;
         obj[nameof(Product.Locked)].IsReadOnly = true;
+        obj.RemoveAttribute(nameof(Product.Discontinued));
+    }
+
+    public override void QueryExecuted(QueryExecutedArgs args)
+    {
+        base.QueryExecuted(args);
+
+        args.RemoveColumns(nameof(Product.Discontinued));
     }
 
     public override void OnSave(PersistentObject obj)

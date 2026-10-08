@@ -259,7 +259,9 @@ public static class VerbCatalog
             + "compares one translation of a TranslatedString attribute, symmetric with `SET … LANGUAGE`. "
             + "`MATCHES` is a regex assertion (1s ReDoS guard). Numeric and date/time subjects compare by value "
             + "(locale-independent), the literal in the same invariant form `SET` uses. `Detail \"<name>\"` redirects query-family subjects, "
-            + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone).",
+            + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone). "
+            + "`Attribute <X> IS [NOT] PRESENT` / `Query.Columns[<X>] IS [NOT] PRESENT` assert an attribute or column exists "
+            + "(e.g. one the server removed) — the only assertion a missing name satisfies.",
             ["EXPECT Status = \"Approved\"", "EXPECT Customer = ID \"people/acme\"", "EXPECT Title LANGUAGE nl = \"Hulpmiddel\"", "EXPECT TotalItems >= 1"],
             "assert", []),
 

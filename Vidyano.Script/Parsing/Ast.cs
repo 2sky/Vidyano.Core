@@ -414,7 +414,9 @@ public enum ExpectSubjectKind
     /// <see cref="ExpectSubject.Name"/> holds the property name.</summary>
     QueryPoProperty,
     /// <summary><c>EXPECT Query.Columns[name].&lt;prop&gt; = "..."</c> — Label / Type / Offset.
-    /// <see cref="ExpectSubject.Name"/> holds the column name, <see cref="ExpectSubject.MetadataKey"/> the leaf property name.</summary>
+    /// <see cref="ExpectSubject.Name"/> holds the column name, <see cref="ExpectSubject.MetadataKey"/> the leaf property name.
+    /// The leafless <c>EXPECT Query.Columns[name] IS [NOT] PRESENT</c> (<see cref="ExpectSubject.MetadataKey"/> null)
+    /// asserts whether the column exists.</summary>
     QueryColumn,
     /// <summary><c>EXPECT Detail "X" IS [NOT] AVAILABLE | VISIBLE</c> — flag check against a detail
     /// query on the current PO. <see cref="ExpectSubject.DetailName"/> carries the detail name and
@@ -467,8 +469,12 @@ public sealed record ExpectSubject(ExpectSubjectKind Kind, string? Name, Attribu
 
 /// <summary>Which boolean attribute property an <c>EXPECT Attribute X IS ...</c> targets.
 /// <see cref="Available"/> is <c>IsVisible &amp;&amp; !IsReadOnly</c> — the same guard
-/// <see cref="VidyanoSession.SetAttributeAsync"/> uses to decide whether a SET would succeed.</summary>
-public enum AttributeFlagKind { None, Visible, ReadOnly, Required, Available }
+/// <see cref="VidyanoSession.SetAttributeAsync"/> uses to decide whether a SET would succeed.
+/// <see cref="Present"/> (<c>EXPECT Attribute X IS [NOT] PRESENT</c> / <c>EXPECT Query.Columns[X] IS [NOT] PRESENT</c>)
+/// asks whether the name exists at all — in <c>PO.Attributes</c> / the query's columns, regardless of visibility — so
+/// an attribute or column the server removed can be asserted absent. It is the only assertion a missing name
+/// satisfies; every other EXPECT on it still fails with <c>resolve-attribute</c>.</summary>
+public enum AttributeFlagKind { None, Visible, ReadOnly, Required, Available, Present }
 
 /// <summary>EXPECT comparison operators. <see cref="Is"/>/<see cref="IsNot"/> drive boolean assertions like IS AVAILABLE.
 /// <see cref="Contains"/>/<see cref="NotContains"/> do case-insensitive substring matching against the subject's string form.</summary>
