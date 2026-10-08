@@ -96,6 +96,22 @@ if (approve is { CanExecute: true })
     await approve.Execute(null);
 ```
 
+### Downloading files
+
+An action that returns a stream (server: `Manager.Current.RegisterStream(...)`) comes back from `Execute` as a `Vidyano.RegisteredStream` PO; `Execute` downloads it for you and hands it to `Hooks.OnStream(name, stream)` — override that to save or inspect the file (the stream is disposed when the hook returns). Calling `client.ExecuteActionAsync` directly skips that step; fetch it yourself with `client.GetStreamAsync(registeredStream)`.
+
+The built-in query exports produce a file rather than a PersistentObject, so they can't run through `ExecuteActionAsync` (nor `ActionBase.Execute`, which posts through it). Like the web client, run them as one `GetStream` request with the action-form overload:
+
+```csharp
+var products = await client.GetQueryAsync("Products");
+var (stream, fileName) = await client.GetStreamAsync("Query.ExportToExcel", products.Parent, products);
+using (stream)
+using (var file = File.Create(fileName))   // "Products.xlsx"
+    await stream.CopyToAsync(file);
+```
+
+Both overloads return a stream over the live HTTP response — dispose it promptly. A non-2xx response throws; a server-side failure is served as the body (an `Error.txt` stream carrying the message).
+
 ## Demo application
 
 The [`Demo`](https://github.com/2sky/Vidyano.Core/tree/main/Demo) console app connects to the public demo service at `https://demo.vidyano.com`:
