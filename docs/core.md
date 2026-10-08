@@ -92,17 +92,23 @@ if (approve is { CanExecute: true })
 
 An action that returns a stream (server: `Manager.Current.RegisterStream(...)`) comes back from `Execute` as a `Vidyano.RegisteredStream` PO; `Execute` downloads it for you and hands it to `Hooks.OnStream(name, stream)` — override that to save or inspect the file (the stream is disposed when the hook returns). Calling `client.ExecuteActionAsync` directly skips that step; fetch it yourself with `client.GetStreamAsync(registeredStream)`.
 
-The built-in query exports produce a file rather than a PersistentObject, so they can't run through `ExecuteActionAsync` (nor `ActionBase.Execute`, which posts through it). Like the web client, run them as one `GetStream` request with the action-form overload:
+The built-in query exports (`ExportToExcel` / `ExportToCsv`) produce a file rather than a PersistentObject, so `Execute` runs them like the web client: one `GetStream` request that executes the action server-side and returns the file, delivered through the same `Hooks.OnStream`. `Execute` returns `null`, and a failed download lands as an error notification on the query (as with a registered stream) instead of throwing:
 
 ```csharp
 var products = await client.GetQueryAsync("Products");
+await products.GetAction("ExportToExcel").Execute(null);   // Hooks.OnStream("Products.xlsx", stream)
+```
+
+They can't run through `client.ExecuteActionAsync` — the server answers with the file, not JSON. To get the stream back instead of going through the hook (or to pass your own parameters), use the action-form overload:
+
+```csharp
 var (stream, fileName) = await client.GetStreamAsync("Query.ExportToExcel", products.Parent, products);
 using (stream)
 using (var file = File.Create(fileName))   // "Products.xlsx"
     await stream.CopyToAsync(file);
 ```
 
-Both overloads return a stream over the live HTTP response — dispose it promptly. A non-2xx response throws; a server-side failure is served as the body (an `Error.txt` stream carrying the message).
+Both `GetStreamAsync` overloads return a stream over the live HTTP response — dispose it promptly. A non-2xx response throws; a server-side failure is served as the body (an `Error.txt` stream carrying the message).
 
 ## Demo application
 

@@ -1,3 +1,4 @@
+using System.Text;
 using Vidyano.Script.Runtime;
 using Xunit;
 
@@ -72,6 +73,42 @@ public sealed class ExportTests
             EXPECT Stream.Text CONTAINS "Gizmo"
             EXPECT Stream.Text NOT CONTAINS "Gadget"
             """));
+    }
+
+    [Theory]
+    [InlineData("ExportToCsv", "Products.csv", "Widget")]
+    [InlineData("ExportToExcel", "Products.xlsx", "PK")]
+    public async Task CoreExecute_DeliversTheFileThroughOnStream(string action, string fileName, string expectedContent)
+    {
+        // Not a .visc path: a plain Core consumer running the export the way a UI's action button does. Core's
+        // ExportToExcel / ExportToCsv action classes post GetStream; through ExecuteAction the server would answer
+        // with the raw file instead of JSON and the call would fault.
+        var conn = await _app.Backend.StartAsync();
+        var hooks = new StreamRecordingHooks();
+        var client = new Client(conn.HttpClient) { Uri = conn.BaseUri, Hooks = hooks };
+        await client.SignInUsingCredentialsAsync("admin", "admin");
+
+        var products = await client.GetQueryAsync("Products");
+        var result = await products.GetAction(action).Execute(null);
+
+        Assert.Null(result);
+        Assert.False(products.HasNotification, products.Notification);
+        var (name, bytes) = Assert.Single(hooks.Streams);
+        Assert.Equal(fileName, name);
+        Assert.Contains(expectedContent, Encoding.UTF8.GetString(bytes));
+    }
+
+    private sealed class StreamRecordingHooks : Hooks
+    {
+        public List<(string Name, byte[] Bytes)> Streams { get; } = new();
+
+        // Core disposes the stream as soon as this returns, so copy it out here.
+        protected override void OnStream(string name, Stream stream)
+        {
+            using var buffer = new MemoryStream();
+            stream.CopyTo(buffer);
+            Streams.Add((name, buffer.ToArray()));
+        }
     }
 
     [Fact]

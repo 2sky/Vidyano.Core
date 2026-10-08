@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -71,12 +72,8 @@ namespace Vidyano.ViewModel.Actions
 
         public virtual async Task<PersistentObject> Execute(object option)
         {
-            var index = Array.IndexOf(Options, Convert.ToString(option));
-            var parameters = new Dictionary<string, string> { { "MenuOption", Client.ToServiceString(index) } };
-            parameters["MenuLabel"] = Client.ToServiceString(option);
-
             var selectedItems = Query != null && Query.Count > 0 ? Query.SelectedItems.ToArray() : Array.Empty<QueryResultItem>();
-            var po = await client.ExecuteActionAsync((this is QueryAction ? "Query" : "PersistentObject") + "." + definition.Name, Parent, Query, selectedItems, parameters).ConfigureAwait(false);
+            var po = await client.ExecuteActionAsync((this is QueryAction ? "Query" : "PersistentObject") + "." + definition.Name, Parent, Query, selectedItems, GetParameters(option)).ConfigureAwait(false);
 
             if (po != null)
             {
@@ -100,30 +97,7 @@ namespace Vidyano.ViewModel.Actions
                     }
                 }
                 else if (po.FullTypeName == "Vidyano.RegisteredStream")
-                {
-                    try
-                    {
-                        var stream = await client.GetStreamAsync(po).ConfigureAwait(false);
-                        if (stream != null && stream.Item1 != null)
-                        {
-                            try
-                            {
-                                client.Hooks.OnStream(stream.Item2, stream.Item1);
-                            }
-                            finally
-                            {
-                                stream.Item1.Dispose();
-                            }
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        if (this is QueryAction qAction)
-                            qAction.Query.SetNotification(e.Message);
-                        else if (Parent != null)
-                            Parent.SetNotification(e.Message);
-                    }
-                }
+                    await DownloadAsync(() => client.GetStreamAsync(po)).ConfigureAwait(false);
                 else if (Parent == null || (po.FullTypeName != Parent.FullTypeName && po.IsNew != Parent.IsNew) || po.Id != Parent.Id || po.ObjectId != Parent.ObjectId)
                 {
                     po.OwnerQuery = Query;
@@ -145,6 +119,44 @@ namespace Vidyano.ViewModel.Actions
             }
 
             return po;
+        }
+
+        private protected Dictionary<string, string> GetParameters(object option)
+        {
+            var index = Array.IndexOf(Options, Convert.ToString(option));
+            var parameters = new Dictionary<string, string> { { "MenuOption", Client.ToServiceString(index) } };
+            parameters["MenuLabel"] = Client.ToServiceString(option);
+            return parameters;
+        }
+
+        /// <summary>
+        ///     Fetches a file and hands it to <see cref="Hooks.OnStream"/>, disposing it afterwards. A failed fetch
+        ///     doesn't throw: its message lands as an error notification on the query (query action) or the parent.
+        /// </summary>
+        private protected async Task DownloadAsync(Func<Task<Tuple<Stream, string>>> fetch)
+        {
+            try
+            {
+                var stream = await fetch().ConfigureAwait(false);
+                if (stream != null && stream.Item1 != null)
+                {
+                    try
+                    {
+                        client.Hooks.OnStream(stream.Item2, stream.Item1);
+                    }
+                    finally
+                    {
+                        stream.Item1.Dispose();
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                if (this is QueryAction qAction)
+                    qAction.Query.SetNotification(e.Message);
+                else if (Parent != null)
+                    Parent.SetNotification(e.Message);
+            }
         }
 
         internal static ActionBase[] GetActions(Client client, JToken actionsToken, PersistentObject parent, Query query = null)
