@@ -1294,6 +1294,22 @@ public sealed class Interpreter
                 }
             case ExpectSubjectKind.AttributeFlag:
                 {
+                    // IS [NOT] PRESENT — the one assertion a missing attribute satisfies (an attribute the server
+                    // removed). Presence in PO.Attributes, regardless of visibility (that's IS VISIBLE).
+                    if (subj.Flag == AttributeFlagKind.Present)
+                    {
+                        var owner = po;
+                        if (subj.Scope is not null)
+                        {
+                            var scopePo = Current.ResolveScopePo(subj.Scope, loc);
+                            if (!scopePo.Ok) return Fail<object?>(scopePo.Error!);
+                            owner = scopePo.Value;
+                        }
+                        if (owner is null)
+                            return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentPo, "EXPECT Attribute needs a current PersistentObject.", loc));
+                        return OpResult<object?>.Success((object?)(owner.GetAttribute(subj.Name!) is not null));
+                    }
+
                     PersistentObjectAttribute? attr;
                     if (subj.Scope is not null)
                     {
@@ -1533,6 +1549,10 @@ public sealed class Interpreter
                         return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Query.Columns needs a current Query.", loc));
                     var col = (query.Columns ?? Array.Empty<Vidyano.ViewModel.QueryColumn>())
                         .FirstOrDefault(c => string.Equals(c.Name, subj.Name, StringComparison.OrdinalIgnoreCase));
+                    // Leafless Query.Columns[X] IS [NOT] PRESENT — a column the server removed (RemoveColumns) is
+                    // gone from the result columns, so it is asserted absent here rather than failing to resolve.
+                    if (subj.MetadataKey is null)
+                        return OpResult<object?>.Success((object?)(col is not null));
                     if (col is null)
                         return Fail<object?>(new Diagnostic(ErrorKind.ResolveAttribute,
                             $"Query '{query.Name}' has no column named '{subj.Name}'.", loc,
