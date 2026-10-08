@@ -1876,21 +1876,15 @@ public sealed class VidyanoSession : IDisposable
         {
         try
         {
-            // The built-in exports never reach ExecuteAction in the web client (actions.ts ExportToExcel /
-            // ExportToCsv): they post a single GetStream that runs the action and returns the file. Mirror it —
-            // the action's own parent + query, no selection (the web client exports the whole query), and the
-            // option folded into the parameters the way Action._getParameters does.
-            if (action is QueryAction && action.Name is "ExportToExcel" or "ExportToCsv")
+            // The built-in exports never reach ExecuteAction (actions.ts ExportToExcel / ExportToCsv): they post a
+            // single GetStream that runs the action and returns the file. With an option, Core's export action
+            // does that inside Execute (below; its download reaches _lastStream through Hooks.OnStream). Execute
+            // takes no named parameters, so the parameter path posts the same GetStream itself — the action's own
+            // parent + query, no selection (the web client exports the whole query).
+            if (optionLabel is null && action is QueryAction && action.Name is "ExportToExcel" or "ExportToCsv")
             {
-                var exportParameters = parameters?.ToDictionary(kv => kv.Key, kv => kv.Value);
-                if (optionLabel is not null)
-                    exportParameters = new Dictionary<string, string>
-                    {
-                        ["MenuOption"] = Vidyano.Client.ToServiceString(Array.IndexOf(action.Options, optionLabel)),
-                        ["MenuLabel"] = optionLabel,
-                    };
                 return await CaptureStreamAsync(
-                    () => Client.GetStreamAsync("Query." + action.Name, action.Parent, action.Query, parameters: exportParameters),
+                    () => Client.GetStreamAsync("Query." + action.Name, action.Parent, action.Query, parameters: parameters?.ToDictionary(kv => kv.Key, kv => kv.Value)),
                     action.Query, loc).ConfigureAwait(false);
             }
 
