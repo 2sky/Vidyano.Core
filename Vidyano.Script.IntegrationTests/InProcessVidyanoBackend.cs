@@ -97,9 +97,11 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 reject.ShowedOn = ShowedOn.PersistentObject;
 
                 // PO-level action that returns a RegisteredStream (download) — the fixture for the .visc
-                // stream auto-fetch (EXPECT Stream.*). ProductActions.OnGetStream serves the bytes.
+                // stream auto-fetch (EXPECT Stream.*). ProductActions.OnGetStream serves the bytes. The options
+                // give it an ACTION X = "option" form, which runs through Core's ActionBase.Execute.
                 var download = model.GetOrCreateCustomAction(nameof(DownloadSpec));
                 download.ShowedOn = ShowedOn.PersistentObject;
+                download.SetOptions("Text;Pdf");
 
                 var downloadMissing = model.GetOrCreateCustomAction(nameof(DownloadMissing));
                 downloadMissing.ShowedOn = ShowedOn.PersistentObject;
@@ -162,6 +164,11 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 administrators.AddUserRight($"{nameof(AddSampleNoRefresh)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(Reshuffle)}/{Schema}.{nameof(ProductCategory)}");
                 administrators.AddUserRight($"{nameof(LinkIntoQuery)}/{Schema}.{nameof(Product)}");
+
+                // The built-in query exports (the .visc ExportTests) — like a custom action, the right is what
+                // surfaces them on the Product queries (top-level and the ProductCategory detail).
+                administrators.AddUserRight($"ExportToExcel/{Schema}.{nameof(Product)}");
+                administrators.AddUserRight($"ExportToCsv/{Schema}.{nameof(Product)}");
             }));
 
         var app = builder.Build();

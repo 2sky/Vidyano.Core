@@ -164,11 +164,13 @@ public static class VerbCatalog
             + "`EXPECTING ERROR` + `EXPECT Notification`); a returned non-error notification is shown but "
             + "passes. When the server result is an `AddReference` (a custom action that returns "
             + "`AddReference(\"<query>\")`), the action opens a picker dialog instead of a PO frame — confirm "
-            + "it with `ADD-REFERENCE`. Like the web client, an action whose definition says RefreshQueryOnCompleted "
-            + "re-searches its query before the next statement (keeping the selection only with "
-            + "KeepSelectionOnRefresh), and server `Refresh` client operations re-load the open queries and records "
-            + "they name — so no `SEARCH` is needed to see the result.",
-            ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete"],
+            + "it with `ADD-REFERENCE`. An action that returns a stream — or a built-in export "
+            + "(`ExportToExcel` / `ExportToCsv`, run as one `GetStream` like the web client) — is downloaded "
+            + "automatically, no frame pushed, for `EXPECT Stream.*`. Like the web client, an action whose definition "
+            + "says RefreshQueryOnCompleted re-searches its query before the next statement (keeping the selection "
+            + "only with KeepSelectionOnRefresh), and server `Refresh` client operations re-load the open queries and "
+            + "records they name — so no `SEARCH` is needed to see the result.",
+            ["ACTION Export (Format=\"csv\")", "ACTION Delete = \"Yes, delete\"", "ACTION Detail \"OrderLines\" Delete", "ACTION ExportToExcel"],
             "action", []),
 
         new("CHART",

@@ -70,6 +70,8 @@ public sealed class ShopContext : NullTargetContext
         [
             new Document { Id = "1", Name = "Spec" },
         ]);
+
+        DownloadSpec.Fetches = 0;
     }
 
     /// <summary>Adds a product to the store outside the client's view — what another user (or a server action)
@@ -251,7 +253,10 @@ public sealed class ProductActions(ShopContext context)
     public override global::System.IO.Stream OnGetStream(GetStreamArgs e)
     {
         if (e.Key == DownloadSpec.StreamKey)
+        {
+            Interlocked.Increment(ref DownloadSpec.Fetches);
             return e.GetBytes(global::System.Text.Encoding.UTF8.GetBytes(DownloadSpec.Content), DownloadSpec.FileName, "text/plain");
+        }
         if (e.Key == DownloadMissing.StreamKey)
             throw new global::System.Exception(DownloadMissing.FaultMessage);
         return base.OnGetStream(e);
@@ -504,6 +509,10 @@ public sealed class DownloadSpec(ShopContext context) : CustomAction<ShopContext
     public const string StreamKey = "spec";
     public const string FileName = "spec.txt";
     public const string Content = "%PDF-ish spec content for Widget.";
+
+    /// <summary>How many times <see cref="ProductActions.OnGetStream"/> served this stream since the last
+    /// <see cref="ShopContext.Reset"/> — pins that one ACTION downloads it exactly once.</summary>
+    public static int Fetches;
 
     // Registers a pending stream keyed by StreamKey; the bytes are served on the follow-up GetStream by
     // ProductActions.OnGetStream (the faithful two-step flow the web client performs automatically).

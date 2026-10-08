@@ -217,7 +217,18 @@ A query action invoked with **no selection** posts an empty selection (matching 
 
 A custom action can fail two ways, and both surface as an `ACTION` failure with the message copied onto the current frame for `EXPECT Notification …` to read: the server sets an error notification on the PO/query and returns null, **or** the action *returns* a `Notification(message, Error)` result (the toast shape — `return Notification(...)`). A returned **non-error** notification (info/warning) is copied onto the frame too — so `EXPECT Notification …` can read it — but does **not** fail the verb, faithful to the toast a browser shows.
 
-An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer.
+An action that **returns a stream** (server: `Manager.Current.RegisterStream(...)`, e.g. a "download PDF" button) is handled like the web client: the runner **auto-fetches** the stream — no extra verb — and buffers it for the `EXPECT Stream.*` subjects (see [Asserting state](#asserting-state--expect)). No navigation frame is pushed; the capture is cleared by the next verb, like the per-verb `ClientOperation` buffer. The stream is fetched exactly once, whichever `ACTION` form ran it (an `= "option"` action is fetched by Core itself and handed to the runner).
+
+The built-in query **exports** — `ACTION ExportToExcel` / `ACTION ExportToCsv` — download the same way. Like the web client, the runner runs them as a single `GetStream` request (the action's parent and query, never `ExecuteAction`), so the generated file lands in `EXPECT Stream.*` with no extra verb and no frame pushed. The whole query is exported as the client holds it — the selection is not sent, exactly as in the browser — and a `Detail "<name>"` clause exports a detail query. An export that fails server-side is served as an `Error.txt` stream whose `Stream.Text` carries the message.
+
+```visc
+OPEN MenuItem Home/Products
+ACTION ExportToCsv
+EXPECT Stream.Name = "Products.csv"
+EXPECT Stream.Text CONTAINS "Widget"
+ACTION ExportToExcel
+EXPECT Stream.Text MATCHES "^PK"                ## an .xlsx is a zip package
+```
 
 ### Refreshing after an action
 
@@ -230,7 +241,7 @@ ACTION Delete                     ## Delete refreshes on completion
 EXPECT TotalItems = 3             ## no SEARCH needed
 ```
 
-- **The action's definition says *refresh query on completed*** (`RefreshQueryOnCompleted`, e.g. `Delete` or a custom action configured so): the query the action ran on — the nav-stack query, or the `Detail "<name>"` one — is re-searched, whatever the action returned (a record, a notification, a stream, nothing); not when it failed. The re-search clears the selection, unless the definition also says *keep selection on refresh* (`KeepSelectionOnRefresh`): then explicitly selected rows are re-selected by id when they are all still there, and a select-all (with whichever of its exclusions are still loaded) is restored. A PersistentObject action has no query, so it refreshes none — the records and details on screen stay as they were.
+- **The action's definition says *refresh query on completed*** (`RefreshQueryOnCompleted`, e.g. `Delete` or a custom action configured so): the query the action ran on — the nav-stack query, or the `Detail "<name>"` one — is re-searched, whatever the action returned (a record, a notification, a stream, nothing); not when it failed, and never after the built-in exports, which the web client runs as a plain download. The re-search clears the selection, unless the definition also says *keep selection on refresh* (`KeepSelectionOnRefresh`): then explicitly selected rows are re-selected by id when they are all still there, and a select-all (with whichever of its exclusions are still loaded) is restored. A PersistentObject action has no query, so it refreshes none — the records and details on screen stay as they were.
 - **The server queues a `Refresh` client operation** (`Manager.Current.QueueClientOperation(RefreshOperation…)`), in any verb's response: for a query, every open query with that id that has been searched — a Query frame anywhere on the navigation stack, or a detail query of a PersistentObject frame — is re-searched (after the operation's delay, if any); for a record, every PersistentObject frame of that type and id is re-fetched. A detail that was never loaded stays unloaded, and dialogs, Add-Reference pickers and a retry dialog's record are left alone, as in the browser. `EXPECT ClientOperation Refresh` still sees the operation.
 - **An Add-Reference picker closes** (see [Add-Reference pickers](#add-reference-pickers--add-reference)): the opening action's refresh above runs then — confirmed or dismissed — since the browser's action waits for its picker; a confirmed picker that a custom *query* action returned also re-searches that action's query.
 
@@ -391,7 +402,7 @@ EXPECT Stream.Text CONTAINS "%PDF"
 EXPECT Stream IS NULL                            ## after another verb — the capture is per-verb
 ```
 
-When an action returns a stream, the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
+When an action returns a stream — or is one of the built-in exports (`ExportToExcel` / `ExportToCsv`) — the runner auto-fetches it (like the web client) and buffers `Stream.Name` (file name), `Stream.Length` (byte length), and `Stream.Text` (UTF-8 decode); bare `Stream` is a presence check. A server-side download fault is served as the stream *body*, so it's assertable via `Stream.Text` too.
 
 **Charts** (the last `CHART` result; `IS NULL` when none was captured)
 
