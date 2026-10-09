@@ -23,7 +23,7 @@ public sealed class SemanticTokensLegendSpec
     /// <summary>The standard LSP token-type names, in their frozen legend order.</summary>
     public IReadOnlyList<string> TokenTypes { get; }
 
-    /// <summary>The token-modifier names; empty in v1 (no modifiers are emitted).</summary>
+    /// <summary>The token-modifier names, in frozen legend order; a span's modifier bit <c>i</c> is entry <c>i</c>.</summary>
     public IReadOnlyList<string> TokenModifiers { get; }
 
     /// <summary>Resolves a token-type name to its legend index. Throws <see cref="ArgumentException"/> on an

@@ -59,12 +59,15 @@ public sealed class ViscLanguageService
     }
 
     // === Semantic tokens ===
-    // The standard LSP token-type names this server emits, in frozen legend order. Modifiers are unused in
-    // v1. Computed once: the field initializers below resolve their indices through IndexOf, so a name typo
-    // here trips ArgumentException at type load (startup), never as a silent miscoloring at render time.
+    // The standard LSP token-type names this server emits, in frozen legend order — new types are only ever
+    // appended, so indices a client cached stay valid. `clause` is a custom modifier (no standard LSP modifier
+    // means "secondary keyword") that marks sub-keywords on `keyword`, letting a theme color verbs and clause
+    // words apart; the VS Code extension declares it under `contributes.semanticTokenModifiers`. Computed
+    // once: the field initializers below resolve their indices through IndexOf, so a name typo here trips
+    // ArgumentException at type load (startup), never as a silent miscoloring at render time.
     private static readonly SemanticTokensLegendSpec _legend = new(
-        ["keyword", "type", "string", "number", "comment", "operator", "variable", "macro", "regexp"],
-        []);
+        ["keyword", "type", "string", "number", "comment", "operator", "variable", "macro", "regexp", "property"],
+        ["clause"]);
 
     private static readonly int _keyword = _legend.IndexOf("keyword");
     private static readonly int _type = _legend.IndexOf("type");
@@ -73,6 +76,8 @@ public sealed class ViscLanguageService
     private static readonly int _comment = _legend.IndexOf("comment");
     private static readonly int _variable = _legend.IndexOf("variable");
     private static readonly int _macro = _legend.IndexOf("macro");
+    private static readonly int _property = _legend.IndexOf("property");
+    private const int ClauseModifier = 1 << 0; // bit of "clause" in the legend's modifier list
 
     /// <summary>The shared semantic-tokens legend. Static so <c>ViscLspServer</c> registers from the same
     /// instance the producer encodes against — the legend index of every emitted span resolves identically
@@ -97,12 +102,14 @@ public sealed class ViscLanguageService
         var tokens = new Lexer(text, uri).Tokenize();
         var spans = new List<SemanticToken>(tokens.Count);
 
-        foreach (var t in tokens)
+        for (var i = 0; i < tokens.Count; i++)
         {
+            var t = tokens[i];
             switch (t.Kind)
             {
                 case TokenKind.Identifier:
-                    AddSimple(spans, text, t.Location, CodePointCount(t.Lexeme), Classify(t.Lexeme));
+                    var (type, modifiers) = Classify(t.Lexeme, IsStatementStart(tokens, i));
+                    AddSimple(spans, text, t.Location, CodePointCount(t.Lexeme), type, modifiers);
                     break;
                 case TokenKind.Number:
                 case TokenKind.Integer:
@@ -134,30 +141,37 @@ public sealed class ViscLanguageService
         return spans;
     }
 
-    // Maps a (re-classified) identifier to its legend index. Sub-keywords share the keyword color with verbs
-    // (both are reserved control words); type-words map to `type`; everything else is a free identifier —
-    // an attribute, action, menu segment, or query/PO name — which colors as `variable` (the reference-like
-    // role those bare names play), matching the @handle variables.
-    private static int Classify(string lexeme) =>
+    // Maps a (re-classified) identifier to its legend index + modifier bits. A verb is only a verb as the
+    // statement head (the parser dispatches on a line's first token alone), so a verb word later in the line —
+    // `EXPECT Action Edit IS NOT AVAILABLE`, `ACTION Save` — is the name it plays there, not a keyword.
+    // Sub-keywords are `keyword` + `clause`, so themes can split them from verbs; type-words map to `type`;
+    // everything else is a free identifier — an attribute, action, menu segment, or query/PO name — which
+    // colors as `property`, distinct from the @handle `variable`s.
+    private static (int Type, int Modifiers) Classify(string lexeme, bool isStatementStart) =>
         KeywordCatalog.Classify(lexeme) switch
         {
-            SemanticCategory.Verb => _keyword,
-            SemanticCategory.SubKeyword => _keyword,
-            SemanticCategory.TypeWord => _type,
-            _ => _variable,
+            SemanticCategory.Verb when isStatementStart => (_keyword, 0),
+            SemanticCategory.SubKeyword => (_keyword, ClauseModifier),
+            SemanticCategory.TypeWord => (_type, 0),
+            _ => (_property, 0),
         };
+
+    // A statement starts at a line's first token: the lexer emits a Newline per line end and drops
+    // whitespace/comments, and a `###` header owns its whole line.
+    private static bool IsStatementStart(List<Token> tokens, int index) =>
+        index == 0 || tokens[index - 1].Kind is TokenKind.Newline or TokenKind.StepHeader;
 
     // Adds one span for a token whose source occupies `unicodeChars` Unicode characters starting at `loc`.
     // Length is re-derived through ToLsp at both endpoints so astral widening / CRLF trimming are reused, not
     // reinvented. A negative typeIndex (unclassified identifier) emits nothing.
-    private static void AddSimple(List<SemanticToken> spans, string text, SourceLocation loc, int unicodeChars, int typeIndex)
+    private static void AddSimple(List<SemanticToken> spans, string text, SourceLocation loc, int unicodeChars, int typeIndex, int modifiers = 0)
     {
         if (typeIndex < 0 || unicodeChars <= 0)
             return;
         var (line, startChar) = ToLsp(loc, text);
         var (_, endChar) = ToLsp(loc with { Column = loc.Column + unicodeChars }, text);
         if (endChar > startChar)
-            spans.Add(new SemanticToken(line, startChar, endChar - startChar, typeIndex, 0));
+            spans.Add(new SemanticToken(line, startChar, endChar - startChar, typeIndex, modifiers));
     }
 
     // Splits a string literal at `loc` into ordered sub-spans: string runs (string color) interleaved with
