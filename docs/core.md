@@ -78,6 +78,8 @@ for (int i = 0; i < query.Count; i++)
     Console.WriteLine($"Item {i}: {query[i].Id}");
 ```
 
+Like the web client, every result sets the query's `Notification` / `NotificationType`: a notification the server put on the result (e.g. `args.Result.AddNotification(…)` in `QueryExecuted`) is shown, and a result without one clears the previous notification. A search that fails sets its error as the notification instead.
+
 `query.Clone(asLookup: true)` copies a query's definition (parent, search text, sort — not its rows, selection, or notification) as a lookup, like the web client's `query.clone(true)`. Searching the clone lists the query's lookup source: the candidates a built-in `AddReference` picker offers. Post the picked rows against the original query:
 
 ```csharp
@@ -96,7 +98,7 @@ if (approve is { CanExecute: true })
     await approve.Execute(null);
 ```
 
-`Execute` re-searches the action's query afterwards when the server's action definition says so (`action.RefreshQueryOnCompleted`), as the web client does: the selection survives when the definition says `KeepSelectionOnRefresh`, and a `Vidyano.Notification` the action returns is set on the query once the re-search is done (unless the re-search left an error of its own) rather than cancelling it. Only a failed action skips the re-search. A caller that posts the action itself with `client.ExecuteActionAsync` owns that refresh; `query.RefreshQueryAsync(keepSelection: action.KeepSelectionOnRefresh)` does it the way the web client does, keeping the selection (re-selected by id) when the definition asks for it:
+`Execute` re-searches the action's query afterwards when the server's action definition says so (`action.RefreshQueryOnCompleted`), as the web client does: the selection survives when the definition says `KeepSelectionOnRefresh`, and a `Vidyano.Notification` the action returns is set on the query once the re-search is done (unless the re-search left a notification of its own — its error, or one on its result) rather than cancelling it. Only a failed action skips the re-search. A caller that posts the action itself with `client.ExecuteActionAsync` owns that refresh; `query.RefreshQueryAsync(keepSelection: action.KeepSelectionOnRefresh)` does it the way the web client does, keeping the selection (re-selected by id) when the definition asks for it:
 
 ```csharp
 var delete = query.GetAction("Delete");
