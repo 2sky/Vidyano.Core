@@ -35,6 +35,24 @@
         "path": "./syntaxes/visc.tmLanguage.json"
       }
     ],
+    "semanticTokenModifiers": [
+      {
+        "id": "clause",
+        "description": "A clause keyword inside a statement (WHERE, AS, FROM, IS NOT, …), as opposed to the statement's leading verb."
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "visc",
+        "scopes": {
+          "keyword": ["keyword.control.visc"],
+          "keyword.clause": ["keyword.other.visc"],
+          "type": ["support.type.visc"],
+          "property": ["variable.other.property.visc"],
+          "variable": ["variable.other.visc"]
+        }
+      }
+    ],
     "configuration": {
       "title": "Vidyano Script",
       "properties": {
