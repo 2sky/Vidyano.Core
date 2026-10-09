@@ -460,6 +460,23 @@ namespace Vidyano.ViewModel
             // a load that arrives after AllSelected was set would otherwise leave CanExecute stale.
             if (AllSelected)
                 InvalidateActions();
+
+            // Like the web client (query.ts #setResult), every result carries the query's notification: a server
+            // notification (e.g. added in QueryExecuted) is shown, and a result without one clears an earlier one.
+            var notification = (string)result["notification"];
+            if (notification != null || Notification != null)
+                SetNotification(notification, ParseNotificationType(result["notificationType"]));
+        }
+
+        private static NotificationType ParseNotificationType(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+                return NotificationType.Error;
+
+            if (token.Type == JTokenType.Integer)
+                return (NotificationType)(int)token;
+
+            return Enum.TryParse<NotificationType>((string)token, true, out var type) ? type : NotificationType.Error;
         }
 
         #endregion

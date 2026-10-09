@@ -31,7 +31,7 @@ public sealed class VidyanoSession : IDisposable
     private CapturedChart? _lastChart;                   // the last CHART result, cleared on the next verb
     // Refresh work a verb leaves behind, applied by SettleRefreshesAsync once it returns: the queries the verb's
     // own action re-searches, then the Refresh client operations the server queued in its responses.
-    private readonly List<(Query Query, bool KeepSelection)> _queuedQueryRefreshes = new();
+    private readonly List<(Query Query, bool KeepSelection, PersistentObject? Notification)> _queuedQueryRefreshes = new();
     private readonly List<RefreshClientOperation> _queuedRefreshOperations = new();
     private readonly List<NavEntry> _navStack = new();
     private readonly ScriptHooks _hooks = new();
@@ -195,10 +195,15 @@ public sealed class VidyanoSession : IDisposable
             _queuedQueryRefreshes.Clear();
             _queuedRefreshOperations.Clear();
 
-            foreach (var (query, keepSelection) in queryRefreshes)
+            foreach (var (query, keepSelection, notification) in queryRefreshes)
             {
                 if (refreshedQueries.Add(query))
                     await query.RefreshQueryAsync(keepSelection).ConfigureAwait(false);
+
+                // The re-search applies its own result's notification (none clears it); like action.ts _onExecute,
+                // the action's returned notification is shown after it unless the search left one of its own.
+                if (notification is not null && !query.HasNotification)
+                    query.SetNotification(notification.Notification, notification.NotificationType);
             }
 
             foreach (var op in operations)
@@ -263,11 +268,12 @@ public sealed class VidyanoSession : IDisposable
     /// <summary>Queues the refresh a completed action asks for: its query is re-searched when the action's definition
     /// says <see cref="ActionBase.RefreshQueryOnCompleted"/>, keeping the selection per
     /// <see cref="ActionBase.KeepSelectionOnRefresh"/> (action.ts <c>_onExecute</c>). A PersistentObject action has
-    /// no query, so it never refreshes one.</summary>
-    private void QueueActionRefresh(ActionBase action)
+    /// no query, so it never refreshes one. A <c>Vidyano.Notification</c> the action returned is passed as
+    /// <paramref name="notification"/> so it survives the re-search.</summary>
+    private void QueueActionRefresh(ActionBase action, PersistentObject? notification = null)
     {
         if (action.RefreshQueryOnCompleted && action.Query is { } query)
-            _queuedQueryRefreshes.Add((query, action.KeepSelectionOnRefresh));
+            _queuedQueryRefreshes.Add((query, action.KeepSelectionOnRefresh, notification));
     }
 
     /// <summary>Queues the refresh an Add-Reference picker owes once it closes. The web client awaits the picker inside
@@ -277,7 +283,7 @@ public sealed class VidyanoSession : IDisposable
     private void QueuePickerClosedRefresh(AddReferenceEntry picker, bool confirmed)
     {
         if (confirmed && picker.SourceQuery is null && picker.Action.Query is { } query)
-            _queuedQueryRefreshes.Add((query, false));
+            _queuedQueryRefreshes.Add((query, false, null));
         QueueActionRefresh(picker.Action);
     }
 
@@ -641,10 +647,8 @@ public sealed class VidyanoSession : IDisposable
         }
         try
         {
-            // Core's search sets the notification on failure but never clears it on success, while the web
-            // client resets it from every result. Clear it first (as Core's ExecuteActionAsync does for an
-            // action), so an earlier verb's error neither fails this search nor lingers for EXPECT Notification.
-            target.SetNotification(null);
+            // Core applies every result's notification (none clears it) and sets a failed search's error, so an
+            // earlier verb's error neither fails this search nor lingers for EXPECT Notification.
             await target.SearchTextAsync(text).ConfigureAwait(false);
             if (target is { HasNotification: true, NotificationType: NotificationType.Error })
                 return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, target.Notification, loc));
@@ -2056,7 +2060,7 @@ public sealed class VidyanoSession : IDisposable
             // by itself; the direct call doesn't, so queue it (it runs once the verb returns, see
             // SettleRefreshesAsync).
             if (optionLabel is null && result is not { FullTypeName: "Vidyano.AddReference" or "Vidyano.RegisteredStream" })
-                QueueActionRefresh(action);
+                QueueActionRefresh(action, result is { FullTypeName: "Vidyano.Notification" } ? result : null);
             // A custom action that returns AddReference("<query>") yields a "Vidyano.AddReference" wrapper PO
             // holding the reference picker. Mirror the web client (action.ts): take the wrapper's query,
             // reparent it to the PO the action ran on (so its rows load — and the add posts — against the
