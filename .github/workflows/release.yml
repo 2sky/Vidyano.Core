@@ -1,0 +1,72 @@
+# Publishes Vidyano.Core, Vidyano.Script and Vidyano.Script.Tool to nuget.org when a bare
+# semver tag (e.g. `5.71.0`, no `v` prefix) is pushed. Release flow: see CONTRIBUTING.md.
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release
+      id-token: write # NuGet trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          # 8.0: Vidyano.Script.Tests runs on net8.0; 10.0: SDK + net10.0 targets.
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Check tag matches <Version>
+        run: |
+          fail=0
+          for p in Vidyano.Core/Vidyano.Core.csproj \
+                   Vidyano.Script/Vidyano.Script.csproj \
+                   Vidyano.Script.LanguageServer/Vidyano.Script.LanguageServer.csproj \
+                   Vidyano.Script.Tool/Vidyano.Script.Tool.csproj; do
+            v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$p")
+            if [ "$v" != "$GITHUB_REF_NAME" ]; then
+              echo "::error file=$p::<Version> is '$v' but the tag is '$GITHUB_REF_NAME'"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      # Release builds generate the nupkgs (GeneratePackageOnBuild).
+      - run: dotnet build Vidyano.Core.sln -c Release
+
+      - run: dotnet test Vidyano.Core.sln -c Release --no-build
+
+      # The temporary API key is valid for 1 hour, so log in right before pushing.
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # Dependency order. --skip-duplicate makes a re-run after a partial push safe.
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          for p in Vidyano.Core Vidyano.Script Vidyano.Script.Tool; do
+            dotnet nuget push "$p/bin/Release/$p.$GITHUB_REF_NAME.nupkg" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            "Vidyano.Core/bin/Release/Vidyano.Core.$GITHUB_REF_NAME.nupkg" \
+            "Vidyano.Script/bin/Release/Vidyano.Script.$GITHUB_REF_NAME.nupkg" \
+            "Vidyano.Script.Tool/bin/Release/Vidyano.Script.Tool.$GITHUB_REF_NAME.nupkg"

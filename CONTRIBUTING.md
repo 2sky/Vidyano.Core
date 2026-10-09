@@ -114,6 +114,20 @@ Add support for custom authentication headers
 3. Increase the version numbers in any examples files and the README.md to the new version that this Pull Request would represent
 4. You may merge the Pull Request once you have the sign-off of at least one other developer, or if you do not have permission to do that, you may request the reviewer to merge it for you
 
+### Releasing (maintainers)
+
+Pushing a version tag publishes Vidyano.Core, Vidyano.Script and Vidyano.Script.Tool to nuget.org via [`.github/workflows/release.yml`](.github/workflows/release.yml).
+
+1. Bump `<Version>` to `X.Y.Z` in all four csproj files (lockstep): `Vidyano.Core`, `Vidyano.Script`, `Vidyano.Script.LanguageServer`, `Vidyano.Script.Tool`. Also update the "currently X.Y.Z" line in `CLAUDE.md`.
+2. Commit as `build: X.Y.Z` on `main`.
+3. Tag that commit `X.Y.Z` (no `v` prefix) and push the tag:
+   ```bash
+   git tag X.Y.Z
+   git push origin main X.Y.Z
+   ```
+
+The workflow fails if the tag doesn't match every csproj `<Version>`, builds and tests in Release, pushes the packages to nuget.org (trusted publishing, no API key) and creates a GitHub release with the `.nupkg` files attached. A failed run can be re-run: packages already on nuget.org are skipped.
+
 ## Community
 
 - Be respectful and inclusive

@@ -69,6 +69,8 @@ When updating versions:
 1. Update `<Version>` in Vidyano.Core.csproj
 2. Version format: Major.Minor.Patch (currently 5.70.0)
 
+Publishing is automated: pushing tag `X.Y.Z` runs `.github/workflows/release.yml` (nuget.org + GitHub release). Full flow in `CONTRIBUTING.md` → "Releasing".
+
 ## Development Notes
 
 ### Demo Application
