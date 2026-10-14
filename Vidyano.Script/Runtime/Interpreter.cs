@@ -364,6 +364,7 @@ public sealed class Interpreter
             case ConfirmStmt cf:               return await DoConfirm(cf).ConfigureAwait(false);
             case AddReferenceStmt ar:          return await DoAddReference(ar).ConfigureAwait(false);
             case SearchStmt q:                 return await DoSearch(q).ConfigureAwait(false);
+            case InstantSearchStmt ins:        return await DoInstantSearch(ins).ConfigureAwait(false);
             case ExpectStmt ex:                return DoExpect(ex);
             case ToolCallStmt tc:              return await DoTool(tc).ConfigureAwait(false);
             case RequiresStmt rq:              return DoRequires(rq);
@@ -432,8 +433,10 @@ public sealed class Interpreter
         // read only the immediately preceding verb's result. Meta statements (@var, @mode) don't talk to the
         // server, so they leave the buffers alone too. A loop verb is structural — its body statements reset
         // the buffers themselves — so leave it untouched for them. FOLLOW-NAVIGATE consumes the previous verb's
-        // Navigate operation, so the session resets the buffers itself once it has read them.
-        if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt and not FollowNavigateStmt)
+        // Navigate operation, and OPEN-ROW InstantSearch its INSTANT-SEARCH rows, so the session resets the buffers
+        // itself once it has read them.
+        if (!isMetaStmt && stmt is not ExpectStmt and not RepeatStmt and not ForEachRowStmt and not FollowNavigateStmt
+            and not OpenRowStmt { InstantSearch: true })
             Current.ResetVerbObservables();
 
         // Initial-PO gate: while Client.Initial is non-null the script is "frozen" against the gate. Only
@@ -580,6 +583,29 @@ public sealed class Interpreter
                     Hint: "Bind the row with `FOR-EACH ROW … AS @row` and open it inside the loop body."));
             var rowRes = await Current.OpenRowItemAsync(rowItem, or.AsHandle, or.Location).ConfigureAwait(false);
             return WrapRow(or, rowRes);
+        }
+
+        // OPEN-ROW InstantSearch <index | WHERE …> — open a row of the previous verb's INSTANT-SEARCH.
+        if (or.InstantSearch)
+        {
+            object? matchValue = null;
+            int? rowIndex = null;
+            if (or.MatchColumn != null)
+            {
+                var mv = EvaluateExpression(or.MatchValue!);
+                if (!mv.Ok) return Fail(or, mv.Error!);
+                matchValue = mv.Value;
+            }
+            else
+            {
+                var iv = EvaluateExpression(or.Index!);
+                if (!iv.Ok) return Fail(or, iv.Error!);
+                if (!TryCoerceInt(iv.Value, out var idx))
+                    return Fail(or, new Diagnostic(ErrorKind.ParseInvalidValue, "OPEN-ROW InstantSearch needs an integer index.", or.Location));
+                rowIndex = idx;
+            }
+            var instantRes = await Current.OpenInstantSearchRowAsync(rowIndex, or.MatchColumn, matchValue, or.AsHandle, or.Location).ConfigureAwait(false);
+            return WrapRow(or, instantRes);
         }
 
         if (or.MatchColumn != null)
@@ -820,6 +846,14 @@ public sealed class Interpreter
         var chartName = AsString(nameRes.Value);
         var res = await Current.ExecuteChartAsync(chartName, ch.DetailName, ch.Location).ConfigureAwait(false);
         return Wrap(ch, res);
+    }
+
+    private async Task<StatementResult> DoInstantSearch(InstantSearchStmt ins)
+    {
+        var text = EvaluateExpression(ins.Text);
+        if (!text.Ok) return Fail(ins, text.Error!);
+        var res = await Current.InstantSearchAsync(AsString(text.Value), ins.Location).ConfigureAwait(false);
+        return Wrap(ins, res);
     }
 
     private async Task<StatementResult> DoConfirm(ConfirmStmt cf)
@@ -1378,6 +1412,29 @@ public sealed class Interpreter
             // `EXPECT Chart` and `EXPECT Chart.Data` land here (same value); IS NULL is the presence check.
             case ExpectSubjectKind.Chart:
                 return OpResult<object?>.Success(Current.LastChart?.Data);
+            // The instant-search gate (no INSTANT-SEARCH needed) and the previous verb's INSTANT-SEARCH rows. Count is
+            // null when the previous verb ran none, so IS NULL is the presence check.
+            case ExpectSubjectKind.InstantSearchEnabled:
+                if (!Current.IsSignedIn)
+                    return Fail<object?>(new Diagnostic(ErrorKind.StateNotSignedIn, "EXPECT InstantSearch.Enabled needs a signed-in session.", loc));
+                return OpResult<object?>.Success((object?)Current.Client.IsInstantSearchEnabled);
+            case ExpectSubjectKind.InstantSearchCount:
+                return OpResult<object?>.Success((object?)Current.LastInstantSearch?.Count);
+            case ExpectSubjectKind.InstantSearchRow:
+                {
+                    var rows = Current.LastInstantSearch;
+                    if (rows is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoInstantSearch,
+                            "EXPECT InstantSearch[…] has no results to read — the previous verb ran no INSTANT-SEARCH.", loc));
+                    var iv = EvaluateExpression(subj.RowIndex!);
+                    if (!iv.Ok) return Fail<object?>(iv.Error!);
+                    if (!TryCoerceInt(iv.Value, out var rowIdx))
+                        return Fail<object?>(new Diagnostic(ErrorKind.ParseInvalidValue, "EXPECT InstantSearch[…] needs an integer index.", loc));
+                    if (rowIdx < 0 || rowIdx >= rows.Count)
+                        return Fail<object?>(new Diagnostic(ErrorKind.AssertFailed,
+                            $"Row index {rowIdx} is out of range (the instant search returned {rows.Count} rows).", loc));
+                    return OpResult<object?>.Success(VidyanoSession.InstantSearchField(rows[rowIdx], subj.MetadataKey!));
+                }
             case ExpectSubjectKind.IsDirty:
                 return OpResult<object?>.Success((object?)(po?.IsDirty ?? false));
             case ExpectSubjectKind.IsInEdit:

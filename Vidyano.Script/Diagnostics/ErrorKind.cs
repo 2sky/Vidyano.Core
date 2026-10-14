@@ -83,6 +83,11 @@ public static class ErrorKind
     public const string StateNoAddReferencePending = "state-no-add-reference-pending";
     /// <summary><c>FOLLOW-NAVIGATE</c> was issued but the previous verb queued no <c>Navigate</c> client operation.</summary>
     public const string StateNoNavigate          = "state-no-navigate";
+    /// <summary><c>INSTANT-SEARCH</c> was issued for a user the server doesn't offer instant search to (the
+    /// Application's <c>InstantSearchDelay</c> is unset — <c>Advanced.GetInstantSearchDelayForUser</c> returned null).</summary>
+    public const string StateInstantSearchOff    = "state-instant-search-off";
+    /// <summary><c>OPEN-ROW InstantSearch</c> was issued but the previous verb ran no <c>INSTANT-SEARCH</c>.</summary>
+    public const string StateNoInstantSearch     = "state-no-instant-search";
     /// <summary>A <c>REPEAT</c> count resolved to a negative or non-integer value — the bound is
     /// unevaluable, so the loop can't run.</summary>
     public const string StateInvalidBound        = "state-invalid-bound";

@@ -1,0 +1,47 @@
+### INSTANT-SEARCH — the web client's menu search box
+###
+### This file lints cleanly with no backend. It demonstrates the `INSTANT-SEARCH` verb, the
+### `EXPECT InstantSearch.*` subjects, and `OPEN-ROW InstantSearch`.
+###
+### `INSTANT-SEARCH <text>` calls the server's instant search (the app's Advanced.HandleInstantSearch,
+### behind the `Instant?q=` endpoint) and CAPTURES the result rows. Like CHART it is a read-only
+### observable, NOT a navigation destination:
+###   • no frame is pushed, and
+###   • the capture is cleared by the next executable verb (EXPECT doesn't clear it).
+###
+### Instant search is per user: the server turns it on via Advanced.GetInstantSearchDelayForUser. When
+### it is off, INSTANT-SEARCH fails with state-instant-search-off — gate on `InstantSearch.Enabled`.
+###
+### The live round-trip is exercised by Vidyano.Script.IntegrationTests (InstantSearchTests), whose
+### in-process ShopAdvanced returns the Products whose Name contains the text.
+
+@app = "https://demo.vidyano.com"
+
+SIGN-IN admin / admin
+REQUIRES InstantSearch.Enabled = true                    ## skip the rest when the server has it off
+
+### Search, then assert on the rows. Each row has Label (the PO type's label), Breadcrumb (the display
+### text), ObjectId, and Id (the PO type id).
+INSTANT-SEARCH "g"
+EXPECT InstantSearch.Count = 3
+EXPECT InstantSearch[0].Label = "Product"
+EXPECT InstantSearch[0].Breadcrumb = "Gadget"
+EXPECT NavStack.Depth = 0                                ## the search pushed nothing
+
+### The text is a value expression, so it interpolates.
+@term = "giz"
+INSTANT-SEARCH "{{term}}"
+EXPECT InstantSearch[0].ObjectId = "3"
+
+### Open a result's PersistentObject — by index, or by a strict WHERE on one of the row fields.
+OPEN-ROW InstantSearch 0
+EXPECT NavStack.Top.Kind = "PersistentObject"
+EXPECT Name = "Gizmo"
+
+INSTANT-SEARCH "widget"
+OPEN-ROW InstantSearch WHERE ObjectId = "1" AS @widget
+EXPECT Name = "Widget"
+
+### The capture is per-verb: once another verb runs, the rows are gone.
+GO-BACK
+EXPECT InstantSearch.Count IS NULL

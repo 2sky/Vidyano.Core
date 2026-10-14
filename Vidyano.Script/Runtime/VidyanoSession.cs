@@ -29,6 +29,7 @@ public sealed class VidyanoSession : IDisposable
     private List<ClientOperation> _lastOperations = new();
     private CapturedStream? _lastStream;                 // the last auto-fetched stream, cleared on the next verb
     private CapturedChart? _lastChart;                   // the last CHART result, cleared on the next verb
+    private IReadOnlyList<InstantSearchResult>? _lastInstantSearch; // the last INSTANT-SEARCH rows, cleared on the next verb
     // Refresh work a verb leaves behind, applied by SettleRefreshesAsync once it returns: the queries the verb's
     // own action re-searches, then the Refresh client operations the server queued in its responses.
     private readonly List<(Query Query, bool KeepSelection)> _queuedQueryRefreshes = new();
@@ -155,19 +156,25 @@ public sealed class VidyanoSession : IDisposable
     /// the immediately preceding verb.</summary>
     public void ResetLastChart() => _lastChart = null;
 
+    /// <summary>The rows the most recent <c>INSTANT-SEARCH</c> returned, or <c>null</c> when none has run since the last
+    /// per-verb reset. Read by <c>EXPECT InstantSearch.Count</c> / <c>InstantSearch[&lt;i&gt;].&lt;field&gt;</c> and opened by
+    /// <c>OPEN-ROW InstantSearch</c>.</summary>
+    public IReadOnlyList<InstantSearchResult>? LastInstantSearch => _lastInstantSearch;
+
     /// <summary>The server's refusal message when the most recent verb's open (<c>OPEN PersistentObject</c> /
     /// <c>Query</c> / <c>MenuItem</c>, <c>FOLLOW</c>, <c>FOLLOW-NAVIGATE</c>) was refused, or <c>null</c>. A refused
     /// open pushes no frame, so there is no PO or Query to carry the error the browser would show; this holds it for
     /// <c>EXPECT Notification</c> until the next executable verb.</summary>
     public string? LastOpenRefusal { get; private set; }
 
-    /// <summary>Clears every per-verb observable (operations, stream, chart, open refusal) in one go. The interpreter
+    /// <summary>Clears every per-verb observable (operations, stream, chart, instant search, open refusal) in one go. The interpreter
     /// calls this before every executable verb so the <c>EXPECT</c>s that follow read only that verb's results.</summary>
     public void ResetVerbObservables()
     {
         ResetLastOperations();
         ResetLastStream();
         ResetLastChart();
+        _lastInstantSearch = null;
         LastOpenRefusal = null;
     }
 
@@ -1110,6 +1117,97 @@ public sealed class VidyanoSession : IDisposable
             ? await OpenPersistentObjectAsync(target.Id, target.ObjectId, asHandle, loc).ConfigureAwait(false)
             : await OpenQueryAsync(target.Id, asHandle, loc).ConfigureAwait(false);
     }
+
+    // --- instant search -----------------------------------------------------------------------
+
+    /// <summary><c>INSTANT-SEARCH &lt;text&gt;</c> — run the server's instant search (the web client's menu search
+    /// dropdown) as the signed-in user and keep its rows as <see cref="LastInstantSearch"/>. Pushes no frame. A user the
+    /// server doesn't offer the feature to (<see cref="Vidyano.Client.IsInstantSearchEnabled"/> false) fails loudly
+    /// rather than reading as "no results"; a failed request is a server error.</summary>
+    public async Task<OpResult> InstantSearchAsync(string text, SourceLocation loc)
+    {
+        if (!IsSignedIn)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNotSignedIn, "Sign in before INSTANT-SEARCH.", loc));
+        if (!Client.IsInstantSearchEnabled)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.StateInstantSearchOff,
+                $"Instant search is off for '{Client.User}' — the Application carries no InstantSearchDelay.",
+                loc,
+                Hint: "The server enables it per user with Advanced.GetInstantSearchDelayForUser; assert the gate with EXPECT InstantSearch.Enabled = false."));
+        try
+        {
+            _lastInstantSearch = await Client.GetInstantSearchAsync(text).ConfigureAwait(false);
+            return OpResult.Success;
+        }
+        catch (Exception ex)
+        {
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, ex.Message, loc));
+        }
+    }
+
+    /// <summary><c>OPEN-ROW InstantSearch &lt;index | WHERE &lt;field&gt; = &lt;value&gt;&gt;</c> — open the PersistentObject a
+    /// row of the previous verb's <c>INSTANT-SEARCH</c> points at, as a click in the search dropdown does. Exactly one
+    /// of <paramref name="index"/> / <paramref name="field"/> addresses the row; a <c>WHERE</c> match is strict (0 or
+    /// &gt;1 rows fail) and compares the field in service-string form. Like <see cref="FollowNavigateAsync"/> it consumes
+    /// the previous verb's observable, so it starts a fresh per-verb window itself; the open then runs exactly as
+    /// <c>OPEN PersistentObject</c>, refusal included.</summary>
+    public async Task<OpResult> OpenInstantSearchRowAsync(int? index, string? field, object? value, string? asHandle, SourceLocation loc)
+    {
+        if (!IsSignedIn)
+            return OpResult.Fail(new Diagnostic(ErrorKind.StateNotSignedIn, "Sign in before OPEN-ROW InstantSearch.", loc));
+
+        var rows = _lastInstantSearch;
+        ResetVerbObservables();
+
+        if (rows is null)
+            return OpResult.Fail(new Diagnostic(
+                ErrorKind.StateNoInstantSearch,
+                "OPEN-ROW InstantSearch has no results to open — the previous verb ran no INSTANT-SEARCH.",
+                loc,
+                Hint: "Run INSTANT-SEARCH \"<text>\" right before OPEN-ROW InstantSearch (EXPECTs in between are fine)."));
+
+        InstantSearchResult row;
+        if (field is null)
+        {
+            if (index is not { } i || i < 0 || i >= rows.Count)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"Row index {index} is out of range (the instant search returned {rows.Count} rows).",
+                    loc));
+            row = rows[i];
+        }
+        else
+        {
+            var target = value as string ?? Vidyano.Client.ToServiceString(value);
+            var matches = rows.Where(r => string.Equals(InstantSearchField(r, field), target, StringComparison.Ordinal)).ToList();
+            if (matches.Count == 0)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"No instant search row where {field} = \"{target}\" (the search returned {rows.Count} rows).",
+                    loc));
+            if (matches.Count > 1)
+                return OpResult.Fail(new Diagnostic(
+                    ErrorKind.AssertFailed,
+                    $"Instant search row match for {field} = \"{target}\" is ambiguous ({matches.Count} rows). Tighten the value, or use OPEN-ROW InstantSearch <index>.",
+                    loc));
+            row = matches[0];
+        }
+
+        if (string.IsNullOrEmpty(row.Id))
+            return OpResult.Fail(new Diagnostic(ErrorKind.ServerError, "The instant search row carries no PersistentObject id.", loc));
+        return await OpenPersistentObjectAsync(row.Id!, row.ObjectId, asHandle, loc).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads a field of an instant-search row by name (Label / ObjectId / Breadcrumb / Id, case-insensitive);
+    /// <c>null</c> for an unknown name — the parser only admits the four.</summary>
+    public static string? InstantSearchField(InstantSearchResult row, string field) => field.ToUpperInvariant() switch
+    {
+        "LABEL"      => row.Label,
+        "OBJECTID"   => row.ObjectId,
+        "BREADCRUMB" => row.Breadcrumb,
+        "ID"         => row.Id,
+        _            => null,
+    };
 
     /// <summary>The route table of the signed-in Application, parsed once per Application instance (a new
     /// sign-in yields a new one). <c>null</c> when the Application has no <c>Routes</c>.</summary>

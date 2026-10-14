@@ -55,6 +55,8 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
         builder.WebHost.UseTestServer();
         builder.AddVidyanoMinimal<ShopContext>(vidyano => vidyano
             .WithDefaultAdmin()
+            // A second user with instant search off (ShopAdvanced turns it on for admin only).
+            .WithUser("viewer", "viewer", "Administrators")
             .WithSchemaRights()
             // Three languages so the TranslatedString tests can set/assert per-language values; the seed
             // titles (ShopContext._L) use exactly this en/nl/de set.

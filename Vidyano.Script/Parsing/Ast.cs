@@ -86,8 +86,12 @@ public sealed record OpenMenuItemStmt(IReadOnlyList<Expression> PathSegments, st
 /// the open passes only if the row's PO load is refused server-side (a <c>server-error</c>). A refused
 /// row-open leaves the error notification on the still-current calling query, where a following
 /// <c>EXPECT Notification</c> reads it. A client-side selection failure (row out of range / no or
-/// ambiguous WHERE match) stays loud, never absorbed.</para></summary>
-public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null, string? RowVar = null, bool ExpectError = false) : Statement(Location);
+/// ambiguous WHERE match) stays loud, never absorbed.</para>
+/// <para><see cref="InstantSearch"/> (<c>OPEN-ROW InstantSearch &lt;index | WHERE …&gt;</c>) selects the row from the
+/// previous verb's <c>INSTANT-SEARCH</c> results instead of a query, and opens the PersistentObject it points at — a
+/// click in the search dropdown. Its <c>WHERE</c> column is one of the result fields (Label / ObjectId / Breadcrumb /
+/// Id) and matches strictly, like the query form; <see cref="DetailName"/> never applies.</para></summary>
+public sealed record OpenRowStmt(Expression? Index, string? AsHandle, SourceLocation Location, string? MatchColumn = null, ExpectOp? MatchOp = null, Expression? MatchValue = null, string? DetailName = null, string? RowVar = null, bool ExpectError = false, bool InstantSearch = false) : Statement(Location);
 
 /// <summary><c>DELETE-ROW Detail Attribute "&lt;name&gt;" &lt;index | WHERE col = value&gt;</c> — remove a row
 /// from a detail attribute (<c>PersistentObjectAttributeAsDetail</c>) on the current PO, as the web client's row
@@ -229,6 +233,12 @@ public sealed record ChartStmt(
     SourceLocation Location,
     string? DetailName = null) : Statement(Location);
 
+/// <summary><c>INSTANT-SEARCH &lt;text&gt;</c> — run the server's instant search (the dropdown under the web client's
+/// menu search box) as the signed-in user and capture its rows for <c>EXPECT InstantSearch.*</c> and
+/// <c>OPEN-ROW InstantSearch</c>. Like <see cref="ChartStmt"/> it pushes no frame, and the capture is cleared on the
+/// next executable verb. <see cref="Text"/> is a value expression, so it interpolates.</summary>
+public sealed record InstantSearchStmt(Expression Text, SourceLocation Location) : Statement(Location);
+
 /// <summary><c>SEARCH "text"</c> text-searches the current query in place. An optional leading
 /// <c>Detail "&lt;name&gt;"</c> clause (<see cref="DetailName"/>) retargets a named detail query on the
 /// current PO (<c>PersistentObject.Queries</c>) — searching it in place with no nav frame or selection
@@ -350,6 +360,16 @@ public enum ExpectSubjectKind
     /// presence check, <c>Chart.Data</c> is the explicit form for content assertions
     /// (<c>= / CONTAINS / MATCHES</c>).</summary>
     Chart,
+    /// <summary><c>EXPECT InstantSearch.Enabled = true</c> — whether the server offers instant search to the signed-in
+    /// user (the Application's <c>InstantSearchDelay</c> is set). Needs no prior <c>INSTANT-SEARCH</c>.</summary>
+    InstantSearchEnabled,
+    /// <summary><c>EXPECT InstantSearch.Count = 2</c> — the number of rows the previous verb's <c>INSTANT-SEARCH</c>
+    /// returned (<c>null</c> when the previous verb ran none, so <c>IS NULL</c> is the presence check).</summary>
+    InstantSearchCount,
+    /// <summary><c>EXPECT InstantSearch[&lt;i&gt;].Label = "..."</c> — a field of one row of the previous verb's
+    /// <c>INSTANT-SEARCH</c>. <see cref="ExpectSubject.RowIndex"/> is the row, <see cref="ExpectSubject.MetadataKey"/>
+    /// the field (Label / ObjectId / Breadcrumb / Id).</summary>
+    InstantSearchRow,
     /// <summary><c>EXPECT IsDirty ...</c>.</summary>
     IsDirty,
     /// <summary><c>EXPECT IsInEdit ...</c>.</summary>
