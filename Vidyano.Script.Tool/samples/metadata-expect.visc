@@ -22,6 +22,10 @@ OPEN-ROW 0
 ### TypeHints — server-attached display/validation hints, keyed by name.
 # EXPECT Attribute FirstName TYPEHINT maxLength = "50"
 # EXPECT Attribute FirstName TYPEHINT inputtype IS NOT NULL
+### Options — the choices offered for a DropDown / KeyValueList attribute, matched as whole options by
+### display value or key (server-shape-dependent, so commented like the forms above).
+# EXPECT Attribute Gender OPTIONS CONTAINS "Female"
+# EXPECT Attribute Gender OPTIONS NOT CONTAINS "Unknown"
 ### Existing flag form still works.
 EXPECT Attribute FirstName IS VISIBLE
 EXPECT Attribute FirstName IS NOT REQUIRED

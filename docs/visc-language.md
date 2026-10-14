@@ -394,7 +394,7 @@ EXPECT ClientOperation ShowMessageBox CONTAINS "saved"
 EXPECT ClientOperation Refresh IS NULL
 ```
 
-`Notification` / `Notification.Type` read the current PO's notification, or the current Query's when no PO is open — so a query action's notification (e.g. an error) is assertable.
+`Notification` / `Notification.Type` read the current PO's notification, or the current Query's when no PO is open — so a query action's notification (e.g. an error) is assertable. To read a **detail** query's notification (a failed `ACTION Detail`) while a PO is open, use `EXPECT Detail "<name>" Notification` (see **Detail redirection** below).
 
 **Streams** (the stream the previous action auto-fetched; `IS NULL` when none)
 
@@ -466,6 +466,14 @@ EXPECT Query.Columns[FirstName].Label = "First name"
 
 Missing bag keys produce `null` — assert with `IS NULL` / `IS NOT NULL`.
 
+**Attribute options** — `EXPECT Attribute <name> OPTIONS [NOT] CONTAINS <option>` asserts whether the options the server offers for a `DropDown` / `ComboBox` / `Enum` / `KeyValueList` / `NullableBoolean` attribute include one whose **display value or key** equals `<option>` — e.g. that a server-side filter kept or removed an option. The match is on a whole option, case-sensitive (the same match `SET … = LOOKUP` uses), so `"Flanders"` never matches `"FlandersNorth"`. Only `CONTAINS` / `NOT CONTAINS` apply; `OPTIONS` on an attribute of another type fails loudly.
+
+```visc
+EXPECT Attribute Zone OPTIONS CONTAINS "Flanders"         ## by display value…
+EXPECT Attribute Zone OPTIONS CONTAINS "fl"               ## …or by key
+EXPECT Attribute Zone OPTIONS NOT CONTAINS "Netherlands"  ## filtered out server-side
+```
+
 **Action availability** — `EXPECT Action <name> IS [NOT] AVAILABLE | VISIBLE` asserts whether a named action is executable (`AVAILABLE` → `CanExecute`) or shown (`VISIBLE` → `IsVisible`) on the current PO / nav-stack query. An action filtered out server-side (e.g. via `DisableActions`) reads as `IS NOT AVAILABLE`:
 
 ```visc
@@ -494,6 +502,14 @@ EXPECT Detail "OrderLines" TotalItems = 4
 EXPECT Detail "OrderLines" Selection.Count = 1
 EXPECT Detail "OrderLines" Action Delete IS NOT AVAILABLE   ## action gated on the sub-query
 EXPECT Detail "OrderLines" Action ExportToExcel IS AVAILABLE
+```
+
+`Notification` / `Notification.Type` also take the clause: `EXPECT Detail "<name>" Notification` reads the **detail query's own** notification — where a failed `ACTION Detail "<name>" …` leaves its error — instead of the current PO's (a bare `EXPECT Notification` keeps reading the PO, which may carry its own message, e.g. a warning set on load). `null` when the detail has none.
+
+```visc
+ACTION Detail "OrderLines" Delete EXPECTING ERROR
+EXPECT Detail "OrderLines" Notification CONTAINS "already invoiced"
+EXPECT Detail "OrderLines" Notification.Type = "Error"
 ```
 
 Only the `AVAILABLE` / `VISIBLE` flags compose with `Detail` (the `DISPLAY-NAME` form does not).

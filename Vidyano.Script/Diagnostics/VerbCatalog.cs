@@ -260,7 +260,7 @@ public static class VerbCatalog
             "edit", []),
 
         new("EXPECT",
-            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>\nEXPECT Detail \"<name>\" Action <X> IS [NOT] AVAILABLE | VISIBLE\nEXPECT Detail Attribute \"<name>\" TotalItems <op> <n>\nEXPECT Detail Attribute \"<name>\" ROW <i> <col> <op> <value>",
+            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT Attribute <attr> OPTIONS [NOT] CONTAINS <option>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>\nEXPECT Detail \"<name>\" Notification[.Type] <op> <value>\nEXPECT Detail \"<name>\" Action <X> IS [NOT] AVAILABLE | VISIBLE\nEXPECT Detail Attribute \"<name>\" TotalItems <op> <n>\nEXPECT Detail Attribute \"<name>\" ROW <i> <col> <op> <value>",
             "Assert on session/PO/query state.",
             "Asserts on `NavStack.*`, `TotalItems`, `Selection.*`, `IsInEdit`, `ClientOperation`, "
             + "`RetryDialog.*` (Title / Message / Options of an open server retry), attributes, "
@@ -268,7 +268,10 @@ public static class VerbCatalog
             + "attribute by its document id (ObjectId), symmetric with `SET <ref> = ID`. `LANGUAGE <lang>` "
             + "compares one translation of a TranslatedString attribute, symmetric with `SET … LANGUAGE`. "
             + "`MATCHES` is a regex assertion (1s ReDoS guard). Numeric and date/time subjects compare by value "
-            + "(locale-independent), the literal in the same invariant form `SET` uses. `Detail \"<name>\"` redirects query-family subjects, "
+            + "(locale-independent), the literal in the same invariant form `SET` uses. `Attribute <X> OPTIONS [NOT] CONTAINS \"<option>\"` asks whether the options offered for a "
+            + "DropDown / ComboBox / Enum / KeyValueList attribute include one whose display value or key equals the value (whole option, "
+            + "not a substring). `Detail \"<name>\"` redirects query-family subjects, `Notification` / `Notification.Type` "
+            + "(the detail query's own, e.g. a failed `ACTION Detail` error — not the parent PO's), "
             + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone). "
             + "`Attribute <X> IS [NOT] PRESENT` / `Query.Columns[<X>] IS [NOT] PRESENT` assert an attribute or column exists "
             + "(e.g. one the server removed) — the only assertion a missing name satisfies.",
