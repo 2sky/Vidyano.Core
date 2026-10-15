@@ -33,6 +33,8 @@ npm run package      # produces vscode-visc-0.1.0.vsix
 
 ## Install the .vsix
 
+A prebuilt `vscode-visc-0.1.0.vsix` is attached to the [GitHub releases](https://github.com/2sky/Vidyano.Core/releases) (since 5.71.0); download it, or build it as above.
+
 ```bash
 code --install-extension vscode-visc-0.1.0.vsix
 ```
@@ -79,4 +81,4 @@ A verb word later in a line (`EXPECT Action Edit IS NOT AVAILABLE`) is a name, n
 }
 ```
 
-This is a v1 sideload build — not published to the Marketplace.
+This is a v1 sideload build — not published to the Marketplace; get it from the GitHub releases.
