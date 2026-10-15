@@ -82,7 +82,12 @@ public sealed class ShopContext : NullTargetContext
         ]);
 
         DownloadSpec.Fetches = 0;
+        PendingQueryNotification = null;
     }
+
+    /// <summary>A show-once notification: the next Products search consumes it in <see cref="ProductActions.QueryExecuted"/>
+    /// and puts it on that query result, so only the result that carried it can surface it.</summary>
+    internal static string? PendingQueryNotification { get; set; }
 
     /// <summary>Adds a product to the store outside the client's view — what another user (or a server action)
     /// does, so a query the client already searched is stale until it re-searches.</summary>
@@ -232,6 +237,12 @@ public sealed class ProductActions(ShopContext context)
         base.QueryExecuted(args);
 
         args.RemoveColumns(nameof(Product.Discontinued));
+
+        if (ShopContext.PendingQueryNotification is { } notification)
+        {
+            ShopContext.PendingQueryNotification = null;
+            args.Result.AddNotification(notification, NotificationType.Notice);
+        }
     }
 
     /// <summary>Fails the text search on <see cref="ShopContext.UnsearchableText"/> — a deterministic server-side
@@ -435,9 +446,13 @@ public sealed class AddSample(ShopContext context) : CustomAction<ShopContext>(c
 
     public override PersistentObject? Execute(CustomActionArgs e) => Add(e);
 
-    // Run on a category's detail grid (parent = the category), the sample joins that category.
+    // Run on a category's detail grid (parent = the category), the sample joins that category. A QueryNotification
+    // parameter queues it as the next Products search's show-once notification (ShopContext.PendingQueryNotification).
     internal static PersistentObject? Add(CustomActionArgs e)
     {
+        if (e.Parameters?.GetValueOrDefault("QueryNotification") is { } notification)
+            ShopContext.PendingQueryNotification = notification;
+
         ShopContext.AddProduct(SampleName, e.Parent is { Type: nameof(ProductCategory) } category ? category.ObjectId : null);
         return null;
     }

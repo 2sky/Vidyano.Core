@@ -126,6 +126,65 @@ public sealed class RefreshTests
             """));
     }
 
+    // --- Query result notifications ------------------------------------------------------------------
+    // Like the web client (query.ts #setResult), every query result sets the query's notification: a server
+    // notification (QueryExecuted → args.Result.AddNotification) is shown, and a result without one clears it.
+
+    [Fact]
+    public async Task Search_ShowsTheResultNotification_AndTheNextSearchClearsIt()
+    {
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            EXPECT Notification IS NULL
+            ACTION AddSampleNoRefresh (QueryNotification="Heads up")
+            SEARCH ""
+            EXPECT Notification = "Heads up"
+            EXPECT Notification.Type = "Notice"
+            SEARCH ""
+            EXPECT Notification IS NULL
+            """));
+    }
+
+    [Fact]
+    public async Task OpenQuery_ShowsTheNotificationOfItsFirstResult()
+    {
+        ShopContext.PendingQueryNotification = "Welcome";
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            EXPECT Notification = "Welcome"
+            SEARCH ""
+            EXPECT Notification IS NULL
+            """));
+    }
+
+    [Fact]
+    public async Task Action_Refresh_ShowsTheReSearchsNotification()
+    {
+        // The show-once notification is consumed by the post-action re-search, so only that result can surface it.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            ACTION AddSample (QueryNotification="Sample is pending review")
+            EXPECT TotalItems = 5
+            EXPECT Notification = "Sample is pending review"
+            """));
+    }
+
+    [Fact]
+    public async Task Action_ReturnedNotification_YieldsToTheReSearchsNotification()
+    {
+        // action.ts _onExecute shows a returned notification after the re-search only when the search left none.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/Products
+            ACTION AddSampleWithOptions (MenuLabel="Announce", QueryNotification="From the search")
+            EXPECT TotalItems = 5
+            EXPECT Notification = "From the search"
+            """));
+    }
+
     [Fact]
     public async Task Action_OnADetailQuery_ReSearchesTheDetail()
     {
