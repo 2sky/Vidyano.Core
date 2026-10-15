@@ -297,9 +297,9 @@ public sealed class GrammarRefreshLintTests
     [Fact]
     public void ExpectDetail_NonQueryNonActionInner_RejectedWithUpdatedMessage()
     {
-        // A subject that is neither query-family nor Action (here Notification) is still rejected, and
+        // A subject that is neither query-family nor Action (here IsDirty) is still rejected, and
         // the message now advertises the Action option alongside the query subjects.
-        var diags = VidyanoScript.Lint("EXPECT Detail \"OrderLines\" Notification");
+        var diags = VidyanoScript.Lint("EXPECT Detail \"OrderLines\" IsDirty = true");
         Assert.NotEmpty(diags);
         var combined = string.Join(" || ", diags.Select(d => $"{d.Message} | {d.Hint}"));
         Assert.Contains("an Action", combined);

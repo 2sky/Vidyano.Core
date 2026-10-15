@@ -67,3 +67,11 @@ EXPECT Notification MATCHES ".+"
 SEARCH "a" EXPECTING ERROR
 EXPECT NotificationType = "Error"
 EXPECT Notification MATCHES ".+"
+
+### ACTION Detail — a detail query action the server rejects leaves its error on the DETAIL query, not the
+### parent PO (which may carry its own notification, e.g. a warning set on load). Read it with the Detail clause.
+OPEN MenuItem Customers
+OPEN-ROW 0
+ACTION Detail "Customer_Orders" Delete EXPECTING ERROR
+EXPECT Detail "Customer_Orders" Notification.Type = "Error"
+EXPECT Detail "Customer_Orders" Notification MATCHES ".+"

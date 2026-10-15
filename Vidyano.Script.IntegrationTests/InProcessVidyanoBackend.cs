@@ -77,6 +77,9 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 var membersDetail = model.AddDetailQuery(nameof(ProductCategory), nameof(ProductActions.ProductCategory_Members));
                 membersDetail.LookupSource = "Custom." + nameof(ProductActions.ProductCategory_Candidates);
 
+                model.GetPersistentObject(nameof(ProductCategory))!
+                    .GetOrCreateAttribute(nameof(ProductCategory.Zone)).DataType = "KeyValueList";
+
                 // Mark Product.Trigger as TriggersRefresh: a SET of it round-trips through
                 // ProductActions.OnRefresh, which mirrors the value into Product.Echo — exercises the
                 // client SetValueAsync -> RefreshAttributesAsync path end-to-end.

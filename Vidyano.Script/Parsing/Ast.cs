@@ -395,6 +395,12 @@ public enum ExpectSubjectKind
     AttributeTypeHint,
     /// <summary><c>EXPECT Attribute X TAG = "..."</c>.</summary>
     AttributeTag,
+    /// <summary><c>EXPECT Attribute X OPTIONS [NOT] CONTAINS "..."</c> — whether the options the server offers
+    /// for a DropDown / ComboBox / Enum / KeyValueList / NullableBoolean attribute include one whose display
+    /// value or key equals the right-hand side (whole-option, ordinal — the match <c>SET … = LOOKUP</c> uses,
+    /// so <c>"Flanders"</c> never matches <c>"FlandersNorth"</c>). Only <c>CONTAINS</c> / <c>NOT CONTAINS</c>
+    /// apply (parser-gated).</summary>
+    AttributeOptions,
     /// <summary><c>EXPECT PO.&lt;prop&gt;</c> for scalar properties on the current PO:
     /// Type, Tag, Breadcrumb, FullTypeName, IsNew, IsHidden.
     /// <see cref="ExpectSubject.Name"/> holds the property name.</summary>

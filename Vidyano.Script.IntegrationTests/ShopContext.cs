@@ -36,6 +36,12 @@ public sealed class ShopContext : NullTargetContext
     /// Applies to every Products query, so the per-category detail query fails the same way.</summary>
     public const string UnsearchableText = "Boom";
 
+    /// <summary>A category tests add (<see cref="AddCategory"/>) whose <see cref="ProductCategoryActions.OnLoad"/>
+    /// sets <see cref="CategoryWarning"/> on the PO. Not seeded, so category counts elsewhere are unaffected.</summary>
+    public const string WarnedCategoryName = "Archive";
+
+    public const string CategoryWarning = "This category is archived.";
+
     // NullTargetContext persists through these collections, which are process-global (the Minimal API
     // has no per-app data store). Tests share one booted app, so each test re-seeds via Reset() to stay
     // isolated; the seed is fresh instances so an edit/save in one test never leaks into the next.
@@ -190,6 +196,11 @@ public sealed class ProductCategory
 {
     public string Id { get; set; } = null!;
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>A KeyValueList attribute (typed in <see cref="InProcessVidyanoBackend"/>) whose options
+    /// <see cref="ProductCategoryActions.OnLoad"/> filters — the fixture for <c>EXPECT Attribute Zone OPTIONS …</c>.
+    /// Nullable so it stays optional.</summary>
+    public string? Zone { get; set; }
 }
 
 public sealed class Document
@@ -365,6 +376,15 @@ public sealed class ProductCategoryActions(ShopContext context)
         base.OnLoad(obj, parent);
 
         obj.AddQuery(nameof(ProductActions.ProductCategory_Products));
+
+        // Offer only the zones a filter keeps: "Netherlands" is dropped, and "FlandersNorth" stays without a bare
+        // "Flanders" — so a substring match would wrongly find "Flanders".
+        obj["Zone"].Options = ["fn=FlandersNorth", "wa=Wallonia"];
+
+        // The category tests add (ShopContext.WarnedCategoryName) opens with its own warning — the parent-PO
+        // notification EXPECT Detail "…" Notification must look past.
+        if ((string?)obj["Name"] == ShopContext.WarnedCategoryName)
+            obj.AddNotification(ShopContext.CategoryWarning, NotificationType.Warning);
 
         // "Electronics" opens StayInEdit: the fixture for CancelEdit's gating on an always-in-edit object
         // (only available once dirty, as in the web client).
