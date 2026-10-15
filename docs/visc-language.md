@@ -124,7 +124,7 @@ SEARCH "ab" EXPECTING ERROR    ## assert the server rejects the search
 
 `SEARCH Detail "<name>"` retargets a detail query on the current PO, searching it in place to **load** its rows — so a following `EXPECT Detail … TotalItems` sees server-created state. A detail is lazy; load it before asserting on it. Once loaded, the refreshes the browser does keep it current (see [Refreshing after an action](#refreshing-after-an-action)); a `SEARCH` after an action is only needed where the browser would show stale rows too.
 
-A search the server **rejects** (its text search throws, or the query fails to execute) fails the verb with `assert-notification-error` carrying the server's message — the same way a failed query `ACTION` does — instead of passing with the previous rows still loaded. The error stays on the searched query as its notification, so `SEARCH … EXPECTING ERROR` + `EXPECT Notification …` can assert it (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)). Like the web client, every search starts from a clean notification: a successful `SEARCH` clears an error an earlier verb left on that query.
+A search the server **rejects** (its text search throws, or the query fails to execute) fails the verb with `assert-notification-error` carrying the server's message — the same way a failed query `ACTION` does — instead of passing with the previous rows still loaded. The error stays on the searched query as its notification, so `SEARCH … EXPECTING ERROR` + `EXPECT Notification …` can assert it (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)). Like the web client, every search result sets the query's notification: a notification the server put on the result (e.g. one a `QueryExecuted` handler adds) is what `EXPECT Notification` reads — an `Error`-typed one fails the verb like a rejected search — and a result without one clears whatever an earlier verb left on that query.
 
 ## Selecting rows
 
@@ -245,7 +245,7 @@ ACTION Delete                     ## Delete refreshes on completion
 EXPECT TotalItems = 3             ## no SEARCH needed
 ```
 
-- **The action's definition says *refresh query on completed*** (`RefreshQueryOnCompleted`, e.g. `Delete` or a custom action configured so): the query the action ran on — the nav-stack query, or the `Detail "<name>"` one — is re-searched, whatever the action returned (a record, a notification, a stream, nothing) and in every `ACTION` form (bare, `= "label"`, `(P=…)`); not when it failed, and never after the built-in exports, which the web client runs as a plain download. A returned notification is still read by `EXPECT Notification` — unless the re-search failed, whose error then wins, as in the browser. The re-search clears the selection, unless the definition also says *keep selection on refresh* (`KeepSelectionOnRefresh`): then explicitly selected rows are re-selected by id when they are all still there, and a select-all (with whichever of its exclusions are still loaded) is restored. A PersistentObject action has no query, so it refreshes none — the records and details on screen stay as they were.
+- **The action's definition says *refresh query on completed*** (`RefreshQueryOnCompleted`, e.g. `Delete` or a custom action configured so): the query the action ran on — the nav-stack query, or the `Detail "<name>"` one — is re-searched, whatever the action returned (a record, a notification, a stream, nothing) and in every `ACTION` form (bare, `= "label"`, `(P=…)`); not when it failed, and never after the built-in exports, which the web client runs as a plain download. The re-search applies its own result's notification (a server notification on it is read by `EXPECT Notification`; none clears the query's). A returned notification is still read by `EXPECT Notification` — unless the re-search left a notification of its own (its error, or one on its result), which then wins, as in the browser. The re-search clears the selection, unless the definition also says *keep selection on refresh* (`KeepSelectionOnRefresh`): then explicitly selected rows are re-selected by id when they are all still there, and a select-all (with whichever of its exclusions are still loaded) is restored. A PersistentObject action has no query, so it refreshes none — the records and details on screen stay as they were.
 - **The server queues a `Refresh` client operation** (`Manager.Current.QueueClientOperation(RefreshOperation…)`), in any verb's response: for a query, every open query with that id that has been searched — a Query frame anywhere on the navigation stack, or a detail query of a PersistentObject frame — is re-searched (after the operation's delay, if any); for a record, every PersistentObject frame of that type and id is re-fetched. A detail that was never loaded stays unloaded, and dialogs, Add-Reference pickers and a retry dialog's record are left alone, as in the browser. `EXPECT ClientOperation Refresh` still sees the operation.
 - **An Add-Reference picker closes** (see [Add-Reference pickers](#add-reference-pickers--add-reference)): the opening action's refresh above runs then — confirmed or dismissed — since the browser's action waits for its picker; a confirmed picker that a custom *query* action returned also re-searches that action's query.
 
@@ -413,7 +413,7 @@ EXPECT ClientOperation ShowMessageBox CONTAINS "saved"
 EXPECT ClientOperation Refresh IS NULL
 ```
 
-`Notification` / `Notification.Type` read the current PO's notification, or the current Query's when no PO is open — so a query action's notification (e.g. an error) is assertable.
+`Notification` / `Notification.Type` read the current PO's notification, or the current Query's when no PO is open — so a query action's notification (e.g. an error) is assertable. To read a **detail** query's notification (a failed `ACTION Detail`) while a PO is open, use `EXPECT Detail "<name>" Notification` (see **Detail redirection** below).
 
 **Streams** (the stream the previous action auto-fetched; `IS NULL` when none)
 
@@ -495,6 +495,14 @@ EXPECT Query.Columns[FirstName].Label = "First name"
 
 Missing bag keys produce `null` — assert with `IS NULL` / `IS NOT NULL`.
 
+**Attribute options** — `EXPECT Attribute <name> OPTIONS [NOT] CONTAINS <option>` asserts whether the options the server offers for a `DropDown` / `ComboBox` / `Enum` / `KeyValueList` / `NullableBoolean` attribute include one whose **display value or key** equals `<option>` — e.g. that a server-side filter kept or removed an option. The match is on a whole option, case-sensitive (the same match `SET … = LOOKUP` uses), so `"Flanders"` never matches `"FlandersNorth"`. Only `CONTAINS` / `NOT CONTAINS` apply; `OPTIONS` on an attribute of another type fails loudly.
+
+```visc
+EXPECT Attribute Zone OPTIONS CONTAINS "Flanders"         ## by display value…
+EXPECT Attribute Zone OPTIONS CONTAINS "fl"               ## …or by key
+EXPECT Attribute Zone OPTIONS NOT CONTAINS "Netherlands"  ## filtered out server-side
+```
+
 **Action availability** — `EXPECT Action <name> IS [NOT] AVAILABLE | VISIBLE` asserts whether a named action is executable (`AVAILABLE` → `CanExecute`) or shown (`VISIBLE` → `IsVisible`) on the current PO / nav-stack query. An action filtered out server-side (e.g. via `DisableActions`) reads as `IS NOT AVAILABLE`:
 
 ```visc
@@ -523,6 +531,14 @@ EXPECT Detail "OrderLines" TotalItems = 4
 EXPECT Detail "OrderLines" Selection.Count = 1
 EXPECT Detail "OrderLines" Action Delete IS NOT AVAILABLE   ## action gated on the sub-query
 EXPECT Detail "OrderLines" Action ExportToExcel IS AVAILABLE
+```
+
+`Notification` / `Notification.Type` also take the clause: `EXPECT Detail "<name>" Notification` reads the **detail query's own** notification — where a failed `ACTION Detail "<name>" …` leaves its error — instead of the current PO's (a bare `EXPECT Notification` keeps reading the PO, which may carry its own message, e.g. a warning set on load). `null` when the detail has none.
+
+```visc
+ACTION Detail "OrderLines" Delete EXPECTING ERROR
+EXPECT Detail "OrderLines" Notification CONTAINS "already invoiced"
+EXPECT Detail "OrderLines" Notification.Type = "Error"
 ```
 
 Only the `AVAILABLE` / `VISIBLE` flags compose with `Detail` (the `DISPLAY-NAME` form does not).

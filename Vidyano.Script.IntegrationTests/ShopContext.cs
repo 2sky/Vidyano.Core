@@ -36,6 +36,12 @@ public sealed class ShopContext : NullTargetContext
     /// Applies to every Products query, so the per-category detail query fails the same way.</summary>
     public const string UnsearchableText = "Boom";
 
+    /// <summary>A category tests add (<see cref="AddCategory"/>) whose <see cref="ProductCategoryActions.OnLoad"/>
+    /// sets <see cref="CategoryWarning"/> on the PO. Not seeded, so category counts elsewhere are unaffected.</summary>
+    public const string WarnedCategoryName = "Archive";
+
+    public const string CategoryWarning = "This category is archived.";
+
     // NullTargetContext persists through these collections, which are process-global (the Minimal API
     // has no per-app data store). Tests share one booted app, so each test re-seeds via Reset() to stay
     // isolated; the seed is fresh instances so an edit/save in one test never leaks into the next.
@@ -82,7 +88,12 @@ public sealed class ShopContext : NullTargetContext
         ]);
 
         DownloadSpec.Fetches = 0;
+        PendingQueryNotification = null;
     }
+
+    /// <summary>A show-once notification: the next Products search consumes it in <see cref="ProductActions.QueryExecuted"/>
+    /// and puts it on that query result, so only the result that carried it can surface it.</summary>
+    internal static string? PendingQueryNotification { get; set; }
 
     /// <summary>Adds a product to the store outside the client's view — what another user (or a server action)
     /// does, so a query the client already searched is stale until it re-searches.</summary>
@@ -189,6 +200,11 @@ public sealed class ProductCategory
 {
     public string Id { get; set; } = null!;
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>A KeyValueList attribute (typed in <see cref="InProcessVidyanoBackend"/>) whose options
+    /// <see cref="ProductCategoryActions.OnLoad"/> filters — the fixture for <c>EXPECT Attribute Zone OPTIONS …</c>.
+    /// Nullable so it stays optional.</summary>
+    public string? Zone { get; set; }
 }
 
 public sealed class Document
@@ -236,6 +252,12 @@ public sealed class ProductActions(ShopContext context)
         base.QueryExecuted(args);
 
         args.RemoveColumns(nameof(Product.Discontinued));
+
+        if (ShopContext.PendingQueryNotification is { } notification)
+        {
+            ShopContext.PendingQueryNotification = null;
+            args.Result.AddNotification(notification, NotificationType.Notice);
+        }
     }
 
     /// <summary>Fails the text search on <see cref="ShopContext.UnsearchableText"/> — a deterministic server-side
@@ -359,6 +381,15 @@ public sealed class ProductCategoryActions(ShopContext context)
 
         obj.AddQuery(nameof(ProductActions.ProductCategory_Products));
 
+        // Offer only the zones a filter keeps: "Netherlands" is dropped, and "FlandersNorth" stays without a bare
+        // "Flanders" — so a substring match would wrongly find "Flanders".
+        obj["Zone"].Options = ["fn=FlandersNorth", "wa=Wallonia"];
+
+        // The category tests add (ShopContext.WarnedCategoryName) opens with its own warning — the parent-PO
+        // notification EXPECT Detail "…" Notification must look past.
+        if ((string?)obj["Name"] == ShopContext.WarnedCategoryName)
+            obj.AddNotification(ShopContext.CategoryWarning, NotificationType.Warning);
+
         // "Electronics" opens StayInEdit: the fixture for CancelEdit's gating on an always-in-edit object
         // (only available once dirty, as in the web client).
         if (obj.ObjectId == "2")
@@ -439,9 +470,13 @@ public sealed class AddSample(ShopContext context) : CustomAction<ShopContext>(c
 
     public override PersistentObject? Execute(CustomActionArgs e) => Add(e);
 
-    // Run on a category's detail grid (parent = the category), the sample joins that category.
+    // Run on a category's detail grid (parent = the category), the sample joins that category. A QueryNotification
+    // parameter queues it as the next Products search's show-once notification (ShopContext.PendingQueryNotification).
     internal static PersistentObject? Add(CustomActionArgs e)
     {
+        if (e.Parameters?.GetValueOrDefault("QueryNotification") is { } notification)
+            ShopContext.PendingQueryNotification = notification;
+
         ShopContext.AddProduct(SampleName, e.Parent is { Type: nameof(ProductCategory) } category ? category.ObjectId : null);
         return null;
     }

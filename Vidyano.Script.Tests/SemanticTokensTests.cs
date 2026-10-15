@@ -21,6 +21,8 @@ public sealed class SemanticTokensTests
     private static readonly int Comment = ViscLanguageService.Legend.IndexOf("comment");
     private static readonly int Variable = ViscLanguageService.Legend.IndexOf("variable");
     private static readonly int Macro = ViscLanguageService.Legend.IndexOf("macro");
+    private static readonly int Property = ViscLanguageService.Legend.IndexOf("property");
+    private static readonly int Clause = 1 << ViscLanguageService.Legend.TokenModifiers.ToList().IndexOf("clause");
 
     private static async Task<IReadOnlyList<SemanticToken>> Tokenize(string text)
     {
@@ -34,11 +36,12 @@ public sealed class SemanticTokensTests
     [Fact]
     public async Task Verb_TypeWord_And_FreeIdentifier_GetDistinctCategories()
     {
-        // OPEN (verb -> keyword), Query (type-word -> type), Customers (free identifier -> variable).
+        // OPEN (verb -> keyword), Query (type-word -> type), Customers (free identifier -> property).
         var spans = await Tokenize("OPEN Query Customers");
 
         var open = Assert.Single(spans, s => s.StartChar == 0);
         Assert.Equal(Keyword, open.TokenTypeIndex);
+        Assert.Equal(0, open.ModifierBits);
         Assert.Equal(4, open.Length);
 
         var query = Assert.Single(spans, s => s.StartChar == 5);
@@ -46,22 +49,58 @@ public sealed class SemanticTokensTests
         Assert.Equal(5, query.Length);
 
         var customers = Assert.Single(spans, s => s.StartChar == 11);
-        Assert.Equal(Variable, customers.TokenTypeIndex);
+        Assert.Equal(Property, customers.TokenTypeIndex);
         Assert.Equal(9, customers.Length);
     }
 
     [Fact]
-    public async Task SubKeyword_ColorsAsKeyword_DistinctFromTypeWordAndVariable()
+    public async Task SubKeyword_IsKeywordWithClauseModifier_DistinctFromVerb()
     {
-        // SELECT-ROWS (verb), WHERE (sub-keyword -> keyword), Name (free identifier -> variable).
+        // SELECT-ROWS (verb -> plain keyword), WHERE (sub-keyword -> keyword + clause), Name (-> property).
         var spans = await Tokenize("SELECT-ROWS WHERE Name = 1");
+
+        var verb = Assert.Single(spans, s => s.StartChar == 0);
+        Assert.Equal(Keyword, verb.TokenTypeIndex);
+        Assert.Equal(0, verb.ModifierBits);
 
         var where = Assert.Single(spans, s => s.StartChar == 12);
         Assert.Equal(Keyword, where.TokenTypeIndex);
+        Assert.Equal(Clause, where.ModifierBits);
         Assert.Equal(5, where.Length);
 
         var name = Assert.Single(spans, s => s.StartChar == 18);
-        Assert.Equal(Variable, name.TokenTypeIndex);
+        Assert.Equal(Property, name.TokenTypeIndex);
+    }
+
+    [Fact]
+    public async Task VerbWord_MidStatement_IsAName_NotAVerb()
+    {
+        // `Action` and `Edit` are verb words, but only the line's first token is a verb — here they are the
+        // EXPECT subject and the action name.
+        var spans = await Tokenize("EXPECT Action Edit IS NOT AVAILABLE");
+
+        Assert.Equal(Keyword, Assert.Single(spans, s => s.StartChar == 0).TokenTypeIndex);
+        Assert.Equal(Property, Assert.Single(spans, s => s.StartChar == 7).TokenTypeIndex);   // Action
+        var edit = Assert.Single(spans, s => s.StartChar == 14);
+        Assert.Equal(Property, edit.TokenTypeIndex);
+        Assert.Equal(0, edit.ModifierBits);
+        var isKw = Assert.Single(spans, s => s.StartChar == 19);
+        Assert.Equal(Keyword, isKw.TokenTypeIndex);
+        Assert.Equal(Clause, isKw.ModifierBits);
+    }
+
+    [Fact]
+    public async Task Verb_IsRecognizedAtEveryStatementStart()
+    {
+        // A line after a `###` header and an indented loop-body line both start a statement, so their first
+        // word is still a verb (and a later verb word on the line is not).
+        var spans = await Tokenize("### Step\nREPEAT 2\n  ACTION Save # note\nEND");
+
+        Assert.Equal(Keyword, Assert.Single(spans, s => s.Line == 1 && s.StartChar == 0).TokenTypeIndex);
+        var action = Assert.Single(spans, s => s.Line == 2 && s.StartChar == 2);
+        Assert.Equal(Keyword, action.TokenTypeIndex);
+        Assert.Equal(0, action.ModifierBits);
+        Assert.Equal(Property, Assert.Single(spans, s => s.Line == 2 && s.StartChar == 9).TokenTypeIndex); // Save
     }
 
     [Fact]

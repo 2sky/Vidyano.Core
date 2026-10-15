@@ -19,10 +19,10 @@ const UPDATE_CMD = "dotnet tool update -g Vidyano.Script.Tool";
 const MIN_SERVER_VERSION = "5.59.0";
 
 let client: LanguageClient | undefined;
-let log: vscode.OutputChannel | undefined;
+let log: vscode.LogOutputChannel | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  log = vscode.window.createOutputChannel("Vidyano Script");
+  log = vscode.window.createOutputChannel("Vidyano Script", { log: true });
   context.subscriptions.push(log);
 
   const cfg = vscode.workspace.getConfiguration("vidyano");
@@ -40,7 +40,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     transport: TransportKind.stdio,
   };
 
-  // Client id "vidyano" makes the v9 client read the `vidyano.trace.server` setting automatically.
+  // Client id "vidyano" makes the language client read the `vidyano.trace.server` setting automatically.
   // Reuse our output channel so activation logs, client logs, and trace all land in one place.
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "visc" }],

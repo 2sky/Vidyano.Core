@@ -140,6 +140,7 @@ public static class ConsoleReporter
             ExpectSubjectKind.DetailAttributeCell  => $"Detail Attribute \"{Markup.Escape(s.Name ?? "?")}\" ROW … {Markup.Escape(s.MetadataKey ?? "?")}",
             ExpectSubjectKind.AttributeType        => $"Attribute {Markup.Escape(s.Name ?? "?")} TYPE",
             ExpectSubjectKind.AttributeTag         => $"Attribute {Markup.Escape(s.Name ?? "?")} TAG",
+            ExpectSubjectKind.AttributeOptions     => $"Attribute {Markup.Escape(s.Name ?? "?")} OPTIONS",
             ExpectSubjectKind.AttributeTypeHint    => $"Attribute {Markup.Escape(s.Name ?? "?")} TYPEHINT {Markup.Escape(s.MetadataKey ?? "?")}",
             ExpectSubjectKind.PoProperty           => $"PO.{Markup.Escape(s.Name ?? "?")}",
             ExpectSubjectKind.PoMetadata           => $"PO.Metadata.{Markup.Escape(s.MetadataKey ?? "?")}",

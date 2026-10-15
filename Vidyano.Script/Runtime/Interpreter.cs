@@ -1388,6 +1388,12 @@ public sealed class Interpreter
             // (a query action surfaces its notification on the Query — see VidyanoSession.ExecuteActionAsync).
             // A refused open by the previous verb pushed no frame, so its error wins — it's the message the
             // browser would show, and the current frame's notification predates that verb.
+            // EXPECT Detail "<name>" Notification reads only the detail query (where a failed ACTION Detail
+            // leaves its error), never the parent PO's notification or an open refusal.
+            case ExpectSubjectKind.Notification when subj.DetailName is not null:
+                return OpResult<object?>.Success(query!.Notification);
+            case ExpectSubjectKind.NotificationType when subj.DetailName is not null:
+                return OpResult<object?>.Success(query!.HasNotification ? query.NotificationType.ToString() : null);
             case ExpectSubjectKind.Notification:
                 if (Current.LastOpenRefusal is { } refusal)
                     return OpResult<object?>.Success(refusal);
@@ -1543,6 +1549,17 @@ public sealed class Interpreter
                     var ar = ResolveAttributeForMetadata(subj, loc);
                     if (!ar.Ok) return Fail<object?>(ar.Error!);
                     return OpResult<object?>.Success(ar.Value!.Tag);
+                }
+            case ExpectSubjectKind.AttributeOptions:
+                {
+                    var ar = ResolveAttributeForMetadata(subj, loc);
+                    if (!ar.Ok) return Fail<object?>(ar.Error!);
+                    var attr = ar.Value!;
+                    if (attr.Type is not (DataTypes.DropDown or DataTypes.ComboBox or DataTypes.Enum or DataTypes.KeyValueList or DataTypes.NullableBoolean))
+                        return Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken,
+                            $"Attribute '{attr.Name}' ({attr.Type}) has no options.", loc,
+                            Hint: "OPTIONS applies to DropDown / ComboBox / Enum / KeyValueList / NullableBoolean attributes."));
+                    return OpResult<object?>.Success(new OptionSet(attr.Options));
                 }
             case ExpectSubjectKind.AttributeTypeHint:
                 {
@@ -1734,7 +1751,7 @@ public sealed class Interpreter
             Details: new Dictionary<string, object?>
             {
                 ["expected"] = expected,
-                ["actual"] = actual,
+                ["actual"] = actual is OptionSet ? actual.ToString() : actual,
             });
 
     // --- expression evaluation ---------------------------------------------------------------
@@ -1969,6 +1986,8 @@ public sealed class Interpreter
 
         if (op is ExpectOp.Contains or ExpectOp.NotContains)
         {
+            if (left is OptionSet options)
+                return options.Contains(right as string ?? right?.ToString()) == (op == ExpectOp.Contains);
             // Case-insensitive substring on the string form of both sides — partial assertions
             // typically target human text where case shouldn't matter. Null haystack never contains.
             var contained = ContainsSubstring(left, right);
@@ -2263,4 +2282,16 @@ public sealed class Interpreter
         new(stmt, true, Current.TakeSnapshot(),
             d is null ? Array.Empty<Diagnostic>() : new[] { d },
             Skipped: true);
+}
+
+/// <summary>The value of <c>EXPECT Attribute X OPTIONS</c>: membership matches a whole option by display value
+/// or key (ordinal, like <c>SET … = LOOKUP</c>), so a substring of another option never counts. The string form
+/// lists the display values for the failure message.</summary>
+internal sealed class OptionSet(IReadOnlyList<PersistentObjectAttribute.Option> options)
+{
+    public bool Contains(string? text) =>
+        options.Any(o => string.Equals(o.DisplayValue, text, StringComparison.Ordinal) || string.Equals(o.Key, text, StringComparison.Ordinal));
+
+    public override string ToString() =>
+        "[" + string.Join(", ", options.Select(o => $"\"{o.DisplayValue ?? o.Key}\"")) + "]";
 }

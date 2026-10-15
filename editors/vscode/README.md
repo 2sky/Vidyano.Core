@@ -51,5 +51,32 @@ Or in VS Code: Extensions view → `…` menu → **Install from VSIX…**.
 - Syntax highlighting (TextMate grammar).
 - Live parse/lint diagnostics from `vidyano lsp`.
 - Hover docs for `.visc` verbs.
+- Semantic highlighting from `vidyano lsp`.
+
+## Theming
+
+The language server classifies words so a theme can color each kind apart:
+
+| Word | Example | Semantic token | TextMate fallback |
+|---|---|---|---|
+| Verb (statement start only) | `EXPECT` | `keyword` | `keyword.control.visc` |
+| Clause keyword | `WHERE`, `IS NOT` | `keyword.clause` | `keyword.other.visc` |
+| Type word | `Query`, `TotalItems` | `type` | `support.type.visc` |
+| Name (attribute/action/query/PO) | `Customers`, `Edit` | `property` | — |
+| `@handle` | `@admin` | `variable` | `variable.other.visc` |
+
+A verb word later in a line (`EXPECT Action Edit IS NOT AVAILABLE`) is a name, not a verb. Example
+`settings.json`:
+
+```json
+"editor.semanticTokenColorCustomizations": {
+  "rules": {
+    "keyword:visc": { "foreground": "#C586C0", "bold": true },
+    "keyword.clause:visc": "#569CD6",
+    "property:visc": "#9CDCFE",
+    "variable:visc": "#4FC1FF"
+  }
+}
+```
 
 This is a v1 sideload build — not published to the Marketplace.

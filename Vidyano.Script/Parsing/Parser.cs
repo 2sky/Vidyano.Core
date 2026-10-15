@@ -1260,6 +1260,23 @@ public sealed class Parser
         if (subject.Kind == ExpectSubjectKind.ClientOperation && IsLineTerminator(Peek()))
             return (subject, ExpectOp.IsNotNull, null);
 
+        // OPTIONS is a set: membership is the only question it answers.
+        if (subject.Kind == ExpectSubjectKind.AttributeOptions)
+        {
+            var opTok = Peek();
+            if (!TryParseCompareOp(out var optionsOp) || optionsOp is not (ExpectOp.Contains or ExpectOp.NotContains))
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "Attribute … OPTIONS only takes CONTAINS or NOT CONTAINS.",
+                    opTok.Location,
+                    hint: "EXPECT Attribute Zone OPTIONS CONTAINS \"Flanders\"  •  EXPECT Attribute Zone OPTIONS NOT CONTAINS \"Wallonia\"");
+                return null;
+            }
+            var option = ParseValueExpression();
+            if (option == null) return null;
+            return (subject, optionsOp, option);
+        }
+
         // IS [NOT] form for action/attribute-flag subjects and IS [NOT] NULL on any subject
         if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "IS", StringComparison.OrdinalIgnoreCase))
         {
@@ -1430,11 +1447,14 @@ public sealed class Parser
             // An Action inner subject is also permitted: EXPECT Detail "X" Action Y IS [NOT] AVAILABLE | VISIBLE
             // asserts a named action's gating on the detail (sub-)query, symmetric with the
             // ACTION Detail "X" Y execution form. The IS flag is stamped later by ParseAssertion.
-            if (!IsQueryFamilySubject(inner.Kind) && inner.Kind is not ExpectSubjectKind.Action)
+            // Notification / Notification.Type read the detail query's own notification — where a failed
+            // ACTION Detail "X" leaves its error — instead of the parent PO's.
+            if (!IsQueryFamilySubject(inner.Kind) &&
+                inner.Kind is not (ExpectSubjectKind.Action or ExpectSubjectKind.Notification or ExpectSubjectKind.NotificationType))
             {
                 Error(ErrorKind.ParseUnexpectedToken,
-                    "EXPECT Detail can only target query subjects (TotalItems / Query.*), an Action, or IS [NOT] AVAILABLE | VISIBLE.", tok.Location,
-                    hint: "EXPECT Detail \"OrderLines\" TotalItems = 3  •  EXPECT Detail \"OrderLines\" Action Delete IS NOT AVAILABLE");
+                    "EXPECT Detail can only target query subjects (TotalItems / Query.*), Notification, an Action, or IS [NOT] AVAILABLE | VISIBLE.", tok.Location,
+                    hint: "EXPECT Detail \"OrderLines\" TotalItems = 3  •  EXPECT Detail \"OrderLines\" Notification CONTAINS \"locked\"  •  EXPECT Detail \"OrderLines\" Action Delete IS NOT AVAILABLE");
                 return null;
             }
             return inner with { DetailName = detailName };
@@ -1646,9 +1666,14 @@ public sealed class Parser
             }
             var attrName = ParseDottedAttributeName();
             if (attrName == null) return null;
-            // Trailing modifier keywords: LABEL / TYPE / TAG / TYPEHINT <key>.
+            // Trailing modifier keywords: LABEL / TYPE / TAG / OPTIONS / TYPEHINT <key>.
             if (Peek().Kind == TokenKind.Identifier)
             {
+                if (string.Equals(Peek().Lexeme, "OPTIONS", StringComparison.OrdinalIgnoreCase))
+                {
+                    Advance();
+                    return new ExpectSubject(ExpectSubjectKind.AttributeOptions, attrName, AttributeFlagKind.None, tok.Location, Scope: scope);
+                }
                 if (string.Equals(Peek().Lexeme, "LABEL", StringComparison.OrdinalIgnoreCase))
                 {
                     Advance();
