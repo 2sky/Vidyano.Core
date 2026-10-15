@@ -219,6 +219,13 @@ namespace Vidyano
             }
         }
 
+        /// <summary>
+        /// Whether the server offers instant search (<see cref="GetInstantSearchAsync"/>) to the signed-in user: the
+        /// Application's <c>InstantSearchDelay</c> attribute (the search box's debounce, in milliseconds) is set. The
+        /// web client only shows the search dropdown when it is.
+        /// </summary>
+        public bool IsInstantSearchEnabled => !string.IsNullOrEmpty(Application?.GetAttribute("InstantSearchDelay")?.ValueDirect);
+
         public PersistentObject Session
         {
             get => _Session;
@@ -788,6 +795,45 @@ namespace Vidyano
                 // disposing responseMsg here would close it, so it is deliberately left undisposed.
                 var stream = await responseMsg.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 return Tuple.Create(stream, responseMsg.Content.Headers.ContentDisposition?.FileName ?? responseMsg.Content.Headers.ContentDisposition?.FileNameStar);
+            }
+            catch (Exception e)
+            {
+                OnException?.Invoke(e);
+
+                throw;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        /// <summary>
+        ///     Runs the server's instant search (the dropdown under the web client's menu search box) for
+        ///     <paramref name="search"/> as the signed-in user, returning the rows in server order (capped server-side,
+        ///     15 by default). Only meaningful when <see cref="IsInstantSearchEnabled"/>; the server answers a user
+        ///     without the feature with no rows. A non-success response (e.g. 403 for a stale token) throws.
+        /// </summary>
+        public async Task<IReadOnlyList<InstantSearchResult>> GetInstantSearchAsync(string search)
+        {
+            try
+            {
+                IsBusy = true;
+
+                // A GET carries no body, so the auth token travels in the Authorization header as the web client
+                // sends it: "Bearer <url-encoded user>/<token>" (the server only reads the header's parameter).
+                using var request = new HttpRequestMessage(HttpMethod.Get, GetServiceUri("Instant?q=" + System.Uri.EscapeDataString(search ?? string.Empty)));
+                request.Headers.Authorization = AuthorizationHeader ?? new AuthenticationHeaderValue("Bearer", WebUtility.UrlEncode(User) + "/" + AuthToken);
+
+                using var responseMsg = await httpClient.SendAsync(request).ConfigureAwait(false);
+                if (!responseMsg.IsSuccessStatusCode)
+                    throw new Exception($"Instant search failed: {(int)responseMsg.StatusCode} ({responseMsg.ReasonPhrase})");
+
+                var response = JObject.Parse(await responseMsg.Content.ReadAsStringAsync().ConfigureAwait(false));
+                return (response["d"] as JArray ?? new JArray())
+                    .OfType<JObject>()
+                    .Select(r => new InstantSearchResult((string)r["id"], (string)r["label"], (string)r["objectId"], (string)r["breadcrumb"]))
+                    .ToArray();
             }
             catch (Exception e)
             {

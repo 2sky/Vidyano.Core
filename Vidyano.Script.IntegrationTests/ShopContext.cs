@@ -100,6 +100,10 @@ public sealed class ShopContext : NullTargetContext
     internal static void AddProduct(string name, string? category = null) =>
         products.Add(new Product { Id = (products.Count + 1).ToString(), Name = name, Color = "Blue", Category = category });
 
+    /// <summary>The live product store, read by <see cref="ShopAdvanced.HandleInstantSearch"/> (instant search runs
+    /// outside any query, so it has no context instance to query through).</summary>
+    internal static IReadOnlyList<Product> AllProducts => products;
+
     internal static void AddCategory(string name) =>
         categories.Add(new ProductCategory { Id = (categories.Count + 1).ToString(), Name = name });
 

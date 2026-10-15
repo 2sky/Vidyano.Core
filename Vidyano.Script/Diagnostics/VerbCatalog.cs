@@ -78,15 +78,17 @@ public static class VerbCatalog
             "navigation", []),
 
         new("OPEN-ROW",
-            "OPEN-ROW <index> [AS @h]\nOPEN-ROW WHERE <col> = <value> [AS @h]\nOPEN-ROW Detail \"<name>\" <index|WHERE …>\nOPEN-ROW <…> EXPECTING ERROR",
+            "OPEN-ROW <index> [AS @h]\nOPEN-ROW WHERE <col> = <value> [AS @h]\nOPEN-ROW Detail \"<name>\" <index|WHERE …>\nOPEN-ROW InstantSearch <index|WHERE <Label|ObjectId|Breadcrumb|Id> = <value>>\nOPEN-ROW <…> EXPECTING ERROR",
             "Push a PO frame from a row of the current query.",
             "Opens the PersistentObject behind a row of the current query — by index, by `WHERE <col> = "
             + "<value>` (strict: 0 or >1 matches fail), or from a named detail query via `Detail \"<name>\"`. "
             + "A trailing `EXPECTING ERROR` asserts the negative path: it passes only if the row's PO load is "
             + "refused server-side (a server error), and — unlike the OPEN forms — leaves that error on the "
             + "still-current calling query, so an `EXPECT Notification` can follow. A bad row selection "
-            + "(out of range / no or ambiguous WHERE match) still fails loudly.",
-            ["OPEN-ROW 0 AS @row", "OPEN-ROW WHERE Name = \"Acme\"", "OPEN-ROW Detail \"OrderLines\" 0", "OPEN-ROW WHERE Name = \"Faulty\" EXPECTING ERROR"],
+            + "(out of range / no or ambiguous WHERE match) still fails loudly. `OPEN-ROW InstantSearch <index|WHERE …>` "
+            + "opens a result of the previous verb's `INSTANT-SEARCH` instead, like a click in the search dropdown "
+            + "(none → `state-no-instant-search`).",
+            ["OPEN-ROW 0 AS @row", "OPEN-ROW WHERE Name = \"Acme\"", "OPEN-ROW Detail \"OrderLines\" 0", "OPEN-ROW WHERE Name = \"Faulty\" EXPECTING ERROR", "OPEN-ROW InstantSearch WHERE ObjectId = \"42\""],
             "navigation", []),
 
         new("GO-BACK",
@@ -230,6 +232,17 @@ public static class VerbCatalog
             ["SEARCH \"Acme\"", "SEARCH Detail \"OrderLines\"", "SEARCH \"ab\" EXPECTING ERROR"],
             "query", []),
 
+        new("INSTANT-SEARCH",
+            "INSTANT-SEARCH <text>",
+            "Run the menu's instant search and capture its results.",
+            "Runs the server's instant search (the dropdown under the web client's menu search box) as the "
+            + "signed-in user and captures its rows for `EXPECT InstantSearch.Count` / `EXPECT InstantSearch[<i>].Label | "
+            + ".ObjectId | .Breadcrumb | .Id`, until the next verb. No navigation frame is pushed; open a row with "
+            + "`OPEN-ROW InstantSearch <i | WHERE …>`. A user the server doesn't offer instant search to fails with "
+            + "`state-instant-search-off` — check the gate with `EXPECT InstantSearch.Enabled`.",
+            ["INSTANT-SEARCH \"acme\"", "INSTANT-SEARCH \"{{name}}\""],
+            "query", []),
+
         new("SELECT-ROWS",
             "SELECT-ROWS <ALL | ALL EXCEPT <i|WHERE …> | NONE | <i> | WHERE <col> = <value>>\nSELECT-ROWS Detail \"<name>\" <target>",
             "Set the current query's selection.",
@@ -274,7 +287,9 @@ public static class VerbCatalog
             + "(the detail query's own, e.g. a failed `ACTION Detail` error — not the parent PO's), "
             + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone). "
             + "`Attribute <X> IS [NOT] PRESENT` / `Query.Columns[<X>] IS [NOT] PRESENT` assert an attribute or column exists "
-            + "(e.g. one the server removed) — the only assertion a missing name satisfies.",
+            + "(e.g. one the server removed) — the only assertion a missing name satisfies. `InstantSearch.Enabled` / "
+            + "`InstantSearch.Count` / `InstantSearch[<i>].<Label|ObjectId|Breadcrumb|Id>` read the instant-search gate and "
+            + "the previous `INSTANT-SEARCH`'s rows.",
             ["EXPECT Status = \"Approved\"", "EXPECT Customer = ID \"people/acme\"", "EXPECT Title LANGUAGE nl = \"Hulpmiddel\"", "EXPECT TotalItems >= 1"],
             "assert", []),
 

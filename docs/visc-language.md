@@ -87,6 +87,7 @@ The names `session`, `user`, and `application` are reserved; `@session = …` is
 | `OPEN-ROW <…> EXPECTING ERROR` | Assert the row's PO load is **refused** server-side. Leaves the error on the still-current calling query, so `EXPECT Notification` can follow (see [Asserting the negative path](#asserting-the-negative-path--expecting-error)). |
 | `FOLLOW <attr> [AS @h]` | Navigate from a **reference** attribute on the current PO to the PO it points at, pushing a PO frame — the equivalent of the web client's "open" affordance next to a reference field. Honors the same `CanOpen` gate the UI uses. It does **not** change the reference (that's `SET`). |
 | `FOLLOW-NAVIGATE [AS @h]` | Open the page the previous verb's `Navigate(path)` client operation points at — what the browser does when the server navigates it. Pushes a PO or Query frame. |
+| `OPEN-ROW InstantSearch <i\|WHERE <field> = <value>>` | Open a row of the previous `INSTANT-SEARCH` (see [Instant search](#instant-search--instant-search)). Pushes a PO frame. |
 | `GO-BACK` | Pop the top frame (the browser back button). Refuses when the top is a PO in edit (`SAVE`/`CANCEL` first) and when already at the root. |
 
 `<value>` in a `WHERE` is in **service-string form** — the same convention as `SET`. Only `=` is supported.
@@ -368,6 +369,24 @@ Read the result with `EXPECT Chart.Data` (the aggregated chart JSON string — a
 
 ---
 
+## Instant search — `INSTANT-SEARCH`
+
+```visc
+EXPECT InstantSearch.Enabled = true          ## the server turned instant search on for this user
+INSTANT-SEARCH "acme"                        ## what typing in the web client's menu search box shows
+EXPECT InstantSearch.Count = 2
+EXPECT InstantSearch[0].Breadcrumb = "Acme Corp"
+OPEN-ROW InstantSearch WHERE ObjectId = "42" ## open a result's PO
+```
+
+`INSTANT-SEARCH <text>` calls the server's instant search (the `Instant?q=` endpoint behind the web client's menu search box, i.e. the app's `Advanced.HandleInstantSearch`) and **captures** the result rows. Like `CHART`, it is a read-only observable, **not** a navigation destination: no frame is pushed, and the capture is cleared by the next executable verb (`EXPECT` doesn't clear it). The text is a value expression, so `INSTANT-SEARCH "{{name}}"` interpolates.
+
+Instant search is per user: the server turns it on by giving the Application an `InstantSearchDelay` (`Advanced.GetInstantSearchDelayForUser`). When it is off, `INSTANT-SEARCH` fails with `state-instant-search-off`; check it with `EXPECT InstantSearch.Enabled` (or gate on it with `REQUIRES InstantSearch.Enabled = true`). A failed request (non-2xx) fails the verb as a `server-error`.
+
+Each row has `Label` (the PO type's label, the dropdown's group caption), `Breadcrumb` (the display text), `ObjectId`, and `Id` (the PO type id). `OPEN-ROW InstantSearch <i>` / `OPEN-ROW InstantSearch WHERE <field> = <value>` opens a row's PersistentObject the way the web client's result link does (`PersistentObject.<Id>/<ObjectId>`), pushing a PO frame. `WHERE` is strict (0 or >1 matches fail) and only takes those four fields. With no previous search it fails with `state-no-instant-search`. `AS @h` and `EXPECTING ERROR` work as on `OPEN PersistentObject`.
+
+---
+
 ## Asserting state — `EXPECT`
 
 `EXPECT <subject> <op> <value>` is the assertion verb. Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `CONTAINS`, `NOT CONTAINS`, `IS NULL`, `IS NOT NULL`, and `MATCHES "<regex>"` (1s ReDoS-guard timeout; null never matches).
@@ -417,6 +436,16 @@ EXPECT Chart IS NULL                             ## no chart captured (e.g. afte
 ```
 
 `Chart` / `Chart.Data` read the JSON of the chart the previous `CHART` verb ran (both spellings resolve to the same value; bare `Chart` reads naturally with `IS NULL`). See [Running charts](#running-charts--chart).
+
+**Instant search** (the last `INSTANT-SEARCH` result; `Count` is `IS NULL` when none was captured)
+
+```visc
+EXPECT InstantSearch.Enabled = true              ## instant search is on for the signed-in user
+EXPECT InstantSearch.Count = 2
+EXPECT InstantSearch[0].Label = "Customer"       ## also .Breadcrumb / .ObjectId / .Id
+```
+
+See [Instant search](#instant-search--instant-search).
 
 **Retry dialog** (the open server retry; `IS NULL` when none)
 
@@ -663,6 +692,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SIGN-OUT [@name]` | Faithful sign-out; named sessions are disposed. |
 | `OPEN MenuItem <path>` | Push a Query frame. |
 | `OPEN-ROW <i \| WHERE … \| @row> [Detail "<n>"]` | Push a PO frame from a row. |
+| `OPEN-ROW InstantSearch <i \| WHERE <field> = <value>>` | Open the PO of an `INSTANT-SEARCH` result. |
 | `FOLLOW <attr> [AS @h]` | Open the PO a reference attribute points at. |
 | `FOLLOW-NAVIGATE [AS @h]` | Open the page the previous verb's `Navigate(path)` points at. |
 | `GO-BACK` | Pop the top nav frame. |
@@ -676,6 +706,7 @@ Use `@mode = direct` (or `audit`) to script the custom-component path. **Read-on
 | `SET <attr> LANGUAGE <lang> = <value>` | Set one translation of a TranslatedString attribute (bare `SET` = current language). |
 | `ACTION <action> [= opt] [(params)] [Detail "<n>"]` | Invoke an action. |
 | `CHART "<name>" [Detail "<n>"]` | Run a named query chart; capture its JSON for `EXPECT Chart`. |
+| `INSTANT-SEARCH <text>` | Run the server's instant search; capture the rows for `EXPECT InstantSearch…` / `OPEN-ROW InstantSearch`. |
 | `SAVE \| ACTION \| CONFIRM \| SEARCH … EXPECTING ERROR` | Assert the negative (error-notification) path. |
 | `OPEN PersistentObject \| Query \| MenuItem … EXPECTING ERROR` | Assert the open is refused (no frame pushed; `EXPECT Notification` reads the refusal until the next verb). |
 | `OPEN-ROW … EXPECTING ERROR` | Assert the row's PO load is refused; error stays on the calling query (`EXPECT Notification` **can** follow). |

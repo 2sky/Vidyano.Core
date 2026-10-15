@@ -155,6 +155,7 @@ public sealed class Parser
             "CONFIRM"     => ParseConfirm(tok.Location),
             "ADD-REFERENCE" => ParseAddReference(tok.Location),
             "SEARCH"      => ParseSearch(tok.Location),
+            "INSTANT-SEARCH" => ParseInstantSearch(tok.Location),
             "EXPECT"      => ParseExpect(tok.Location),
             "TOOL"        => ParseTool(tok.Location),
             "REQUIRES"    => ParseRequires(tok.Location),
@@ -438,14 +439,54 @@ public sealed class Parser
             return new OpenRowStmt(null, rowHandle, loc, RowVar: rowVar, ExpectError: rowExpectError);
         }
 
+        // OPEN-ROW InstantSearch <index | WHERE …> — open a row of the previous INSTANT-SEARCH. `InstantSearch` is a
+        // keyword only when an index or WHERE follows, so the plain index/WHERE/Detail forms are untouched.
+        var instantSearch = IsInstantSearchRowTarget();
+        if (instantSearch)
+            Advance(); // InstantSearch
+
+        var columnLoc = _pos + 1 < _tokens.Count ? _tokens[_pos + 1].Location : loc; // the WHERE column, if any
         if (!ParseRowTarget("OPEN-ROW", out var index, out var column, out var matchOp, out var value, out var detailName))
             return null;
+        if (instantSearch && column != null && !InstantSearchFields.Contains(column))
+        {
+            Error(ErrorKind.ParseUnexpectedToken,
+                $"Instant search rows have no field '{column}'.",
+                columnLoc,
+                hint: Suggester.Hint(column, InstantSearchFields) ?? "Use Label, ObjectId, Breadcrumb, or Id.");
+            return null;
+        }
         var asHandle = ParseOptionalAs();
         var expectError = TryConsumeExpectingError(out var malformed);
         if (malformed) return null;
         return column != null
-            ? new OpenRowStmt(null, asHandle, loc, MatchColumn: column, MatchOp: matchOp, MatchValue: value, DetailName: detailName, ExpectError: expectError)
-            : new OpenRowStmt(index, asHandle, loc, DetailName: detailName, ExpectError: expectError);
+            ? new OpenRowStmt(null, asHandle, loc, MatchColumn: column, MatchOp: matchOp, MatchValue: value, DetailName: detailName, ExpectError: expectError, InstantSearch: instantSearch)
+            : new OpenRowStmt(index, asHandle, loc, DetailName: detailName, ExpectError: expectError, InstantSearch: instantSearch);
+    }
+
+    /// <summary>The fields of an instant-search row, addressable by <c>OPEN-ROW InstantSearch WHERE</c> and
+    /// <c>EXPECT InstantSearch[&lt;i&gt;].&lt;field&gt;</c>.</summary>
+    private static readonly IReadOnlyList<string> InstantSearchFields = ["Label", "ObjectId", "Breadcrumb", "Id"];
+
+    /// <summary>Whether the parser is at the <c>InstantSearch</c> keyword of <c>OPEN-ROW InstantSearch &lt;index | WHERE …&gt;</c>:
+    /// the word followed by <c>WHERE</c>, an index value (a number or interpolation), or nothing (reported as a missing target).</summary>
+    private bool IsInstantSearchRowTarget()
+    {
+        if (Peek().Kind != TokenKind.Identifier || !string.Equals(Peek().Lexeme, "InstantSearch", StringComparison.OrdinalIgnoreCase)
+            || _pos + 1 >= _tokens.Count)
+            return false;
+        var next = _tokens[_pos + 1];
+        return next.Kind is TokenKind.Integer or TokenKind.Interp
+            || IsLineTerminator(next) // a bare `OPEN-ROW InstantSearch` is a missing target, not an identifier index
+            || (next.Kind == TokenKind.Identifier && string.Equals(next.Lexeme, "WHERE", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary><c>INSTANT-SEARCH &lt;text&gt;</c> — the search text is a value expression, so it interpolates.</summary>
+    private Statement? ParseInstantSearch(SourceLocation loc)
+    {
+        var text = ParseValueExpression();
+        if (text == null) return null;
+        return new InstantSearchStmt(text, loc);
     }
 
     /// <summary>Parses <c>FOLLOW &lt;attr&gt; [AS @handle]</c>. The attribute name is read with the same
@@ -1522,6 +1563,58 @@ public sealed class Parser
                 }
             }
             return new ExpectSubject(ExpectSubjectKind.Chart, null, AttributeFlagKind.None, tok.Location);
+        }
+
+        // EXPECT InstantSearch.Enabled | InstantSearch.Count | InstantSearch[<i>].<field> — the instant-search gate and
+        // the previous INSTANT-SEARCH's rows. The row form mirrors Query.Columns[<name>].<prop>.
+        if (string.Equals(tok.Lexeme, "InstantSearch", StringComparison.OrdinalIgnoreCase))
+        {
+            Advance();
+            const string usage = "EXPECT InstantSearch.Enabled = true  •  EXPECT InstantSearch.Count = 2  •  EXPECT InstantSearch[0].Breadcrumb = \"Acme\"";
+            if (Match(TokenKind.LBracket, out _))
+            {
+                var rowIndex = ParseValueExpression();
+                if (rowIndex == null) return null;
+                if (!Match(TokenKind.RBracket, out _))
+                {
+                    Error(ErrorKind.ParseExpected, "Expected ']' after the instant search row index.", Peek().Location, hint: usage);
+                    return null;
+                }
+                if (!Match(TokenKind.Dot, out _) || Peek().Kind != TokenKind.Identifier)
+                {
+                    Error(ErrorKind.ParseExpected,
+                        "Expected '.Label', '.ObjectId', '.Breadcrumb', or '.Id' after 'InstantSearch[…]'.",
+                        Peek().Location,
+                        hint: usage);
+                    return null;
+                }
+                var fieldTok = Advance();
+                var field = InstantSearchFields.FirstOrDefault(f => string.Equals(f, fieldTok.Lexeme, StringComparison.OrdinalIgnoreCase));
+                if (field == null)
+                {
+                    Error(ErrorKind.ParseUnexpectedToken,
+                        $"Instant search rows have no field '{fieldTok.Lexeme}'.",
+                        fieldTok.Location,
+                        hint: Suggester.Hint(fieldTok.Lexeme, InstantSearchFields) ?? "Use Label, ObjectId, Breadcrumb, or Id.");
+                    return null;
+                }
+                return new ExpectSubject(ExpectSubjectKind.InstantSearchRow, null, AttributeFlagKind.None, tok.Location, MetadataKey: field, RowIndex: rowIndex);
+            }
+            if (!Match(TokenKind.Dot, out _) || Peek().Kind != TokenKind.Identifier)
+            {
+                Error(ErrorKind.ParseExpected, "Expected '.Enabled', '.Count', or '[<index>].<field>' after 'InstantSearch'.", Peek().Location, hint: usage);
+                return null;
+            }
+            var leaf = Advance();
+            if (string.Equals(leaf.Lexeme, "Enabled", StringComparison.OrdinalIgnoreCase))
+                return new ExpectSubject(ExpectSubjectKind.InstantSearchEnabled, null, AttributeFlagKind.None, tok.Location);
+            if (string.Equals(leaf.Lexeme, "Count", StringComparison.OrdinalIgnoreCase))
+                return new ExpectSubject(ExpectSubjectKind.InstantSearchCount, null, AttributeFlagKind.None, tok.Location);
+            Error(ErrorKind.ParseUnexpectedToken,
+                $"InstantSearch has no property '{leaf.Lexeme}'.",
+                leaf.Location,
+                hint: usage);
+            return null;
         }
 
         if (string.Equals(tok.Lexeme, "Action", StringComparison.OrdinalIgnoreCase))

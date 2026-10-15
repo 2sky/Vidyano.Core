@@ -48,7 +48,7 @@ public static class KeywordCatalog
 
     private static readonly IReadOnlySet<string> _typeWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "PersistentObject", "Query", "MenuItem", "NavStack", "TotalItems", "Selection", "IsInEdit", "IsDirty",
+        "PersistentObject", "Query", "MenuItem", "NavStack", "InstantSearch", "TotalItems", "Selection", "IsInEdit", "IsDirty",
         "ClientOperation", "NotificationType", "Notification", "Attribute", "TypeHint", "Type", "Tag", "Label", "PO",
     };
 

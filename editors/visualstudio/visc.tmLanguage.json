@@ -55,7 +55,7 @@
       ]
     },
     "verb": {
-      "match": "(?i)^\\s*((?:SIGN-IN|SIGN-OUT|OPEN-ROW|GO-BACK|SELECT-ROWS|DELETE-ROW|ADD-ROW|ADD-REFERENCE|FOR-EACH|FOLLOW-NAVIGATE|OPEN|USE|FOLLOW|EDIT|CANCEL|SAVE|SET|ACTION|CHART|CONFIRM|SEARCH|EXPECT|TOOL|REQUIRES|CLEANUP|REPEAT))(?![\\w-])",
+      "match": "(?i)^\\s*((?:SIGN-IN|SIGN-OUT|OPEN-ROW|GO-BACK|SELECT-ROWS|DELETE-ROW|ADD-ROW|ADD-REFERENCE|FOR-EACH|FOLLOW-NAVIGATE|INSTANT-SEARCH|OPEN|USE|FOLLOW|EDIT|CANCEL|SAVE|SET|ACTION|CHART|CONFIRM|SEARCH|EXPECT|TOOL|REQUIRES|CLEANUP|REPEAT))(?![\\w-])",
       "captures": { "1": { "name": "keyword.control.visc" } }
     },
     "sub-keyword": {
@@ -64,7 +64,7 @@
     },
     "type-word": {
       "name": "support.type.visc",
-      "match": "(?i)(?<![\\w-])(?:PersistentObject|Query|MenuItem|NavStack|TotalItems|Selection|IsInEdit|IsDirty|ClientOperation|NotificationType|Notification|Attribute|TypeHint|Type|Tag|Label|PO)(?![\\w-])"
+      "match": "(?i)(?<![\\w-])(?:PersistentObject|Query|MenuItem|NavStack|InstantSearch|TotalItems|Selection|IsInEdit|IsDirty|ClientOperation|NotificationType|Notification|Attribute|TypeHint|Type|Tag|Label|PO)(?![\\w-])"
     },
     "constant": {
       "name": "constant.language.visc",
