@@ -16,14 +16,16 @@ public sealed class SemanticTokensLegendTests
     {
         // If this order changes, every cached client legend silently miscolors — so the order is a contract.
         Assert.Equal(
-            ["keyword", "type", "string", "number", "comment", "operator", "variable", "macro", "regexp"],
+            ["keyword", "type", "string", "number", "comment", "operator", "variable", "macro", "regexp", "property"],
             ViscLanguageService.Legend.TokenTypes);
     }
 
     [Fact]
-    public void Legend_HasNoModifiers_InV1()
+    public void Legend_ModifierOrder_IsFrozen()
     {
-        Assert.Empty(ViscLanguageService.Legend.TokenModifiers);
+        // Modifier bit i is entry i; `clause` (bit 0) marks sub-keywords. The VS Code extension declares it
+        // under contributes.semanticTokenModifiers, so the name is part of the contract too.
+        Assert.Equal(["clause"], ViscLanguageService.Legend.TokenModifiers);
     }
 
     [Fact]
@@ -37,6 +39,7 @@ public sealed class SemanticTokensLegendTests
         Assert.Equal(4, legend.IndexOf("comment"));
         Assert.Equal(6, legend.IndexOf("variable"));
         Assert.Equal(7, legend.IndexOf("macro"));
+        Assert.Equal(9, legend.IndexOf("property"));
     }
 
     [Fact]

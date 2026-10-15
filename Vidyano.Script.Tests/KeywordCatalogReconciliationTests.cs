@@ -142,6 +142,22 @@ public sealed class KeywordCatalogReconciliationTests
         Assert.Equal(SemanticCategory.Verb, KeywordCatalog.Classify("CONFIRM"));
     }
 
+    [Theory]
+    [InlineData("EXPECT Action Edit IS NOT AVAILABLE", "EXPECT")]
+    [InlineData("  ACTION Save", "ACTION")]
+    [InlineData("REQUIRES TOOL lookup", "REQUIRES")]
+    public void GrammarVerbRule_MatchesOnlyTheStatementLeadingWord(string line, string verb)
+    {
+        // Mirrors the semantic-tokens producer: a verb word later in the line is a name, not a verb. The pattern
+        // is Oniguruma in the editor but uses only constructs .NET's Regex shares.
+        using var doc = JsonDocument.Parse(File.ReadAllText(GrammarPath(GrammarRelativePaths[0])));
+        var match = doc.RootElement.GetProperty("repository").GetProperty("verb").GetProperty("match").GetString()!;
+
+        var hits = Regex.Matches(line, match);
+        var hit = Assert.Single(hits);
+        Assert.Equal(verb, hit.Groups[1].Value);
+    }
+
     // Reads the named repository entry's "match" alternation `(?:A|B|C)` from the grammar JSON and returns
     // the literal words. Parses the JSON properly (so the regex only operates on the match string), then
     // pulls the alternatives out of the non-capturing group.

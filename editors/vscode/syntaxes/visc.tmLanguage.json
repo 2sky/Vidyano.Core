@@ -55,8 +55,8 @@
       ]
     },
     "verb": {
-      "name": "keyword.control.visc",
-      "match": "(?i)(?<![\\w-])(?:SIGN-IN|SIGN-OUT|OPEN-ROW|GO-BACK|SELECT-ROWS|DELETE-ROW|ADD-ROW|ADD-REFERENCE|FOR-EACH|FOLLOW-NAVIGATE|OPEN|USE|FOLLOW|EDIT|CANCEL|SAVE|SET|ACTION|CHART|CONFIRM|SEARCH|EXPECT|TOOL|REQUIRES|CLEANUP|REPEAT)(?![\\w-])"
+      "match": "(?i)^\\s*((?:SIGN-IN|SIGN-OUT|OPEN-ROW|GO-BACK|SELECT-ROWS|DELETE-ROW|ADD-ROW|ADD-REFERENCE|FOR-EACH|FOLLOW-NAVIGATE|OPEN|USE|FOLLOW|EDIT|CANCEL|SAVE|SET|ACTION|CHART|CONFIRM|SEARCH|EXPECT|TOOL|REQUIRES|CLEANUP|REPEAT))(?![\\w-])",
+      "captures": { "1": { "name": "keyword.control.visc" } }
     },
     "sub-keyword": {
       "name": "keyword.other.visc",
