@@ -23,8 +23,13 @@
     "languages": [
       {
         "id": "visc",
-        "aliases": ["Vidyano Script", "visc"],
-        "extensions": [".visc"],
+        "aliases": [
+          "Vidyano Script",
+          "visc"
+        ],
+        "extensions": [
+          ".visc"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -45,11 +50,21 @@
       {
         "language": "visc",
         "scopes": {
-          "keyword": ["keyword.control.visc"],
-          "keyword.clause": ["keyword.other.visc"],
-          "type": ["support.type.visc"],
-          "property": ["variable.other.property.visc"],
-          "variable": ["variable.other.visc"]
+          "keyword": [
+            "keyword.control.visc"
+          ],
+          "keyword.clause": [
+            "keyword.other.visc"
+          ],
+          "type": [
+            "support.type.visc"
+          ],
+          "property": [
+            "variable.other.property.visc"
+          ],
+          "variable": [
+            "variable.other.visc"
+          ]
         }
       }
     ],
@@ -63,7 +78,11 @@
         },
         "vidyano.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Trace the communication between VS Code and the .visc language server."
         }
@@ -77,12 +96,12 @@
     "package": "npx @vscode/vsce package"
   },
   "dependencies": {
-    "vscode-languageclient": "^10.1.0"
+    "vscode-languageclient": "^10.1.2"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
+    "@types/node": "^20.19.43",
     "@types/vscode": "~1.91.0",
-    "@vscode/vsce": "^3.9.2",
-    "typescript": "^5.4.0"
+    "@vscode/vsce": "^4.0.0",
+    "typescript": "^7.0.2"
   }
 }
