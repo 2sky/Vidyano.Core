@@ -89,8 +89,8 @@ public sealed class LanguageServerContractTests
         // The engine attaches a "did you mean" hint to an unknown verb; the mapper appends it to Message
         // so a flat LSP message string carries both halves.
         var d = Assert.Single(sink.Last(Uri));
-        Assert.StartsWith("Unknown verb 'EXPEKT'.", d.Message);
-        Assert.True(d.Message.Length > "Unknown verb 'EXPEKT'.".Length, "the hint should be folded in");
+        Assert.StartsWith("Unknown verb 'EXPEKT'.", d.Message.String);
+        Assert.True(d.Message.String!.Length > "Unknown verb 'EXPEKT'.".Length, "the hint should be folded in");
     }
 
     [Fact]
