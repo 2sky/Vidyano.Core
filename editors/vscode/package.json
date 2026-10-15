@@ -10,7 +10,7 @@
     "url": "https://github.com/2sky/Vidyano.Core"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.91.0"
   },
   "categories": [
     "Programming Languages"
@@ -63,7 +63,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "~1.91.0",
     "@vscode/vsce": "^3.9.2",
     "typescript": "^5.4.0"
   }
