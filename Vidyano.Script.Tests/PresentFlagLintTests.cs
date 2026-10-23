@@ -69,6 +69,10 @@ public sealed class PresentFlagLintTests
     }
 
     [Fact]
+    public void Detail_IsNotPresent_Parses() =>
+        Assert.Empty(VidyanoScript.Lint("EXPECT Detail \"Lines\" IS NOT PRESENT"));
+
+    [Fact]
     public void Requires_AcceptsPresent() =>
         Assert.Empty(VidyanoScript.Lint("REQUIRES Attribute Price IS PRESENT"));
 
@@ -78,7 +82,8 @@ public sealed class PresentFlagLintTests
     [InlineData("EXPECT Query.Columns[Price] IS VISIBLE")]
     [InlineData("EXPECT Query.Columns[Price].Label IS PRESENT")] // presence is the leafless form
     [InlineData("EXPECT Action Delete IS PRESENT")]              // actions use IS [NOT] AVAILABLE
-    [InlineData("EXPECT Detail \"Lines\" IS PRESENT")]
+    [InlineData("EXPECT Detail \"Lines\" = \"x\"")]              // a bare detail has nothing to compare
+    [InlineData("EXPECT Detail \"Lines\" IS NULL")]
     public void Rejected(string body) =>
         Assert.Contains(VidyanoScript.Lint(body), d => d.Kind is ErrorKind.ParseUnexpectedToken or ErrorKind.ParseExpected);
 }

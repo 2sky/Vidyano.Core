@@ -1305,6 +1305,16 @@ public sealed class Parser
                 return null;
             }
 
+            // A bare Detail "X" is no value — IS [NOT] NULL would only fail at run time.
+            if (subject.Kind == ExpectSubjectKind.DetailQueryFlag && string.Equals(word.Lexeme, "null", StringComparison.OrdinalIgnoreCase))
+            {
+                Error(ErrorKind.ParseUnexpectedToken,
+                    "Detail \"…\" without a subject only takes IS [NOT] PRESENT | AVAILABLE | VISIBLE.",
+                    word.Location,
+                    hint: "EXPECT Detail \"Lines\" IS NOT PRESENT  •  EXPECT Detail \"Lines\" TotalItems = 0");
+                return null;
+            }
+
             // IS [NOT] NULL
             if (string.Equals(word.Lexeme, "null", StringComparison.OrdinalIgnoreCase))
                 return (subject, negate ? ExpectOp.IsNotNull : ExpectOp.IsNull, null);
@@ -1420,7 +1430,7 @@ public sealed class Parser
         var tok = Peek();
 
         // EXPECT Detail "<name>" <query-subject>     → redirect query-family subjects to the detail query
-        // EXPECT Detail "<name>" IS [NOT] AVAILABLE|VISIBLE → flag check on the detail itself
+        // EXPECT Detail "<name>" IS [NOT] PRESENT|AVAILABLE|VISIBLE → flag check on the detail itself
         if (tok.Kind == TokenKind.Identifier && string.Equals(tok.Lexeme, "Detail", StringComparison.OrdinalIgnoreCase))
         {
             Advance();
@@ -1453,7 +1463,7 @@ public sealed class Parser
                 inner.Kind is not (ExpectSubjectKind.Action or ExpectSubjectKind.Notification or ExpectSubjectKind.NotificationType))
             {
                 Error(ErrorKind.ParseUnexpectedToken,
-                    "EXPECT Detail can only target query subjects (TotalItems / Query.*), Notification, an Action, or IS [NOT] AVAILABLE | VISIBLE.", tok.Location,
+                    "EXPECT Detail can only target query subjects (TotalItems / Query.*), Notification, an Action, or IS [NOT] PRESENT | AVAILABLE | VISIBLE.", tok.Location,
                     hint: "EXPECT Detail \"OrderLines\" TotalItems = 3  •  EXPECT Detail \"OrderLines\" Notification CONTAINS \"locked\"  •  EXPECT Detail \"OrderLines\" Action Delete IS NOT AVAILABLE");
                 return null;
             }
@@ -2061,13 +2071,14 @@ public sealed class Parser
     /// <summary>Per-subject flag allow-list for <c>EXPECT … IS [NOT] &lt;FLAG&gt;</c>. One place to
     /// reason about which flags make sense where. Action keeps AVAILABLE+VISIBLE (its historical
     /// pair, mapped to CanExecute / IsVisible at eval time). Attribute adds AVAILABLE and PRESENT to the
-    /// existing VISIBLE/READONLY/REQUIRED trio. DetailQueryFlag accepts AVAILABLE+VISIBLE. A leafless
+    /// existing VISIBLE/READONLY/REQUIRED trio. DetailQueryFlag accepts AVAILABLE+VISIBLE+PRESENT
+    /// (AVAILABLE and PRESENT both mean presence in PO.Queries). A leafless
     /// <c>Query.Columns[X]</c> accepts only PRESENT.</summary>
     private static bool IsFlagAllowed(ExpectSubjectKind kind, AttributeFlagKind flag) => kind switch
     {
         ExpectSubjectKind.Action           => flag is AttributeFlagKind.Available or AttributeFlagKind.Visible,
         ExpectSubjectKind.AttributeFlag    => flag is AttributeFlagKind.Visible or AttributeFlagKind.ReadOnly or AttributeFlagKind.Required or AttributeFlagKind.Available or AttributeFlagKind.Present,
-        ExpectSubjectKind.DetailQueryFlag  => flag is AttributeFlagKind.Available or AttributeFlagKind.Visible,
+        ExpectSubjectKind.DetailQueryFlag  => flag is AttributeFlagKind.Available or AttributeFlagKind.Visible or AttributeFlagKind.Present,
         ExpectSubjectKind.QueryColumn      => flag is AttributeFlagKind.Present,
         _                                  => false,
     };
@@ -2092,7 +2103,7 @@ public sealed class Parser
     {
         ExpectSubjectKind.Action          => "Use EXPECT Action Name IS [NOT] AVAILABLE or IS [NOT] VISIBLE.",
         ExpectSubjectKind.AttributeFlag   => "Use EXPECT Attribute Name IS [NOT] VISIBLE | READONLY | REQUIRED | AVAILABLE | PRESENT.",
-        ExpectSubjectKind.DetailQueryFlag => "Use EXPECT Detail \"Name\" IS [NOT] AVAILABLE | VISIBLE.",
+        ExpectSubjectKind.DetailQueryFlag => "Use EXPECT Detail \"Name\" IS [NOT] PRESENT | AVAILABLE | VISIBLE.",
         ExpectSubjectKind.QueryColumn     => "Use EXPECT Query.Columns[Name] IS [NOT] PRESENT.",
         _                                 => throw new InvalidOperationException($"FlagHint called for unsupported kind {kind}."),
     };

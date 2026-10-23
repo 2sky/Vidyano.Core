@@ -286,7 +286,7 @@ public static class VerbCatalog
             + "not a substring). `Detail \"<name>\"` redirects query-family subjects, `Notification` / `Notification.Type` "
             + "(the detail query's own, e.g. a failed `ACTION Detail` error — not the parent PO's), "
             + "and a named `Action <X> IS [NOT] AVAILABLE | VISIBLE` to that detail query's action (resolved on the detail alone). "
-            + "`Attribute <X> IS [NOT] PRESENT` / `Query.Columns[<X>] IS [NOT] PRESENT` assert an attribute or column exists "
+            + "`Attribute <X> IS [NOT] PRESENT` / `Query.Columns[<X>] IS [NOT] PRESENT` / `Detail \"<X>\" IS [NOT] PRESENT` assert an attribute, column or detail query exists "
             + "(e.g. one the server removed) — the only assertion a missing name satisfies. `InstantSearch.Enabled` / "
             + "`InstantSearch.Count` / `InstantSearch[<i>].<Label|ObjectId|Breadcrumb|Id>` read the instant-search gate and "
             + "the previous `INSTANT-SEARCH`'s rows.",
