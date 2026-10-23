@@ -512,12 +512,13 @@ EXPECT Action Export IS VISIBLE
 
 Built-in actions answer as the web client shows them (see [Core action gating](core.md#running-actions)): `Edit` is visible outside edit, `EndEdit` / `CancelEdit` inside it (`EndEdit` available once dirty; `CancelEdit` on a `StayInEdit` record only once dirty); `BulkEdit` takes any number of selected rows unless the query sets `disableBulkEdit` (then exactly one); `New` and `AddReference` are separate actions.
 
-**Absent attributes & columns** — `EXPECT Attribute <name> IS [NOT] PRESENT` and `EXPECT Query.Columns[<name>] IS [NOT] PRESENT` assert whether an attribute is on the PO (`PO.Attributes`) or a column on the query — e.g. one the server removed with `RemoveAttribute` / `RemoveColumns`. Presence ignores visibility (a hidden attribute is present; use `IS [NOT] VISIBLE` for that). It is the **only** assertion a missing name satisfies: every other `EXPECT` on it still fails with `resolve-attribute`, so a typo is never mistaken for an absent field.
+**Absent attributes, columns & detail queries** — `EXPECT Attribute <name> IS [NOT] PRESENT`, `EXPECT Query.Columns[<name>] IS [NOT] PRESENT` and `EXPECT Detail "<name>" IS [NOT] PRESENT` assert whether an attribute is on the PO (`PO.Attributes`), a column on the query, or a detail query on the PO (`PO.Queries`) — e.g. one the server removed with `RemoveAttribute` / `RemoveColumns` / `obj.Queries.Remove(…)`. (`EXPECT Detail "<name>" IS [NOT] AVAILABLE` is an older synonym for the detail form; `IS [NOT] VISIBLE` checks the detail's `IsHidden`.) Presence ignores visibility (a hidden attribute is present; use `IS [NOT] VISIBLE` for that). It is the **only** assertion a missing name satisfies: every other `EXPECT` on it still fails with `resolve-attribute`, so a typo is never mistaken for an absent field.
 
 ```visc
 EXPECT Attribute DefaultPublicKwhPriceEuro IS NOT PRESENT
 EXPECT Query.Columns[DefaultPublicKwhPriceEuro] IS NOT PRESENT
 EXPECT Detail "Prices" Query.Columns[Price] IS PRESENT    ## Detail-redirectable
+EXPECT Detail "VestaLog_Messages" IS NOT PRESENT          ## detail query removed in OnLoad
 ```
 
 A query row's cells are its query's columns, so a column that isn't present has no cell in any row; a present-but-empty cell is `EXPECT {{@row.<col>}} IS NULL` inside `FOR-EACH ROW … AS @row`.

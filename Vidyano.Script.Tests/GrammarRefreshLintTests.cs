@@ -221,6 +221,16 @@ public sealed class GrammarRefreshLintTests
     }
 
     [Fact]
+    public void ExpectDetail_IsNotPresent_ParsesAsDetailQueryFlag()
+    {
+        var stmt = SingleStatement<ExpectStmt>("EXPECT Detail \"OrderLines\" IS NOT PRESENT");
+        Assert.Equal(ExpectSubjectKind.DetailQueryFlag, stmt.Subject.Kind);
+        Assert.Equal("OrderLines", stmt.Subject.DetailName);
+        Assert.Equal(AttributeFlagKind.Present, stmt.Subject.Flag);
+        Assert.Equal(ExpectOp.IsNot, stmt.Op);
+    }
+
+    [Fact]
     public void ExpectDetail_BareIdentifierName_IsAvailable_Parses()
     {
         AssertClean("EXPECT Detail OrderLines IS AVAILABLE");
@@ -242,6 +252,7 @@ public sealed class GrammarRefreshLintTests
         var diags = VidyanoScript.Lint("EXPECT Detail \"OrderLines\" IS REQUIRED");
         Assert.NotEmpty(diags);
         var combined = string.Join(" || ", diags.Select(d => $"{d.Message} | {d.Hint}"));
+        Assert.Contains("PRESENT", combined);
         Assert.Contains("AVAILABLE", combined);
         Assert.Contains("VISIBLE", combined);
     }

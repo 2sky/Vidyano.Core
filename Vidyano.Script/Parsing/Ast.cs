@@ -447,9 +447,9 @@ public enum ExpectSubjectKind
     /// The leafless <c>EXPECT Query.Columns[name] IS [NOT] PRESENT</c> (<see cref="ExpectSubject.MetadataKey"/> null)
     /// asserts whether the column exists.</summary>
     QueryColumn,
-    /// <summary><c>EXPECT Detail "X" IS [NOT] AVAILABLE | VISIBLE</c> — flag check against a detail
+    /// <summary><c>EXPECT Detail "X" IS [NOT] PRESENT | AVAILABLE | VISIBLE</c> — flag check against a detail
     /// query on the current PO. <see cref="ExpectSubject.DetailName"/> carries the detail name and
-    /// <see cref="ExpectSubject.Flag"/> picks AVAILABLE (= present in <see cref="PersistentObject.Queries"/>)
+    /// <see cref="ExpectSubject.Flag"/> picks PRESENT / AVAILABLE (both = present in <see cref="PersistentObject.Queries"/>)
     /// or VISIBLE (= <c>!IsHidden</c>). Distinct from the <c>Detail … &lt;query-subject&gt;</c> form
     /// (which redirects to a query-family subject) because the flag check itself is the assertion.</summary>
     DetailQueryFlag,

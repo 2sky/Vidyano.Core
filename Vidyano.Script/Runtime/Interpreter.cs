@@ -1192,9 +1192,9 @@ public sealed class Interpreter
         var po = Current.CurrentPo;
         var query = Current.CurrentQuery;
 
-        // EXPECT Detail "<name>" IS [NOT] AVAILABLE | VISIBLE — flag check against PO.Queries.
-        // Handled before the DetailName-as-query-redirect path because IS AVAILABLE specifically
-        // means "does the detail exist?" so a missing detail must not surface as a resolve error.
+        // EXPECT Detail "<name>" IS [NOT] PRESENT | AVAILABLE | VISIBLE — flag check against PO.Queries.
+        // Handled before the DetailName-as-query-redirect path because IS PRESENT / AVAILABLE specifically
+        // mean "does the detail exist?" so a missing detail must not surface as a resolve error.
         if (subj.Kind == ExpectSubjectKind.DetailQueryFlag)
         {
             if (po is null)
@@ -1203,8 +1203,8 @@ public sealed class Interpreter
             var present = po.Queries.TryGetValue(subj.DetailName!, out var dq);
             return subj.Flag switch
             {
-                // IS [NOT] AVAILABLE — presence in PO.Queries.
-                AttributeFlagKind.Available => OpResult<object?>.Success((object?)present),
+                // IS [NOT] PRESENT / AVAILABLE — presence in PO.Queries (e.g. one the server removed in OnLoad).
+                AttributeFlagKind.Present or AttributeFlagKind.Available => OpResult<object?>.Success((object?)present),
                 // IS [NOT] VISIBLE — !IsHidden when present; missing detail surfaces a diagnostic
                 // with a suggester hint over the available detail names.
                 AttributeFlagKind.Visible   => present
@@ -1213,7 +1213,7 @@ public sealed class Interpreter
                         $"PersistentObject '{po.Type}' has no detail query '{subj.DetailName}'.", loc,
                         Hint: Suggester.Hint(subj.DetailName!, po.Queries.Keys))),
                 _ => Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken,
-                        "EXPECT Detail flag must be AVAILABLE or VISIBLE.", loc)),
+                        "EXPECT Detail flag must be PRESENT, AVAILABLE or VISIBLE.", loc)),
             };
         }
 

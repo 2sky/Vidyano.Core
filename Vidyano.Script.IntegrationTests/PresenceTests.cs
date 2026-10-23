@@ -8,7 +8,8 @@ namespace Vidyano.Script.IntegrationTests;
 /// <c>EXPECT Attribute X IS [NOT] PRESENT</c> / <c>EXPECT Query.Columns[X] IS [NOT] PRESENT</c> against the REAL
 /// in-process server: <see cref="Product.Discontinued"/> is in the model but the server strips it — the attribute
 /// in <see cref="ProductActions.OnLoad"/> (<c>RemoveAttribute</c>), the column in
-/// <see cref="ProductActions.QueryExecuted"/> (<c>RemoveColumns</c>).
+/// <see cref="ProductActions.QueryExecuted"/> (<c>RemoveColumns</c>). <c>EXPECT Detail "X" IS [NOT] PRESENT</c> checks the
+/// current PO's detail queries.
 /// </summary>
 [Collection(VidyanoAppCollection.Name)]
 public sealed class PresenceTests
@@ -58,6 +59,46 @@ public sealed class PresenceTests
             EXPECT Detail "ProductCategory_Products" Query.Columns[Discontinued] IS NOT PRESENT
             EXPECT Detail "ProductCategory_Products" Query.Columns[Name] IS PRESENT
             """));
+    }
+
+    [Fact]
+    public async Task DetailQuery_IsPresentOnlyWhereTheServerAddedIt()
+    {
+        // ProductCategory's OnLoad adds ProductCategory_Products; a Product carries no such detail query.
+        AssertOk(await Run("""
+            SIGN-IN admin / admin
+            OPEN MenuItem Home/ProductCategories
+            OPEN-ROW WHERE Name = "Tools"
+            EXPECT Detail "ProductCategory_Products" IS PRESENT
+            OPEN PersistentObject "Product" "1"
+            EXPECT Detail "ProductCategory_Products" IS NOT PRESENT
+            """));
+    }
+
+    [Fact]
+    public async Task IsPresent_OnAMissingDetailQuery_Fails()
+    {
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN PersistentObject "Product" "1"
+            EXPECT Detail "ProductCategory_Products" IS PRESENT
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.AssertFailed);
+    }
+
+    [Fact]
+    public async Task OtherAssertions_OnAMissingDetailQuery_StillFailToResolve()
+    {
+        var result = await Run("""
+            SIGN-IN admin / admin
+            OPEN PersistentObject "Product" "1"
+            EXPECT Detail "ProductCategory_Products" TotalItems = 0
+            """);
+
+        Assert.False(result.Ok, result.Describe());
+        Assert.Contains(AllDiagnostics(result), d => d.Kind == ErrorKind.ResolveQuery);
     }
 
     [Fact]
