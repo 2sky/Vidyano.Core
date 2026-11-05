@@ -354,6 +354,13 @@ public enum ExpectSubjectKind
     StreamLength,
     /// <summary><c>EXPECT Stream.Text CONTAINS "%PDF"</c> — the stream decoded as UTF-8 text.</summary>
     StreamText,
+    /// <summary><c>EXPECT StreamingAction.Messages CONTAINS "…"</c> — the progress messages the streaming action the
+    /// previous verb ran sent, one per line (<c>null</c> when it ran none).</summary>
+    StreamingActionMessages,
+    /// <summary><c>EXPECT StreamingAction.Notification = "…"</c> — the notification of that action's dialog.</summary>
+    StreamingActionNotification,
+    /// <summary><c>EXPECT StreamingAction.Notification.Type = "Notice"</c> — its type.</summary>
+    StreamingActionNotificationType,
     /// <summary><c>EXPECT Chart ...</c> / <c>EXPECT Chart.Data ...</c> — the JSON data of the chart most
     /// recently run by <c>CHART</c> (<c>null</c> when none was captured, e.g. after any other verb). Both
     /// spellings resolve to the same value: bare <c>Chart</c> reads naturally with <c>IS NULL</c> for a

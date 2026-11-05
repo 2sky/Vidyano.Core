@@ -29,6 +29,7 @@ public sealed class VidyanoSession : IDisposable
     private List<ClientOperation> _lastOperations = new();
     private CapturedStream? _lastStream;                 // the last auto-fetched stream, cleared on the next verb
     private CapturedChart? _lastChart;                   // the last CHART result, cleared on the next verb
+    private CapturedStreamingAction? _lastStreamingAction; // what the last streaming ACTION sent, cleared on the next verb
     private IReadOnlyList<InstantSearchResult>? _lastInstantSearch; // the last INSTANT-SEARCH rows, cleared on the next verb
     // Refresh work a verb leaves behind, applied by SettleRefreshesAsync once it returns: the queries the verb's
     // own action re-searches, then the Refresh client operations the server queued in its responses.
@@ -123,6 +124,10 @@ public sealed class VidyanoSession : IDisposable
             stream.CopyTo(buffer);
             _lastStream = new CapturedStream(name, buffer.ToArray());
         };
+
+        // A streaming action's events arrive while Core reads its answer (ACTION, on either path).
+        _hooks.StreamingActionMessageObserver = (action, message) => StreamingActionFor(action).AddMessage(message);
+        _hooks.StreamingActionDialogObserver = (action, dialog) => StreamingActionFor(action).ApplyDialog(dialog);
     }
 
     /// <summary>All client operations seen since the session started, in arrival order.</summary>
@@ -146,6 +151,13 @@ public sealed class VidyanoSession : IDisposable
     /// <see cref="ResetLastOperations"/> before every executable verb so <c>EXPECT Stream</c> reflects only
     /// the immediately preceding verb.</summary>
     public void ResetLastStream() => _lastStream = null;
+
+    /// <summary>What the streaming action the previous verb ran sent (messages, dialog notification), or <c>null</c> when
+    /// it ran none. Read by <c>EXPECT StreamingAction.Messages</c> / <c>.Notification</c> / <c>.Notification.Type</c>.</summary>
+    public CapturedStreamingAction? LastStreamingAction => _lastStreamingAction;
+
+    private CapturedStreamingAction StreamingActionFor(string action) =>
+        _lastStreamingAction is { } current && current.Action == action ? current : _lastStreamingAction = new CapturedStreamingAction(action);
 
     /// <summary>The chart captured by the most recent <c>CHART</c> verb, or <c>null</c> when none has run
     /// since the last per-verb reset. Read by <c>EXPECT Chart</c> / <c>EXPECT Chart.Data</c>.</summary>
@@ -174,6 +186,7 @@ public sealed class VidyanoSession : IDisposable
         ResetLastOperations();
         ResetLastStream();
         ResetLastChart();
+        _lastStreamingAction = null;
         _lastInstantSearch = null;
         LastOpenRefusal = null;
     }
@@ -2098,6 +2111,7 @@ public sealed class VidyanoSession : IDisposable
 
         // Cleared up front so a stream from an earlier call can't stand in for this action's download.
         _lastStream = null;
+        _lastStreamingAction = null;
 
         // Run the server call(s) inside the parking coroutine: a RetryAction raised by Core's
         // ExecuteAction loop parks the action here and surfaces as a dialog frame the script answers
@@ -2151,6 +2165,14 @@ public sealed class VidyanoSession : IDisposable
                     return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, CurrentPo.Notification, loc));
                 if ((detailQuery ?? CurrentQuery) is { HasNotification: true, NotificationType: NotificationType.Error } eq)
                     return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, eq.Notification, loc));
+                // A streaming action reports its outcome in its dialog; an Error there fails the verb like a returned
+                // Error notification, so ACTION … EXPECTING ERROR pins it.
+                if (_lastStreamingAction is { NotificationType: NotificationType.Error } streamed)
+                {
+                    if (optionLabel is null)
+                        QueueActionRefresh(action);
+                    return OpResult.Fail(new Diagnostic(ErrorKind.AssertNotificationError, streamed.Notification!, loc));
+                }
             }
             // The web client re-searches a query action's query once it completes when the action's definition says
             // RefreshQueryOnCompleted (action.ts _onExecute) — after every outcome but a failed call, a failed

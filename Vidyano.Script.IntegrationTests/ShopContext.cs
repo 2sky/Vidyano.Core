@@ -626,3 +626,32 @@ public sealed class DownloadMissing(ShopContext context) : CustomAction<ShopCont
     public override PersistentObject? Execute(CustomActionArgs e) =>
         Manager.Current.RegisterStream(e.Parent!, StreamKey);
 }
+
+/// <summary>Query-level streaming action (<c>AsyncStreamingAction</c>): streams one progress message per selected product
+/// (or "No products selected."), queues a Refresh of the Products query, and ends with a dialog notification — Notice, or
+/// Error when <c>Fail="true"</c>. Not allowed for a <c>Deny="true"</c> parameter, so the server streams its
+/// "Action is not allowed." message. Exercises <c>ACTION</c> on a streaming action and <c>EXPECT StreamingAction.*</c>.</summary>
+public sealed class StreamProgress(ShopContext context, StreamingActionStream stream, IServiceProvider serviceProvider, IAuthenticatedRequest authenticatedRequest)
+    : AsyncStreamingAction<ShopContext>(context, stream, serviceProvider, authenticatedRequest)
+{
+    public override async Task ExecuteAsync(StreamingActionArgs args)
+    {
+        if (args.Parameters?.GetValueOrDefault("Deny") == "true")
+        {
+            await args.SendMessage("Action is not allowed.");
+            return;
+        }
+
+        var items = args.SelectedItems ?? [];
+        if (items.Length == 0)
+            await args.SendMessage("No products selected.");
+        foreach (var item in items)
+            await args.SendMessage($"Processing {item.Values.First(v => v.Key == nameof(Product.Name)).Value}");
+
+        await args.SendClientOperation(Vidyano.Service.ClientOperations.RefreshOperation.Query(args.Query!));
+
+        var failed = args.Parameters?.GetValueOrDefault("Fail") == "true";
+        await args.UpdateDialog(new StreamingDialogOptions { Title = "Progress" }
+            .WithNotification(failed ? "Processing failed." : $"Processed {items.Length} products.", failed ? NotificationType.Error : NotificationType.Notice));
+    }
+}

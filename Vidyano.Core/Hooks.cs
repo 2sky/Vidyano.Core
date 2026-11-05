@@ -86,6 +86,22 @@ namespace Vidyano
         {
         }
 
+        /// <summary>
+        /// Called for each progress message a streaming action (the server's <c>AsyncStreamingAction</c>) sends while
+        /// <see cref="Client.ExecuteActionAsync"/> reads its event stream — what the web client appends to its streaming
+        /// action dialog. A streaming action's client operations go to <see cref="OnClientOperation"/>.
+        /// </summary>
+        protected internal virtual void OnStreamingActionMessage(string action, string message)
+        {
+        }
+
+        /// <summary>
+        /// Called for each dialog update (title, notification, …) a streaming action sends.
+        /// </summary>
+        protected internal virtual void OnStreamingActionDialog(string action, StreamingActionDialog dialog)
+        {
+        }
+
         internal virtual object ByteArrayToImageSource(MemoryStream memoryStream)
         {
             return null;

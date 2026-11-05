@@ -79,6 +79,10 @@ namespace Vidyano.ViewModel.Actions
         /// see <see cref="ViewModel.Query.RefreshQueryAsync(bool)"/>.</summary>
         public bool KeepSelectionOnRefresh => definition.KeepSelectionOnRefresh;
 
+        /// <summary>Whether the action is a server <c>AsyncStreamingAction</c>: it answers with an event stream of progress
+        /// messages, dialog updates and client operations (see <see cref="Hooks"/>) instead of a result.</summary>
+        public bool IsStreaming => definition.IsStreaming;
+
         internal virtual Definition[] DependentActions => Array.Empty<Definition>();
 
         public ICommand Command { get; }
@@ -256,6 +260,8 @@ namespace Vidyano.ViewModel.Actions
             public bool RefreshQueryOnCompleted { get; set; }
 
             public bool KeepSelectionOnRefresh { get; set; }
+
+            public bool IsStreaming { get; set; }
 
             public int Offset { get; set; }
 

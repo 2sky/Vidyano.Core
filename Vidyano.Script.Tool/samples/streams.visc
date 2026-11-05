@@ -56,3 +56,9 @@ EXPECT Stream.Text CONTAINS "Name"
 ACTION ExportToExcel
 EXPECT Stream.Name = "Products.xlsx"
 EXPECT Stream.Text MATCHES "^PK"   ## an .xlsx is a zip package
+
+### --- Streaming actions ---------------------------------------------------------------
+### A server AsyncStreamingAction streams progress messages + a dialog notification; ACTION reads it to the end.
+# ACTION SendAddenda
+# EXPECT StreamingAction.Messages CONTAINS "Sending"
+# EXPECT StreamingAction.Notification.Type = "Notice"

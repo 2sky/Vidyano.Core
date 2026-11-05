@@ -52,6 +52,16 @@ internal sealed class ScriptHooks : Hooks
     /// as this returns, so the observer must read it synchronously.</summary>
     public Action<string?, Stream>? StreamObserver { get; set; }
 
+    /// <summary>Invoked for each progress message / dialog update a streaming action sends while Core reads its event
+    /// stream. Set by <see cref="VidyanoSession"/> to buffer them for <c>EXPECT StreamingAction.*</c>.</summary>
+    public Action<string, string>? StreamingActionMessageObserver { get; set; }
+
+    public Action<string, StreamingActionDialog>? StreamingActionDialogObserver { get; set; }
+
+    protected override void OnStreamingActionMessage(string action, string message) => StreamingActionMessageObserver?.Invoke(action, message);
+
+    protected override void OnStreamingActionDialog(string action, StreamingActionDialog dialog) => StreamingActionDialogObserver?.Invoke(action, dialog);
+
     protected override Task<string> OnRetryAction(string title, string message, string[] options, PersistentObject persistentObject)
         => RetryActionHandler?.Invoke(title, message, options, persistentObject) ?? Task.FromResult("-1");
 

@@ -234,6 +234,16 @@ ACTION ExportToExcel
 EXPECT Stream.Text MATCHES "^PK"                ## an .xlsx is a zip package
 ```
 
+A **streaming action** (a server `AsyncStreamingAction`, e.g. one that reports progress while it sends mails) answers with a stream of events instead of a result. `ACTION` reads it to the end — so the next statement sees everything the action did — and pushes no frame. What it streamed is readable until the next verb: `EXPECT StreamingAction.Messages` (its progress messages, one per line; `null` when the verb ran no streaming action), `StreamingAction.Notification` and `StreamingAction.Notification.Type` (the notification its dialog ends with). Its client operations count as the verb's own (`EXPECT ClientOperation Refresh`) and a `Refresh` is applied. An **Error** notification fails the `ACTION`, like an action that returns an error, so `ACTION … EXPECTING ERROR` asserts it. A streaming action the server does not allow streams `"Action is not allowed."` as a message.
+
+```visc
+SELECT-ROWS Detail "Campaign_Candidates" WHERE Name = "Jane"
+ACTION Detail "Campaign_Candidates" SendAddenda = "Include part-time"
+EXPECT StreamingAction.Messages CONTAINS "Jane"
+EXPECT StreamingAction.Notification = "1 addendum sent."
+EXPECT StreamingAction.Notification.Type = "Notice"
+```
+
 ### Refreshing after an action
 
 The web client re-loads data after an action in three cases, and `.visc` does the same — no more, no less — before the next statement runs, so an assertion reads what a user would see:

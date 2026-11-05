@@ -160,7 +160,12 @@ public sealed class InProcessVidyanoBackend : IBackendAdapter
                 var linkIntoQuery = model.GetOrCreateCustomAction(nameof(LinkIntoQuery));
                 linkIntoQuery.ShowedOn = ShowedOn.Query;
 
+                // Query-level streaming action (AsyncStreamingAction) — ACTION on a streaming action + EXPECT StreamingAction.*.
+                var streamProgress = model.GetOrCreateCustomAction(nameof(StreamProgress));
+                streamProgress.ShowedOn = ShowedOn.Query;
+
                 var administrators = model.GetOrCreateGroup("Administrators");
+                administrators.AddUserRight($"{nameof(StreamProgress)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(HelloWorld)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(AskFirst)}/{Schema}.{nameof(Product)}");
                 administrators.AddUserRight($"{nameof(RejectWithNotification)}/{Schema}.{nameof(Product)}");

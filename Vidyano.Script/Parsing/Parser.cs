@@ -1522,6 +1522,36 @@ public sealed class Parser
             return new ExpectSubject(ExpectSubjectKind.Notification, null, AttributeFlagKind.None, tok.Location);
         }
 
+        // EXPECT StreamingAction.Messages / .Notification / .Notification.Type — what the streaming action the previous
+        // verb ran sent.
+        if (string.Equals(tok.Lexeme, "StreamingAction", StringComparison.OrdinalIgnoreCase))
+        {
+            const string usage = "EXPECT StreamingAction.Messages CONTAINS \"done\"  •  EXPECT StreamingAction.Notification.Type = \"Notice\"";
+            Advance();
+            if (!Match(TokenKind.Dot, out _) || Peek().Kind != TokenKind.Identifier)
+            {
+                Error(ErrorKind.ParseExpected, "Expected '.Messages' or '.Notification' after 'StreamingAction'.", Peek().Location, hint: usage);
+                return null;
+            }
+            var propTok = Advance();
+            if (string.Equals(propTok.Lexeme, "Messages", StringComparison.OrdinalIgnoreCase))
+                return new ExpectSubject(ExpectSubjectKind.StreamingActionMessages, null, AttributeFlagKind.None, tok.Location);
+            if (string.Equals(propTok.Lexeme, "Notification", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Match(TokenKind.Dot, out _))
+                    return new ExpectSubject(ExpectSubjectKind.StreamingActionNotification, null, AttributeFlagKind.None, tok.Location);
+                if (Peek().Kind == TokenKind.Identifier && string.Equals(Peek().Lexeme, "Type", StringComparison.OrdinalIgnoreCase))
+                {
+                    Advance();
+                    return new ExpectSubject(ExpectSubjectKind.StreamingActionNotificationType, null, AttributeFlagKind.None, tok.Location);
+                }
+                Error(ErrorKind.ParseExpected, "Expected 'Type' after 'StreamingAction.Notification.'.", Peek().Location, hint: usage);
+                return null;
+            }
+            Error(ErrorKind.ParseUnexpectedToken, $"StreamingAction has no property '{propTok.Lexeme}'.", propTok.Location, hint: usage);
+            return null;
+        }
+
         // EXPECT Stream / Stream.Name / Stream.Length / Stream.Text — the stream the previous action auto-fetched.
         // Bare `Stream` (natural with IS NULL) is presence; the three properties expose name / byte length / text.
         if (string.Equals(tok.Lexeme, "Stream", StringComparison.OrdinalIgnoreCase))
