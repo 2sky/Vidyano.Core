@@ -505,6 +505,19 @@ EXPECT Query.Columns[FirstName].Label = "First name"
 
 Missing bag keys produce `null` — assert with `IS NULL` / `IS NOT NULL`.
 
+**Row type hints** — `EXPECT Row TYPEHINT <key>` reads a type hint the server set on a query row (`item.DataTypeHints` in `QueryExecuted`, e.g. a row colour); `EXPECT Row Column <col> TYPEHINT <key>` reads one of that row's cells. The row is the **single selected row** of the current query — select it first with `SELECT-ROWS`; no selection, several rows, or `SELECT-ROWS ALL` fails loudly. Keys are case-insensitive and a missing key reads `null`. A leading `Detail "<name>"` reads a row of a detail query.
+
+```visc
+SELECT-ROWS WHERE CardNumber = "04BF1842F51E90"
+EXPECT Row TYPEHINT foreground = "var(--colors-grey)"
+EXPECT Row Column Amount TYPEHINT foreground = "var(--colors-orange)"
+
+SELECT-ROWS Detail "Card_Sessions" WHERE Rejected = "false"
+EXPECT Detail "Card_Sessions" Row TYPEHINT foreground IS NULL
+```
+
+From C#, the same hints are on `QueryResultItem.TypeHints` / `QueryResultItem.GetValueTypeHints(column)`.
+
 **Attribute options** — `EXPECT Attribute <name> OPTIONS [NOT] CONTAINS <option>` asserts whether the options the server offers for a `DropDown` / `ComboBox` / `Enum` / `KeyValueList` / `NullableBoolean` attribute include one whose **display value or key** equals `<option>` — e.g. that a server-side filter kept or removed an option. The match is on a whole option, case-sensitive (the same match `SET … = LOOKUP` uses), so `"Flanders"` never matches `"FlandersNorth"`. Only `CONTAINS` / `NOT CONTAINS` apply; `OPTIONS` on an attribute of another type fails loudly.
 
 ```visc

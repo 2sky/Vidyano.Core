@@ -420,6 +420,10 @@ public enum ExpectSubjectKind
     /// <summary><c>EXPECT Attribute X TYPEHINT key = "value"</c> — looks up a single TypeHint entry.
     /// <see cref="ExpectSubject.MetadataKey"/> carries the typehint key.</summary>
     AttributeTypeHint,
+    /// <summary><c>EXPECT Row TYPEHINT key</c> / <c>EXPECT Row Column X TYPEHINT key</c> — a type hint of the single
+    /// selected row of the current query (or, with <see cref="ExpectSubject.Name"/>, of that row's cell for column X).
+    /// <see cref="ExpectSubject.MetadataKey"/> carries the key; a missing key reads null. Detail-redirectable.</summary>
+    RowTypeHint,
     /// <summary><c>EXPECT Attribute X TAG = "..."</c>.</summary>
     AttributeTag,
     /// <summary><c>EXPECT Attribute X OPTIONS [NOT] CONTAINS "..."</c> — whether the options the server offers

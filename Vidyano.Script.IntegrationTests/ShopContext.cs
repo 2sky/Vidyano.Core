@@ -253,6 +253,17 @@ public sealed class ProductActions(ShopContext context)
 
         args.RemoveColumns(nameof(Product.Discontinued));
 
+        // Row + cell type hints for EXPECT Row [Column X] TYPEHINT: a red product's row is styled, and so is its Color cell.
+        foreach (var item in args.Result.Items)
+        {
+            var color = item.Values.FirstOrDefault(v => v.Key == nameof(Product.Color));
+            if (color?.Value != "Red")
+                continue;
+
+            item.DataTypeHints = "foreground=red";
+            color.DataTypeHints = "background=pink";
+        }
+
         if (ShopContext.PendingQueryNotification is { } notification)
         {
             ShopContext.PendingQueryNotification = null;

@@ -1488,6 +1488,25 @@ public sealed class Interpreter
                 if (query is null)
                     return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Selection.AllSelected needs a current Query.", loc));
                 return OpResult<object?>.Success((object?)query.AllSelected);
+            case ExpectSubjectKind.RowTypeHint:
+                {
+                    if (query is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.StateNoCurrentQuery, "EXPECT Row needs a current Query.", loc));
+                    if (query.AllSelected || query.SelectedItems.Count != 1)
+                        return Fail<object?>(new Diagnostic(ErrorKind.AssertFailed,
+                            $"EXPECT Row needs exactly one selected row on '{query.Name}' (selected: {(query.AllSelected ? "all" : query.SelectedItems.Count.ToString(CultureInfo.InvariantCulture))}).", loc,
+                            Hint: "SELECT-ROWS WHERE Name = \"Acme\" first."));
+                    var item = query.SelectedItems[0];
+                    if (subj.Name is null)
+                        return OpResult<object?>.Success((object?)FindHint(item.TypeHints, subj.MetadataKey!));
+                    var col = (query.Columns ?? Array.Empty<Vidyano.ViewModel.QueryColumn>())
+                        .FirstOrDefault(c => string.Equals(c.Name, subj.Name, StringComparison.OrdinalIgnoreCase));
+                    if (col is null)
+                        return Fail<object?>(new Diagnostic(ErrorKind.ResolveAttribute,
+                            $"Query '{query.Name}' has no column named '{subj.Name}'.", loc,
+                            Hint: Suggester.Hint(subj.Name, (query.Columns ?? Array.Empty<Vidyano.ViewModel.QueryColumn>()).Select(c => c.Name))));
+                    return OpResult<object?>.Success((object?)FindHint(item.GetValueTypeHints(col.Name), subj.MetadataKey!));
+                }
             case ExpectSubjectKind.NavStackDepth:
                 return OpResult<object?>.Success((object?)Current.NavStackDepth);
             case ExpectSubjectKind.NavStackTopKind:
@@ -1571,15 +1590,7 @@ public sealed class Interpreter
                 {
                     var ar = ResolveAttributeForMetadata(subj, loc);
                     if (!ar.Ok) return Fail<object?>(ar.Error!);
-                    var hints = ar.Value!.TypeHints;
-                    if (hints is null)
-                        return OpResult<object?>.Success((object?)null);
-                    // KeyValueList is case-insensitive in its TryGetValue; do a manual scan so any
-                    // dictionary impl (including read-only) works the same way.
-                    foreach (var kv in hints)
-                        if (string.Equals(kv.Key, subj.MetadataKey, StringComparison.OrdinalIgnoreCase))
-                            return OpResult<object?>.Success((object?)kv.Value);
-                    return OpResult<object?>.Success((object?)null);
+                    return OpResult<object?>.Success((object?)FindHint(ar.Value!.TypeHints, subj.MetadataKey!));
                 }
             case ExpectSubjectKind.PoProperty:
                 {
@@ -1660,6 +1671,16 @@ public sealed class Interpreter
                 }
         }
         return Fail<object?>(new Diagnostic(ErrorKind.ParseUnexpectedToken, "Unhandled EXPECT subject.", loc));
+    }
+
+    /// <summary>A type hint by key, case-insensitive; null when absent.</summary>
+    private static string? FindHint(IEnumerable<KeyValuePair<string, string>>? hints, string key)
+    {
+        if (hints is null) return null;
+        foreach (var kv in hints)
+            if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase))
+                return kv.Value;
+        return null;
     }
 
     /// <summary>Resolves the target attribute for the metadata-shaped EXPECTs (Type / Tag /
