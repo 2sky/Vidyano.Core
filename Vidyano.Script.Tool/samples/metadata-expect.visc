@@ -64,3 +64,9 @@ EXPECT Query.Columns[FirstName].Type = "String"
 ### Metadata / NavigationHints bag lookups on the Query.
 # EXPECT Query.Metadata.scope = "tenant"
 # EXPECT Query.NavigationHints.icon IS NOT NULL
+
+### --- Row type hints ------------------------------------------------------------------
+### A row the server styled in QueryExecuted (item.DataTypeHints) — select exactly one row first.
+# SELECT-ROWS WHERE FirstName = "John"
+# EXPECT Row TYPEHINT foreground IS NULL
+# EXPECT Row Column FirstName TYPEHINT foreground IS NULL

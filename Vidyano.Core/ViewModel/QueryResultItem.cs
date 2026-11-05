@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using Vidyano.Common;
 
 namespace Vidyano.ViewModel
 {
@@ -9,6 +12,7 @@ namespace Vidyano.ViewModel
     {
         private readonly JArray values;
         private Dictionary<string, JToken> valuesByKey;
+        private KeyValueList<string, string> typeHints;
 
         public QueryResultItem(Client client, string id)
             : base(client, new JObject(new JProperty("id", id)))
@@ -31,6 +35,18 @@ namespace Vidyano.ViewModel
         public Query Query { get; }
 
         public bool HasValues => values.HasValues;
+
+        /// <summary>The row's type hints (e.g. <c>foreground</c>), as the server set them in <c>QueryExecuted</c>.</summary>
+        public KeyValueList<string, string> TypeHints => typeHints ??= ReadTypeHints(Model["typeHints"]);
+
+        /// <summary>The type hints of one cell. Empty when the server set none or sent no value for that column.</summary>
+        public KeyValueList<string, string> GetValueTypeHints(string key) => ReadTypeHints(GetValue(key)?["typeHints"]);
+
+        private static KeyValueList<string, string> ReadTypeHints(JToken token)
+        {
+            var dict = token is JObject obj ? obj.Properties().ToDictionary(p => p.Name, p => (string)p.Value) : new Dictionary<string, string>();
+            return new KeyValueList<string, string>(new ReadOnlyDictionary<string, string>(dict));
+        }
 
         public object this[string key]
         {
