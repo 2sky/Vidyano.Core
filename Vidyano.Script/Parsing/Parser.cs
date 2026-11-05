@@ -1400,7 +1400,7 @@ public sealed class Parser
     }
 
     private static bool IsQueryFamilySubject(ExpectSubjectKind k) => k is
-        ExpectSubjectKind.TotalItems or ExpectSubjectKind.SelectionCount or ExpectSubjectKind.SelectionAllSelected or ExpectSubjectKind.QueryProperty or ExpectSubjectKind.QueryLabel or
+        ExpectSubjectKind.TotalItems or ExpectSubjectKind.SelectionCount or ExpectSubjectKind.SelectionAllSelected or ExpectSubjectKind.RowTypeHint or ExpectSubjectKind.QueryProperty or ExpectSubjectKind.QueryLabel or
         ExpectSubjectKind.QueryMetadata or ExpectSubjectKind.QueryNavigationHints or
         ExpectSubjectKind.QueryPoProperty or ExpectSubjectKind.QueryColumn;
 
@@ -1750,6 +1750,43 @@ public sealed class Parser
         if (string.Equals(tok.Lexeme, "IsDirty",    StringComparison.OrdinalIgnoreCase)) { Advance(); return new ExpectSubject(ExpectSubjectKind.IsDirty,     null, AttributeFlagKind.None, tok.Location); }
         if (string.Equals(tok.Lexeme, "IsInEdit",   StringComparison.OrdinalIgnoreCase)) { Advance(); return new ExpectSubject(ExpectSubjectKind.IsInEdit,    null, AttributeFlagKind.None, tok.Location); }
         if (string.Equals(tok.Lexeme, "TotalItems", StringComparison.OrdinalIgnoreCase)) { Advance(); return new ExpectSubject(ExpectSubjectKind.TotalItems,  null, AttributeFlagKind.None, tok.Location); }
+
+        // EXPECT Row TYPEHINT <key> / EXPECT Row Column <col> TYPEHINT <key> — a type hint of the single selected
+        // row (or of one of its cells). Detail-redirectable. `Row` is only a keyword when TYPEHINT / Column follows,
+        // so an attribute named Row still parses as one.
+        if (string.Equals(tok.Lexeme, "Row", StringComparison.OrdinalIgnoreCase) &&
+            PeekAt(1) is { Kind: TokenKind.Identifier } next &&
+            (string.Equals(next.Lexeme, "TYPEHINT", StringComparison.OrdinalIgnoreCase) || string.Equals(next.Lexeme, "Column", StringComparison.OrdinalIgnoreCase)))
+        {
+            const string usage = "EXPECT Row TYPEHINT foreground = \"red\"  •  EXPECT Row Column Amount TYPEHINT foreground = \"red\"";
+            Advance(); // Row
+            string? column = null;
+            if (string.Equals(Peek().Lexeme, "Column", StringComparison.OrdinalIgnoreCase))
+            {
+                Advance();
+                if (Peek().Kind != TokenKind.Identifier && Peek().Kind != TokenKind.String)
+                {
+                    Error(ErrorKind.ParseExpected, "Expected a column name after 'Column'.", Peek().Location, hint: usage);
+                    return null;
+                }
+                var colTok = Advance();
+                column = colTok.Kind == TokenKind.String ? (colTok.Value as string ?? colTok.Lexeme) : colTok.Lexeme;
+            }
+            if (Peek().Kind != TokenKind.Identifier || !string.Equals(Peek().Lexeme, "TYPEHINT", StringComparison.OrdinalIgnoreCase))
+            {
+                Error(ErrorKind.ParseExpected, "Expected 'TYPEHINT <key>' after the row.", Peek().Location, hint: usage);
+                return null;
+            }
+            Advance(); // TYPEHINT
+            if (Peek().Kind != TokenKind.Identifier && Peek().Kind != TokenKind.String)
+            {
+                Error(ErrorKind.ParseExpected, "Expected a TypeHint key after 'TYPEHINT'.", Peek().Location, hint: usage);
+                return null;
+            }
+            var keyTok = Advance();
+            var keyText = keyTok.Kind == TokenKind.String ? (keyTok.Value as string ?? keyTok.Lexeme) : keyTok.Lexeme;
+            return new ExpectSubject(ExpectSubjectKind.RowTypeHint, column, AttributeFlagKind.None, tok.Location, MetadataKey: keyText);
+        }
 
         // EXPECT Selection.Count — number of selected rows; EXPECT Selection.AllSelected — the server-side
         // select-all flag. Both Detail-redirectable.
@@ -2220,6 +2257,7 @@ public sealed class Parser
 
     private bool IsAtEnd => Peek().Kind == TokenKind.Eof;
     private Token Peek() => _tokens[_pos];
+    private Token? PeekAt(int offset) => _pos + offset < _tokens.Count ? _tokens[_pos + offset] : null;
     private Token Advance() => _tokens[_pos++];
 
     private bool Match(TokenKind kind, out Token tok)

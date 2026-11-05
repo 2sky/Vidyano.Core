@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -273,10 +273,11 @@ public static class VerbCatalog
             "edit", []),
 
         new("EXPECT",
-            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT Attribute <attr> OPTIONS [NOT] CONTAINS <option>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>\nEXPECT Detail \"<name>\" Notification[.Type] <op> <value>\nEXPECT Detail \"<name>\" Action <X> IS [NOT] AVAILABLE | VISIBLE\nEXPECT Detail Attribute \"<name>\" TotalItems <op> <n>\nEXPECT Detail Attribute \"<name>\" ROW <i> <col> <op> <value>",
+            "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT Attribute <attr> OPTIONS [NOT] CONTAINS <option>\nEXPECT [Detail \"<name>\"] Row [Column <col>] TYPEHINT <key> <op> <value>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>\nEXPECT Detail \"<name>\" Notification[.Type] <op> <value>\nEXPECT Detail \"<name>\" Action <X> IS [NOT] AVAILABLE | VISIBLE\nEXPECT Detail Attribute \"<name>\" TotalItems <op> <n>\nEXPECT Detail Attribute \"<name>\" ROW <i> <col> <op> <value>",
             "Assert on session/PO/query state.",
             "Asserts on `NavStack.*`, `TotalItems`, `Selection.*`, `IsInEdit`, `ClientOperation`, "
-            + "`RetryDialog.*` (Title / Message / Options of an open server retry), attributes, "
+            + "`RetryDialog.*` (Title / Message / Options of an open server retry), `Row [Column <col>] TYPEHINT <key>` "
+            + "(a type hint of the single selected row or one of its cells), attributes, "
             + "notifications, and round-tripped metadata. `= ID \"<id>\"` / `!= ID` compares a reference "
             + "attribute by its document id (ObjectId), symmetric with `SET <ref> = ID`. `LANGUAGE <lang>` "
             + "compares one translation of a TranslatedString attribute, symmetric with `SET … LANGUAGE`. "
