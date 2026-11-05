@@ -1412,6 +1412,12 @@ public sealed class Interpreter
                 return OpResult<object?>.Success((object?)Current.LastStream?.Name);
             case ExpectSubjectKind.StreamLength:
                 return OpResult<object?>.Success((object?)Current.LastStream?.Length);
+            case ExpectSubjectKind.StreamingActionMessages:
+                return OpResult<object?>.Success(Current.LastStreamingAction is { } sa ? string.Join("\n", sa.Messages) : null);
+            case ExpectSubjectKind.StreamingActionNotification:
+                return OpResult<object?>.Success((object?)Current.LastStreamingAction?.Notification);
+            case ExpectSubjectKind.StreamingActionNotificationType:
+                return OpResult<object?>.Success((object?)Current.LastStreamingAction?.NotificationType?.ToString());
             case ExpectSubjectKind.StreamText:
                 return OpResult<object?>.Success((object?)Current.LastStream?.Text);
             // The JSON of the chart the previous verb (CHART) ran, or null when none was captured. Both

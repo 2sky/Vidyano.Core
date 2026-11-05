@@ -276,7 +276,8 @@ public static class VerbCatalog
             "EXPECT <subject> <op> <value>\nEXPECT <ref> = ID \"<id>\"\nEXPECT <attr> LANGUAGE <lang> = <value>\nEXPECT <subject> IS [NOT] <flag>\nEXPECT Attribute <attr> OPTIONS [NOT] CONTAINS <option>\nEXPECT [Detail \"<name>\"] Row [Column <col>] TYPEHINT <key> <op> <value>\nEXPECT <lhs> MATCHES \"<regex>\"\nEXPECT Detail \"<name>\" <query-subject>\nEXPECT Detail \"<name>\" Notification[.Type] <op> <value>\nEXPECT Detail \"<name>\" Action <X> IS [NOT] AVAILABLE | VISIBLE\nEXPECT Detail Attribute \"<name>\" TotalItems <op> <n>\nEXPECT Detail Attribute \"<name>\" ROW <i> <col> <op> <value>",
             "Assert on session/PO/query state.",
             "Asserts on `NavStack.*`, `TotalItems`, `Selection.*`, `IsInEdit`, `ClientOperation`, "
-            + "`RetryDialog.*` (Title / Message / Options of an open server retry), `Row [Column <col>] TYPEHINT <key>` "
+            + "`RetryDialog.*` (Title / Message / Options of an open server retry), `StreamingAction.Messages` / "
+            + "`.Notification` / `.Notification.Type` (what a streaming action the previous verb ran sent), `Row [Column <col>] TYPEHINT <key>` "
             + "(a type hint of the single selected row or one of its cells), attributes, "
             + "notifications, and round-tripped metadata. `= ID \"<id>\"` / `!= ID` compares a reference "
             + "attribute by its document id (ObjectId), symmetric with `SET <ref> = ID`. `LANGUAGE <lang>` "

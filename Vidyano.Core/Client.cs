@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -381,7 +381,10 @@ namespace Vidyano
             return data;
         }
 
-        private async Task<JObject> PostAsync(string method, JObject data)
+        /// <param name="streamingAction">The name of a streaming action being executed: its <c>text/event-stream</c> answer
+        /// is read to the end, each event dispatched through <see cref="Hooks"/>, and <c>{ "streamed": true }</c> returned.
+        /// A JSON answer (e.g. an exception raised before the stream started) is handled as usual.</param>
+        private async Task<JObject> PostAsync(string method, JObject data, string streamingAction = null)
         {
             JObject Log(JObject result)
             {
@@ -396,7 +399,8 @@ namespace Vidyano
                 using var requestMessage = new HttpRequestMessage(HttpMethod.Post, GetServiceUri(method)) { Content = CreateRequestContent(data) };
                 if (AuthorizationHeader != null)
                     requestMessage.Headers.Authorization = AuthorizationHeader;
-                responseMsg = await httpClient.SendAsync(requestMessage).ConfigureAwait(false);
+                // A streaming action runs as long as it needs: read its events as they arrive instead of buffering the body.
+                responseMsg = await httpClient.SendAsync(requestMessage, streamingAction != null ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
             }
 #if !NETSTANDARD2_0
             catch (OperationCanceledException oce) when (oce.InnerException is TimeoutException)
@@ -426,6 +430,13 @@ namespace Vidyano
 
                 using var stream = await responseMsg.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 using var streamReader = CreateResponseReader(stream, responseMsg.Content);
+
+                if (streamingAction != null && responseMsg.Content.Headers.ContentType?.MediaType == "text/event-stream")
+                {
+                    await ReadEventStreamAsync(streamReader, streamingAction).ConfigureAwait(false);
+                    return Log(new JObject(new JProperty("streamed", true)));
+                }
+
                 using var jsonReader = new JsonTextReader(streamReader);
 
                 // ContentLength is unreliable for chunked responses; an empty body is detected by the reader.
@@ -478,6 +489,62 @@ namespace Vidyano
             }
 
             return new StreamReader(stream);
+        }
+
+        // Server-Sent Events, as the service's StreamingActionStream writes them: `data: {"type":…,"value":…}` events
+        // separated by a blank line, `: ping` comments in between. Unknown event types and non-JSON data are skipped.
+        private async Task ReadEventStreamAsync(StreamReader reader, string action)
+        {
+            var data = new StringBuilder();
+            while (true)
+            {
+                var line = await reader.ReadLineAsync().ConfigureAwait(false);
+                if (string.IsNullOrEmpty(line))
+                {
+                    if (data.Length > 0)
+                        DispatchStreamingEvent(action, data.ToString());
+                    data.Clear();
+
+                    if (line == null)
+                        return;
+
+                    continue;
+                }
+
+                if (line.StartsWith("data:", StringComparison.Ordinal))
+                {
+                    if (data.Length > 0)
+                        data.Append('\n');
+                    data.Append(line.Length > 5 && line[5] == ' ' ? line.Substring(6) : line.Substring(5));
+                }
+            }
+        }
+
+        private void DispatchStreamingEvent(string action, string data)
+        {
+            JObject evt;
+            try
+            {
+                evt = JObject.Parse(data);
+            }
+            catch (JsonReaderException)
+            {
+                return;
+            }
+
+            var value = evt["value"];
+            switch ((string)evt["type"])
+            {
+                case "message":
+                    Hooks.OnStreamingActionMessage(action, (string)value);
+                    break;
+                case "dialog":
+                    Hooks.OnStreamingActionDialog(action, new StreamingActionDialog(value as JObject));
+                    break;
+                case "clientOperation" when value is JObject operation:
+                    Hooks.OnClientOperation(ClientOperation.FromJson(operation));
+                    break;
+            }
         }
 
         private void DispatchClientOperations(JObject response)
@@ -571,6 +638,7 @@ namespace Vidyano
                     RefreshQueryOnCompleted = (bool)item["RefreshQueryOnCompleted"],
                     // Absent on servers that predate it; null → false.
                     KeepSelectionOnRefresh = (bool?)item["KeepSelectionOnRefresh"] ?? false,
+                    IsStreaming = (bool?)item["IsStreamingAction"] ?? false,
                     Offset = (int)item["Offset"],
                     Options = ((string)item["Options"] ?? string.Empty).Trim().Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(str => str.Trim()).ToArray(),
                     SelectionRule = ExpressionParser.Get((string)item["SelectionRule"]),
@@ -899,10 +967,17 @@ namespace Vidyano
                 var jParameters = parameters != null ? JObject.FromObject(parameters) : null;
                 data["parameters"] = jParameters;
 
+                // The web client posts a streaming action through an event source (service.ts): the action answers with
+                // events, not a result, so there is nothing to construct.
+                var actionName = action.Substring(action.IndexOf('.') + 1);
+                var streamingAction = Actions != null && Actions.TryGetValue(actionName, out var definition) && definition.IsStreaming ? actionName : null;
+
                 JObject response;
                 while (true)
                 {
-                    response = await PostAsync("ExecuteAction", data).ConfigureAwait(false);
+                    response = await PostAsync("ExecuteAction", data, streamingAction).ConfigureAwait(false);
+                    if ((bool?)response["streamed"] == true)
+                        return null;
 
                     // TODO: response["operations"]
 
